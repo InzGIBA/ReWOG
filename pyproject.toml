@@ -117,6 +117,9 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
 ]
+filterwarnings = [
+    "ignore:open_binary is deprecated:DeprecationWarning",
+]
 
 [tool.coverage.run]
 source = ["src/wog_dump"]
@@ -138,4 +141,11 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
+]
+
+[dependency-groups]
+test = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "pytest-mock>=3.14.1",
 ]

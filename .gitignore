@@ -155,7 +155,6 @@ cython_debug/
 db.sqlite3-wal
 *.env
 *.sqlite3-*
-*.sqlite3\
 
 assets/
 decrypted/

@@ -368,8 +368,6 @@ def info(ctx: click.Context) -> None:
         ["Encrypted Directory", str(config.encrypted_dir)],
         ["Decrypted Directory", str(config.decrypted_dir)],
         ["Max Threads", str(config.max_threads)],
-        ["XOR Binary", str(config.xor_binary_path)],
-        ["XOR Binary Exists", str(config.xor_binary_path.exists())],
     ]
     
     logger.print_table("Configuration", ["Setting", "Value"], config_data[1:])

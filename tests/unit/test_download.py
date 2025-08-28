@@ -184,7 +184,8 @@ class TestDownloadManager:
             to_download = manager.check_for_updates(sample_weapon_list)
         
         assert len(to_download) == len(sample_weapon_list)
-        assert to_download == sample_weapon_list
+        # Check that all weapons are present regardless of order (parallel processing)
+        assert set(to_download) == set(sample_weapon_list)
     
     def test_download_assets_no_updates(self, test_config: WOGConfig, sample_weapon_list: list[str]) -> None:
         """Test downloading assets when no updates are needed."""

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-import platform
 from pathlib import Path
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class WOGConfig(BaseModel):
@@ -27,16 +26,16 @@ class WOGConfig(BaseModel):
         default_factory=lambda: Path.cwd(),
         description="Base directory for the application",
     )
-    assets_dir: Path = Field(
-        default_factory=lambda: Path.cwd() / "assets",
+    assets_dir: Path | None = Field(
+        default=None,
         description="Directory for downloaded assets",
     )
-    encrypted_dir: Path = Field(
-        default_factory=lambda: Path.cwd() / "encrypted",
+    encrypted_dir: Path | None = Field(
+        default=None,
         description="Directory for encrypted files",
     )
-    decrypted_dir: Path = Field(
-        default_factory=lambda: Path.cwd() / "decrypted",
+    decrypted_dir: Path | None = Field(
+        default=None,
         description="Directory for decrypted files",
     )
     
@@ -49,12 +48,12 @@ class WOGConfig(BaseModel):
     )
     
     # File paths
-    weapons_file: Path = Field(
-        default_factory=lambda: Path.cwd() / "weapons.txt",
+    weapons_file: Path | None = Field(
+        default=None,
         description="Path to weapons list file",
     )
-    keys_file: Path = Field(
-        default_factory=lambda: Path.cwd() / "keys.txt",
+    keys_file: Path | None = Field(
+        default=None,
         description="Path to decryption keys file",
     )
     
@@ -89,25 +88,26 @@ class WOGConfig(BaseModel):
     
     model_config = {"extra": "forbid", "validate_assignment": True}
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def xor_binary_path(self) -> Path:
-        """Get the path to the XOR binary based on the current platform."""
-        system = platform.system().lower()
-        arch = platform.architecture()[0]
-        
-        binary_name = "xor"
-        if system == "windows":
-            binary_name += ".exe"
+    @model_validator(mode="after")
+    def set_default_paths(self) -> "WOGConfig":
+        """Set default paths relative to base_dir if not provided."""
+        if self.assets_dir is None:
+            self.assets_dir = self.base_dir / "assets"
+        if self.encrypted_dir is None:
+            self.encrypted_dir = self.base_dir / "encrypted"
+        if self.decrypted_dir is None:
+            self.decrypted_dir = self.base_dir / "decrypted"
+        if self.weapons_file is None:
+            self.weapons_file = self.base_dir / "weapons.txt"
+        if self.keys_file is None:
+            self.keys_file = self.base_dir / "keys.txt"
             
-        return self.base_dir / "bin" / system / arch / binary_name
-    
-    @field_validator("assets_dir", "encrypted_dir", "decrypted_dir")
-    @classmethod
-    def create_directory(cls, v: Path) -> Path:
-        """Ensure directories exist."""
-        v.mkdir(parents=True, exist_ok=True)
-        return v
+        # Create directories after setting paths
+        for dir_path in [self.assets_dir, self.encrypted_dir, self.decrypted_dir]:
+            if dir_path:
+                dir_path.mkdir(parents=True, exist_ok=True)
+        
+        return self
     
     def get_api_headers(self) -> dict[str, str]:
         """Get headers for API requests."""

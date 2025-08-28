@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2024-08-28
+
+### 🚀 Pure Python Release - XOR Binary Removal
+
+This release removes the XOR C binary dependency and implements a fully optimized Python-based XOR decryption system.
+
+### Changed
+
+#### 🐍 Pure Python Implementation
+- **XOR Decryption**: Replaced C binary with optimized Python implementation
+- **Chunked Processing**: Implemented 8KB chunked reading for better performance
+- **Simplified Dependencies**: No C compiler required anymore
+- **Cross-Platform**: Pure Python solution works identically on all platforms
+
+### Removed
+
+#### 🗑️ Binary Dependencies
+- **XOR C Source**: Removed `xor.c` file from project
+- **Binary Directory**: Deleted entire `bin/` folder and compiled binaries
+- **Platform Detection**: Removed platform-specific XOR binary path logic
+- **Configuration**: Removed `xor_binary_path` from configuration system
+- **CLI References**: Removed XOR binary status from info command
+
+### Performance
+
+#### ⚡ Optimized Python Decryption
+- **Chunked Processing**: 8KB chunks instead of byte-by-byte processing
+- **Memory Efficient**: Reduced memory footprint with streaming
+- **Fast Execution**: Optimized bytearray operations for speed
+- **No External Dependencies**: Eliminates subprocess overhead
+
+### Migration Guide
+
+#### For Users
+- **No Action Required**: All existing workflows continue to work
+- **Better Performance**: Pure Python implementation is actually faster for typical workloads
+- **Simplified Setup**: No need to compile C binary anymore
+
+#### For Developers
+- **Removed APIs**: `decrypt_with_xor_binary()` method removed
+- **Configuration**: `xor_binary_path` property no longer exists
+- **Tests**: XOR binary tests removed from test suite
+
+---
+
 ## [2.1.0] - 2024-08-28
 
 ### 🚀 Modernization Release - uv and Python 3.12+ Optimization

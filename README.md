@@ -26,7 +26,6 @@ WOG Dump is a modern, completely refactored Python tool for extracting 3D gun mo
 
 - **Python 3.12+** (Required)
 - [AssetStudio](https://github.com/Perfare/AssetStudio) - for final asset unpacking
-- C compiler - for compiling XOR decrypter (optional, Python fallback available)
 
 ## 🚀 Installation
 
@@ -177,7 +176,6 @@ WOG-dump/
 │   ├── unit/               # Unit tests
 │   ├── integration/        # Integration tests
 │   └── fixtures/           # Test fixtures
-├── bin/                    # Compiled binaries
 ├── docs/                   # Documentation
 ├── pyproject.toml          # Modern Python packaging
 └── README.md               # This file
@@ -231,32 +229,13 @@ flake8 src/ tests/
 uv run pre-commit run --all-files
 ```
 
-## ➕ Additional Tools
 
-### XOR Decrypter Binary
-```bash
-# Compile XOR decrypter (optional, for faster decryption)
-gcc xor.c -o bin/linux/64bit/xor          # Linux
-gcc xor.c -o bin/windows/64bit/xor.exe    # Windows
-
-# Usage
-./bin/linux/64bit/xor <encrypted_file> <key> <output_file>
-```
-
-### Normal Map Converter
-```bash
-# Convert Unity normal maps to standard format
-wog-convert-normals <path> --recursive --backup
-
-# Validate normal maps
-wog-convert-normals <path> --validate
-```
 
 ## 📊 Performance
 
 - **Parallel Processing**: Multi-threaded downloads and processing
 - **Memory Efficient**: Streaming downloads and processing
-- **Fast Decryption**: Optional compiled XOR decrypter
+- **Optimized Decryption**: Fast Python-based XOR decryption with chunked processing
 - **Progress Tracking**: Real-time progress bars and status
 
 ## 🐛 Troubleshooting

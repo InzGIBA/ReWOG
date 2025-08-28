@@ -191,16 +191,22 @@ class NormalMapConverter:
                         "alpha": {"min": min(a.getdata()), "max": max(a.getdata())},
                     }
                     
-                    # Check for Unity format (data in green and alpha)
-                    if (result["channels"]["green"]["max"] > 0 and 
-                        result["channels"]["alpha"]["max"] > 0):
-                        result["format"] = "unity"
+                    # Get max values for easier comparison
+                    red_max = result["channels"]["red"]["max"]
+                    green_max = result["channels"]["green"]["max"]
+                    blue_max = result["channels"]["blue"]["max"]
+                    alpha_max = result["channels"]["alpha"]["max"]
+                    
+                    # Check for standard format first (data primarily in red and green)
+                    if (red_max > 50 and green_max > 50 and 
+                        red_max > alpha_max and green_max > alpha_max):
+                        result["format"] = "standard"
                         result["is_valid"] = True
                     
-                    # Check for standard format (data in red and green)
-                    elif (result["channels"]["red"]["max"] > 0 and 
-                          result["channels"]["green"]["max"] > 0):
-                        result["format"] = "standard"
+                    # Check for Unity format (data primarily in green and alpha)
+                    elif (green_max > 50 and alpha_max > 50 and 
+                          alpha_max > red_max and green_max > blue_max):
+                        result["format"] = "unity"
                         result["is_valid"] = True
                     
                     # Check for issues

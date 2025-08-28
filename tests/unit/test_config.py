@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import platform
 from pathlib import Path
 
 import pytest
@@ -39,18 +38,7 @@ class TestWOGConfig:
         assert config.encrypted_dir.exists()
         assert config.decrypted_dir.exists()
     
-    def test_xor_binary_path(self, temp_dir: Path) -> None:
-        """Test XOR binary path computation."""
-        config = WOGConfig(base_dir=temp_dir)
-        
-        system = platform.system().lower()
-        arch = platform.architecture()[0]
-        
-        expected_path = temp_dir / "bin" / system / arch / "xor"
-        if system == "windows":
-            expected_path = expected_path.with_suffix(".exe")
-        
-        assert config.xor_binary_path == expected_path
+
     
     def test_api_headers(self, temp_dir: Path) -> None:
         """Test API headers generation."""

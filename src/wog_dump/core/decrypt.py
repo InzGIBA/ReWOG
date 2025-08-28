@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import bz2
 import hashlib
-import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
@@ -156,46 +155,30 @@ class AssetDecryptor:
         full_key = base_key + "World of Guns: Gun Disassembly"
         return hashlib.md5(full_key.encode()).hexdigest()
     
-    def decrypt_with_xor_binary(self, input_path: Path, key: str, output_path: Path) -> bool:
-        """Decrypt using the compiled XOR binary."""
-        if not self.config.xor_binary_path.exists():
-            self.logger.warning(f"XOR binary not found at {self.config.xor_binary_path}")
-            return False
-        
-        try:
-            result = subprocess.run(
-                [str(self.config.xor_binary_path), str(input_path), key, str(output_path)],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            
-            if result.returncode == 0:
-                return True
-            else:
-                self.logger.error(f"XOR binary failed: {result.stderr}")
-                return False
-                
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
-            self.logger.error(f"Failed to run XOR binary: {e}")
-            return False
+
     
     def decrypt_with_python(self, input_path: Path, key: str, output_path: Path) -> bool:
-        """Decrypt using Python XOR implementation (fallback)."""
+        """Decrypt using optimized Python XOR implementation."""
         try:
+            key_bytes = key.encode()
+            key_len = len(key_bytes)
+            chunk_size = 8192  # 8KB chunks for better performance
+            
             with open(input_path, "rb") as infile, open(output_path, "wb") as outfile:
-                key_bytes = key.encode()
-                key_len = len(key_bytes)
+                key_index = 0
                 
-                i = 0
                 while True:
-                    byte = infile.read(1)
-                    if not byte:
+                    chunk = infile.read(chunk_size)
+                    if not chunk:
                         break
                     
-                    decrypted_byte = byte[0] ^ key_bytes[i % key_len]
-                    outfile.write(bytes([decrypted_byte]))
-                    i += 1
+                    # XOR the entire chunk
+                    decrypted_chunk = bytearray()
+                    for byte in chunk:
+                        decrypted_chunk.append(byte ^ key_bytes[key_index % key_len])
+                        key_index += 1
+                    
+                    outfile.write(decrypted_chunk)
             
             return True
             
@@ -233,11 +216,8 @@ class AssetDecryptor:
                     # Generate decryption key
                     decryption_key = self.generate_decryption_key(key)
                     
-                    # Try XOR binary first, then Python fallback
-                    success = (
-                        self.decrypt_with_xor_binary(encrypted_path, decryption_key, decrypted_path) or
-                        self.decrypt_with_python(encrypted_path, decryption_key, decrypted_path)
-                    )
+                    # Use Python XOR implementation
+                    success = self.decrypt_with_python(encrypted_path, decryption_key, decrypted_path)
                     
                     if success:
                         decrypted_files.append(decrypted_path)

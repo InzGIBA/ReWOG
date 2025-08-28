@@ -1,3 +1,145 @@
+#!/usr/bin/env python3
+"""
+Legacy compatibility script for WOG Dump v1.x users.
+
+This script provides a bridge to help users migrate from the old wog_dump.py
+to the new v2.0 CLI interface.
+"""
+
+from __future__ import annotations
+
+import sys
+import warnings
+from pathlib import Path
+
+try:
+    from wog_dump.cli.main import main as new_main
+    from wog_dump.utils.logging import get_logger
+except ImportError:
+    print("Error: WOG Dump v2.0 is not properly installed.")
+    print("Please run: pip install -e .")
+    sys.exit(1)
+
+
+def show_migration_message():
+    """Show migration message to users."""
+    logger = get_logger()
+    
+    logger.console.print("\n" + "="*60)
+    logger.console.print("🔄 [yellow]WOG Dump Migration Notice[/yellow]")
+    logger.console.print("="*60)
+    logger.console.print(
+        "You're using the legacy [red]wog_dump.py[/red] script.\n"
+        "WOG Dump v2.0 now provides a modern CLI interface!\n"
+    )
+    logger.console.print("[green]New CLI commands:[/green]")
+    logger.console.print("  • [cyan]wog-dump full-pipeline[/cyan]     - Complete extraction")
+    logger.console.print("  • [cyan]wog-dump download-weapons[/cyan]  - Download weapon list") 
+    logger.console.print("  • [cyan]wog-dump download-assets[/cyan]   - Download asset files")
+    logger.console.print("  • [cyan]wog-dump decrypt-assets[/cyan]    - Decrypt downloaded files")
+    logger.console.print("  • [cyan]wog-dump unpack-assets[/cyan]     - Unpack Unity assets")
+    logger.console.print("  • [cyan]wog-dump convert-normals[/cyan]   - Convert normal maps")
+    logger.console.print("  • [cyan]wog-dump info[/cyan]              - Show status")
+    logger.console.print("  • [cyan]wog-dump --help[/cyan]            - Show help")
+    
+    logger.console.print("\n[green]Migration recommendation:[/green]")
+    logger.console.print("  Replace: [red]python wog_dump.py[/red]")
+    logger.console.print("  With:    [green]wog-dump full-pipeline[/green]")
+    
+    logger.console.print("\n[yellow]Running legacy compatibility mode...[/yellow]")
+    logger.console.print("="*60 + "\n")
+
+
+def main():
+    """Main entry point for legacy compatibility."""
+    # Show deprecation warning
+    warnings.warn(
+        "wog_dump.py is deprecated. Use 'wog-dump' CLI commands instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    show_migration_message()
+    
+    # Check for command line arguments
+    if len(sys.argv) > 1:
+        # If users provided arguments, show help and exit
+        logger = get_logger()
+        logger.console.print("[red]Legacy script doesn't accept arguments.[/red]")
+        logger.console.print("Use [cyan]wog-dump --help[/cyan] to see available options.")
+        return
+    
+    # Run the equivalent of the old interactive script
+    # This simulates the old behavior but uses the new CLI
+    try:
+        # Equivalent to the old main() function workflow
+        import subprocess
+        
+        logger = get_logger()
+        logger.console.print("Running equivalent commands with new CLI...\n")
+        
+        # Step 1: Download weapons
+        logger.console.print("📥 Downloading weapon list...")
+        result = subprocess.run([sys.executable, "-m", "wog_dump.cli.main", "download-weapons"], 
+                              capture_output=False)
+        if result.returncode != 0:
+            logger.console.print("[red]Failed to download weapon list[/red]")
+            return
+        
+        # Step 2: Ask about updating keys (simulate old behavior)
+        try:
+            answer = input("\n[WOG DUMP] Update decrypting keys? (y/n): ")
+            if answer.lower() == 'y':
+                logger.console.print("🔑 Updating decryption keys...")
+                result = subprocess.run([
+                    sys.executable, "-m", "wog_dump.cli.main", 
+                    "download-assets", "--update-keys"
+                ], capture_output=False)
+                if result.returncode != 0:
+                    logger.console.print("[red]Failed to update keys[/red]")
+                    return
+        except (KeyboardInterrupt, EOFError):
+            logger.console.print("\n[yellow]Cancelled by user[/yellow]")
+            return
+        
+        # Step 3: Ask about downloading assets
+        try:
+            answer = input("\n[WOG DUMP] Download assets? (y/n): ")
+            if answer.lower() == 'y':
+                logger.console.print("📦 Downloading assets...")
+                result = subprocess.run([
+                    sys.executable, "-m", "wog_dump.cli.main", 
+                    "download-assets"
+                ], capture_output=False)
+                if result.returncode != 0:
+                    logger.console.print("[red]Failed to download assets[/red]")
+                    return
+        except (KeyboardInterrupt, EOFError):
+            logger.console.print("\n[yellow]Cancelled by user[/yellow]")
+            return
+        
+        # Step 4: Decrypt assets
+        logger.console.print("🔓 Decrypting assets...")
+        result = subprocess.run([
+            sys.executable, "-m", "wog_dump.cli.main", 
+            "decrypt-assets"
+        ], capture_output=False)
+        if result.returncode != 0:
+            logger.console.print("[red]Failed to decrypt assets[/red]")
+            return
+        
+        logger.console.print("\n✅ [green]Legacy compatibility mode completed![/green]")
+        logger.console.print("\n[yellow]Next time, use:[/yellow] [cyan]wog-dump full-pipeline[/cyan]")
+        
+    except Exception as e:
+        logger = get_logger()
+        logger.console.print(f"[red]Error in legacy mode: {e}[/red]")
+        logger.console.print("Please use the new CLI: [cyan]wog-dump --help[/cyan]")
+
+
+if __name__ == "__main__":
+    main()
+
 import bz2
 import hashlib
 import os

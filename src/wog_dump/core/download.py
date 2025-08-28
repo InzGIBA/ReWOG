@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -208,6 +206,6 @@ class DownloadManager:
         """Context manager entry."""
         return self
     
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         """Context manager exit."""
         self.session.close()

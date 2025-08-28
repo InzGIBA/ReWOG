@@ -9,7 +9,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
-from typing import Any
 
 import requests
 import UnityPy
@@ -71,7 +70,7 @@ class KeyManager:
             
             return None
             
-        except (requests.RequestException, bz2.BZ2Error, UnicodeDecodeError) as e:
+        except (requests.RequestException, OSError, UnicodeDecodeError) as e:
             self.logger.error(f"Failed to get key for {asset_name}: {e}")
             return None
     

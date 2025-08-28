@@ -5,6 +5,89 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2024-08-28
+
+### 🚀 Modernization Release - uv and Python 3.12+ Optimization
+
+This release modernizes the project to use `uv` for package management and removes all legacy `typing` imports in favor of modern Python 3.12+ type annotations.
+
+### Added
+
+#### 📦 Package Management Modernization
+- **uv Support**: Full migration from pip to uv for faster package management
+- **Hatchling Backend**: Updated build system to use hatchling instead of setuptools
+- **Optimized Dependencies**: Removed unused dependencies (pathlib-mate, typing-extensions)
+
+#### 🐍 Modern Python 3.12+ Features
+- **Native Type Annotations**: Removed all `typing` module imports
+- **Union Syntax**: Using `|` instead of `Union` throughout codebase
+- **Collections.abc**: Using built-in collections.abc instead of typing equivalents
+- **Modern Object Type**: Using `object` instead of `Any` where appropriate
+
+### Changed
+
+#### 🧹 Code Modernization
+- **Type System**: Complete removal of typing module dependencies
+- **Import Cleanup**: Removed unused imports (asyncio, typing-extensions)
+- **Dependency Reduction**: Streamlined dependency list to essential packages only
+
+#### 📚 Documentation Updates
+- **Installation Instructions**: Updated to recommend uv over pip
+- **Development Setup**: Modernized development workflow with uv
+- **Contributing Guide**: Updated with uv-based development process
+
+### Removed
+
+#### 🗑️ Legacy Code Cleanup
+- **Legacy Scripts**: Removed old compatibility scripts (wog_dump.py, convert_normal_map.py)
+- **Typing Imports**: Eliminated all `from typing import` statements
+- **Unused Dependencies**: Removed pathlib-mate and typing-extensions
+- **Dead Code**: Cleaned up unused imports and deprecated patterns
+
+### Migration Guide
+
+#### For Developers
+
+**Old Development Setup:**
+```bash
+pip install -e ".[dev]"
+```
+
+**New Development Setup:**
+```bash
+uv pip install -e ".[dev]"
+```
+
+#### Type Annotation Changes
+
+**Before (v2.0):**
+```python
+from typing import Any, Dict, List, Optional, Union
+
+def process_data(items: List[Dict[str, Any]]) -> Optional[Dict[str, Union[str, int]]]:
+    pass
+```
+
+**After (v2.1):**
+```python
+def process_data(items: list[dict[str, object]]) -> dict[str, str | int] | None:
+    pass
+```
+
+### Technical Improvements
+
+#### Performance
+- **Faster Installation**: uv provides significantly faster package resolution and installation
+- **Reduced Dependencies**: Fewer packages to install and manage
+- **Cleaner Imports**: No typing module overhead
+
+#### Developer Experience
+- **Modern Syntax**: Cleaner, more readable type annotations
+- **Better Tooling**: uv provides superior dependency management
+- **Simplified Setup**: Fewer steps required for development environment
+
+---
+
 ## [2.0.0] - 2024-08-28
 
 ### 🚀 Major Release - Complete Rewrite for Python 3.12+

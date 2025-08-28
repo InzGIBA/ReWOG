@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -59,23 +58,23 @@ class WOGLogger:
         self.logger.addHandler(rich_handler)
         self.logger.addHandler(file_handler)
     
-    def info(self, message: str, **kwargs: Any) -> None:
+    def info(self, message: str, **kwargs: object) -> None:
         """Log info message."""
         self.logger.info(message, **kwargs)
     
-    def debug(self, message: str, **kwargs: Any) -> None:
+    def debug(self, message: str, **kwargs: object) -> None:
         """Log debug message."""
         self.logger.debug(message, **kwargs)
     
-    def warning(self, message: str, **kwargs: Any) -> None:
+    def warning(self, message: str, **kwargs: object) -> None:
         """Log warning message."""
         self.logger.warning(message, **kwargs)
     
-    def error(self, message: str, **kwargs: Any) -> None:
+    def error(self, message: str, **kwargs: object) -> None:
         """Log error message."""
         self.logger.error(message, **kwargs)
     
-    def critical(self, message: str, **kwargs: Any) -> None:
+    def critical(self, message: str, **kwargs: object) -> None:
         """Log critical message."""
         self.logger.critical(message, **kwargs)
     

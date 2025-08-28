@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import UnityPy
 from UnityPy.classes import TextAsset
@@ -207,7 +206,7 @@ class AssetUnpacker:
         
         return results
     
-    def get_asset_info(self, asset_path: Path) -> dict[str, Any]:
+    def get_asset_info(self, asset_path: Path) -> dict[str, object]:
         """Get information about a Unity asset."""
         info = {
             "path": asset_path,

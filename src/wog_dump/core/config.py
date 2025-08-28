@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import platform
 from pathlib import Path
-from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, computed_field, field_validator
 
@@ -137,7 +136,7 @@ def get_config() -> WOGConfig:
     return _config
 
 
-def set_config(**kwargs: Any) -> WOGConfig:
+def set_config(**kwargs: object) -> WOGConfig:
     """Set configuration parameters and return the updated config."""
     global _config
     if _config is None:

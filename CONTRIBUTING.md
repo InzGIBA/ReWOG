@@ -14,14 +14,17 @@ Thank you for your interest in contributing to WOG Dump! This document provides 
 
 2. **Set up Development Environment**
    ```bash
-   # Create virtual environment
-   python -m venv venv
-   source venv/bin/activate  # Linux/macOS
+   # Install uv if you haven't already
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   
+   # Create virtual environment with uv
+   uv venv
+   source .venv/bin/activate  # Linux/macOS
    # or
-   venv\Scripts\activate     # Windows
+   .venv\Scripts\activate     # Windows
 
    # Install in development mode
-   pip install -e ".[dev]"
+   uv pip install -e ".[dev]"
    ```
 
 3. **Install Pre-commit Hooks**

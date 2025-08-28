@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "wog-dump"
-version = "2.0.0"
+version = "2.1.0"
 description = "A modern tool to download, decrypt and unpack 3D gun models from World of Guns: Gun Disassembly"
 readme = "README.md"
 license = {text = "MIT"}
@@ -37,8 +37,6 @@ dependencies = [
     "pydantic>=2.4.0",
     "pillow>=10.0.0",
     "rich>=13.0.0",
-    "pathlib-mate>=1.0.0",
-    "typing-extensions>=4.8.0",
 ]
 
 [project.optional-dependencies]
@@ -67,12 +65,6 @@ Documentation = "https://github.com/hampta/WOG-dump/blob/main/README.md"
 [project.scripts]
 wog-dump = "wog_dump.cli.main:main"
 wog-convert-normals = "wog_dump.utils.normal_map:cli_main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
 
 [tool.black]
 line-length = 88

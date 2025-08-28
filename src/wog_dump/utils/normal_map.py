@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
 
 import click
 from PIL import Image, ImageChops
@@ -167,7 +166,7 @@ class NormalMapConverter:
         self.logger.info(f"Successfully converted {len(converted_files)} normal maps")
         return converted_files
     
-    def validate_normal_map(self, image_path: Path) -> dict[str, Any]:
+    def validate_normal_map(self, image_path: Path) -> dict[str, object]:
         """Validate and analyze a normal map."""
         result = {
             "is_valid": False,

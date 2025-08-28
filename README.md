@@ -30,32 +30,39 @@ WOG Dump is a modern, completely refactored Python tool for extracting 3D gun mo
 
 ## 🚀 Installation
 
-### Quick Install (Recommended)
+### Quick Install with uv (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is the modern, fast Python package installer and resolver.
+
 ```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# or with pip: pip install uv
+
 # Clone the repository
 git clone https://github.com/hampta/WOG-dump
 cd WOG-dump
 
-# Install in development mode
-pip install -e .
+# Install in development mode with uv
+uv pip install -e .
 ```
 
-### Manual Install
+### Alternative Installation Methods
+
+**Traditional pip:**
 ```bash
 # Clone repository
 git clone https://github.com/hampta/WOG-dump
 cd WOG-dump
 
-# Install dependencies
-pip install -r requirements.txt
-# OR install from pyproject.toml
-pip install .
+# Install with pip
+pip install -e .
 ```
 
-### Development Setup
+**Development Setup with uv:**
 ```bash
 # Install with development dependencies
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Install pre-commit hooks
 pre-commit install
@@ -207,8 +214,8 @@ pytest -m slow              # Slow tests
 ## 🔨 Development
 
 ```bash
-# Install development dependencies
-pip install -e ".[dev]"
+# Install development dependencies with uv
+uv pip install -e ".[dev]"
 
 # Code formatting
 black src/ tests/
@@ -219,6 +226,9 @@ mypy src/
 
 # Linting
 flake8 src/ tests/
+
+# Run all checks
+uv run pre-commit run --all-files
 ```
 
 ## ➕ Additional Tools

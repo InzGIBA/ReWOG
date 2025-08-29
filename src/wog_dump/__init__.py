@@ -1,25 +1,24 @@
-"""WOG Dump - A modern tool to extract 3D models from World of Guns: Gun Disassembly.
+"""WOG Dump - Enhanced tool for extracting 3D models from World of Guns: Gun Disassembly.
 
-This package provides functionality to:
-- Download weapon assets from the game servers
-- Decrypt encrypted asset files
-- Unpack Unity3D assets
-- Convert normal maps for external use
+This package provides a complete pipeline for downloading, decrypting, and unpacking
+3D gun models from World of Guns: Gun Disassembly with modern Python features,
+comprehensive error handling, and performance monitoring.
 """
 
 from __future__ import annotations
 
-__version__ = "2.3.0"
-__author__ = "InzGIBA"
+__version__ = "2.3.1"
+__author__ = "hampta, inzgiba"
 __email__ = "inzgiba@gmail.com"
-__description__ = "A modern tool to download, decrypt and unpack 3D gun models from World of Guns: Gun Disassembly"
+__license__ = "MIT"
+__description__ = "Enhanced tool for extracting 3D models from World of Guns: Gun Disassembly"
 
 # Version info tuple for programmatic access
 VERSION_INFO = tuple(int(x) for x in __version__.split("."))
 
 __all__ = [
     "__version__",
-    "__author__", 
+    "__author__",
     "__email__",
     "__description__",
     "VERSION_INFO",

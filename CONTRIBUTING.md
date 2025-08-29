@@ -16,7 +16,7 @@ Thank you for your interest in contributing to WOG Dump! This document provides 
    ```bash
    # Install uv if you haven't already
    curl -LsSf https://astral.sh/uv/install.sh | sh
-   
+
    # Create virtual environment with uv
    uv venv
    source .venv/bin/activate  # Linux/macOS
@@ -136,14 +136,14 @@ Example:
 ```python
 def download_asset(self, asset_name: str, force: bool = False) -> bool:
     """Download a single asset from the server.
-    
+
     Args:
         asset_name: Name of the asset to download
         force: Force download even if file exists
-        
+
     Returns:
         True if download was successful, False otherwise
-        
+
     Raises:
         DownloadError: If download fails due to network issues
     """
@@ -337,7 +337,7 @@ For maintainers:
    - List all changes since last release
 
 3. **Create Release**
-   - Tag release: `git tag v2.3.0`
+   - Tag release: `git tag v2.3.1`
    - Push tags: `git push --tags`
    - Create GitHub release
 

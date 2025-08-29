@@ -160,4 +160,5 @@ assets/
 decrypted/
 encrypted/
 weapons.txt
+weapons.json
 keys.txt

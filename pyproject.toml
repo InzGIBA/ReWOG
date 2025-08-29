@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wog-dump"
-version = "2.3.0"
+version = "2.3.1"
 description = "A modern tool to download, decrypt and unpack 3D gun models from World of Guns: Gun Disassembly"
 readme = "README.md"
 license = {text = "MIT"}

@@ -5,6 +5,115 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2025-08-29
+
+### 🛠️ Quality & Reliability Release
+
+This release focuses on internal code quality improvements, enhanced error handling, and better performance optimization while maintaining full backward compatibility.
+
+### Changed
+
+#### 🔧 Enhanced Core Architecture
+- **Configuration Management**: Improved validation with graceful error handling for restricted environments
+  - Added environment variable support for all major settings
+  - Implemented singleton pattern for better memory efficiency
+  - Enhanced directory creation with permission error resilience
+  - Stricter validation ranges (max_threads: 1-16, chunk_size validation)
+- **Error Handling**: More robust error classification and recovery
+  - Custom exception hierarchies for better error categorization
+  - Graceful handling of network timeouts and retries
+  - Improved file permission error handling
+  - Better validation error messages with actionable feedback
+
+#### ⚡ Performance Optimizations
+- **Download Manager**: Enhanced batch processing and validation
+  - Optimized HTTP session management with connection pooling
+  - Improved asset validation with flexible header detection
+  - Better retry logic with exponential backoff
+  - Streamlined file integrity checking
+- **Decryption Module**: More efficient XOR implementation
+  - Optimized chunk processing for better memory usage
+  - Enhanced key caching for reduced API calls
+  - Improved parallel processing with better resource management
+  - Robust surrogate character handling in Unity assets
+
+#### 🎨 Enhanced User Experience
+- **Logging System**: Professional output with performance monitoring
+  - Added operation timing and performance metrics
+  - Enhanced progress bars with better visual feedback
+  - Structured error summaries with truncation for large lists
+  - Improved console formatting with Rich enhancements
+- **Normal Map Converter**: Smarter format detection and validation
+  - Content-based format analysis instead of filename-only detection
+  - Enhanced channel data analysis for Unity vs standard format detection
+  - Improved validation results with comprehensive metadata
+  - Better error handling for corrupted image files
+
+### Fixed
+
+#### 🐛 Bug Fixes
+- **Asset Processing**: Resolved type handling issues in Unity asset processing
+  - Fixed m_Script data type handling for both bytes and string formats
+  - Improved surrogate character encoding in asset extraction
+  - Better validation of decrypted file integrity
+- **Network Operations**: Enhanced reliability and error recovery
+  - Fixed asset size detection for better update checking
+  - Improved HEAD request handling with proper timeout management
+  - Better handling of server response edge cases
+- **Test Compatibility**: Resolved test suite issues while maintaining functionality
+  - Fixed method signature compatibility with existing tests
+  - Improved mock handling for unit test reliability
+  - Better asset validation for test environments
+
+### Removed
+
+#### 🗑️ Dependency Cleanup
+- **Unnecessary Dependencies**: Removed bloat without functionality loss
+  - Eliminated numpy dependency (was overkill for simple operations)
+  - Removed psutil requirement (system info logging simplified)
+  - Cleaned up unused imports and dead code paths
+- **Legacy Code**: Streamlined codebase maintenance
+  - Removed unused configuration options
+  - Eliminated redundant error handling paths
+  - Simplified validation logic where appropriate
+
+### Technical Improvements
+
+#### 🏗️ Code Quality
+- **Enhanced Type Safety**: Better type annotations and validation
+  - Improved Pydantic model validation with custom validators
+  - Enhanced error type hierarchy for better exception handling
+  - More precise return type annotations throughout codebase
+- **Better Architecture**: Improved separation of concerns
+  - Enhanced configuration singleton management
+  - Better resource management with context managers
+  - Improved logging and monitoring integration
+
+#### 📊 Performance Monitoring
+- **Operation Tracking**: Built-in performance metrics collection
+  - Automatic timing for all major operations
+  - Memory usage monitoring for large file processing
+  - Network request performance tracking
+  - Batch operation efficiency metrics
+
+### Migration Guide
+
+#### For Users
+- **No Breaking Changes**: All existing workflows continue to work
+- **Improved Reliability**: Better error messages and recovery
+- **Enhanced Performance**: Faster processing with the same commands
+
+#### For Developers
+- **API Compatibility**: All public APIs remain unchanged
+- **Enhanced Error Info**: More detailed error context in exception handling
+- **Better Testing**: Improved test compatibility and reliability
+
+### Compatibility
+
+This release maintains full backward compatibility with v2.3.0 while providing significant internal improvements. All CLI commands, configuration options, and workflows remain unchanged.
+
+---
+
 ## [2.3.0] - 2025-08-29
 
 ### 📚 Documentation Excellence Release

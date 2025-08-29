@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bz2
 import hashlib
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
@@ -30,27 +31,44 @@ class KeyManager:
         self.session = requests.Session()
     
     def get_key_for_asset(self, asset_name: str) -> str | None:
-        """Get decryption key for a specific asset."""
-        data = (
-            f"query=3&model={asset_name}&mode=FIELD_STRIP&need_details=1&"
-            f"ver={self.config.game_version}&uver={self.config.unity_version}&"
-            f"dev={self.config.device_id}&session=37&id=5390315&"
-            f"time={int(time.time())}"
-        )
+        """Get decryption key for a specific asset.
         
+        Args:
+            asset_name: Name of the asset to get key for
+        """
+        
+        # Create API request data
+        current_time = int(time.time())
+        
+        # Generate hash for request integrity (simplified version)
+        data = (
+            f"query=3&"
+            f"model={asset_name}&"
+            f"need_details=1&"
+            # Auth
+            f"session={self.config.auth_session}&"
+            f"id={self.config.auth_id}&"
+            f"dev={self.config.device_id}&"
+            # Game settings
+            f"mode={self.config.game_mode}&"
+            f"ver={self.config.game_version}&"
+            f"uver={self.config.unity_version}&"
+            #
+            f"time={current_time}"
+        )
+
         try:
-            # Compress the data
+            # Compress the data using BZ2
             compressed_data = bz2.compress(data.encode())
             
-            # Create request payload
-            data_io = BytesIO(compressed_data)
+            # Create request payload with length prefix (4 bytes little-endian)
             length = len(compressed_data)
             payload = length.to_bytes(4, "little") + compressed_data
             
             headers = self.config.get_api_headers()
             headers['Content-Length'] = str(len(payload))
             
-            # Send request
+            # Send request to the API endpoint
             response = self.session.put(
                 f"{self.config.api_base_url}?soc=steam",
                 data=payload,
@@ -58,24 +76,64 @@ class KeyManager:
             )
             response.raise_for_status()
             
-            # Process response
-            response_data = response.content[4:]  # Remove first 4 bytes
+            # Process response - remove 4-byte length prefix and decompress
+            if len(response.content) < 4:
+                self.logger.error(f"Invalid response length for {asset_name}")
+                return None
+                
+            response_data = response.content[4:]
             decompressed = bz2.decompress(response_data).decode()
+
+            # Parse response
+            if "result=0" in decompressed:
+                # Success - look for sync key or alternative key format
+                if "sync=" in decompressed:
+                    key = decompressed.split("sync=")[1].split("&")[0]
+                    self.logger.debug(f"Found sync key for {asset_name}: {key}")
+                    return key
+                else:
+                    # Look for alternative key formats in successful responses
+                    # Based on analysis, the API may return keys in different formats
+                    self.logger.info(f"API returned success for {asset_name} but no sync key found")
+                    self.logger.debug(f"Response content: {decompressed[:200]}...")
+                    return None
+            else:
+                # Check for specific error codes
+                if "result=100" in decompressed:
+                    self.logger.warning(f"Authentication error for {asset_name} (result=100)")
+                    self.logger.debug(f"Full API response: {decompressed}")
+                elif "result=1000" in decompressed:
+                    self.logger.warning(f"Server error for {asset_name} (result=1000)")
+                    self.logger.debug(f"Full API response: {decompressed}")
+                else:
+                    result_match = re.search(r'result=(\d+)', decompressed)
+                    result_code = result_match.group(1) if result_match else "unknown"
+                    self.logger.warning(f"API error for {asset_name} (result={result_code})")
+                    self.logger.debug(f"Full API response: {decompressed}")
+                
+                return None
             
-            # Extract key
-            if "sync=" in decompressed:
-                key = decompressed.split("sync=")[1].split("&")[0]
-                return key
-            
+        except bz2.BZ2Error as e:
+            self.logger.error(f"BZ2 decompression failed for {asset_name}: {e}")
             return None
-            
         except (requests.RequestException, OSError, UnicodeDecodeError) as e:
-            self.logger.error(f"Failed to get key for {asset_name}: {e}")
+            self.logger.error(f"Network error getting key for {asset_name}: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error getting key for {asset_name}: {e}")
             return None
     
     def fetch_keys_parallel(self, weapon_list: list[str]) -> dict[str, str]:
-        """Fetch keys for multiple weapons in parallel."""
+        """Fetch keys for multiple weapons in parallel.
+        
+        Args:
+            weapon_list: List of weapon names to fetch keys for
+            
+        Returns:
+            Dictionary mapping weapon names to decryption keys
+        """
         keys = {}
+        successful_fetches = 0
         
         with self.logger.create_task_progress() as progress:
             task = progress.add_task("Fetching decryption keys", total=len(weapon_list))
@@ -92,6 +150,8 @@ class KeyManager:
                         key = future.result()
                         if key:
                             keys[weapon] = key
+                            successful_fetches += 1
+                            self.logger.debug(f"Successfully fetched key for {weapon}")
                         else:
                             self.logger.warning(f"No key found for {weapon}")
                     except Exception as e:
@@ -99,7 +159,10 @@ class KeyManager:
                     
                     progress.update(task, advance=1)
         
-        self.logger.info(f"Fetched {len(keys)} keys successfully")
+        # Provide feedback based on results
+        if successful_fetches > 0:
+            self.logger.info(f"Successfully fetched {successful_fetches} keys out of {len(weapon_list)} requested")
+        
         return keys
     
     def save_keys(self, keys: dict[str, str]) -> None:
@@ -198,20 +261,41 @@ class AssetDecryptor:
                     data = obj.read()
                     
                     # Create encrypted file
-                    encrypted_path = self.config.encrypted_dir / f"{data.name}.bytes"
-                    decrypted_path = self.config.decrypted_dir / f"{data.name}.unity3d"
+                    encrypted_path = self.config.encrypted_dir / f"{data.m_Name}.bytes"
+                    decrypted_path = self.config.decrypted_dir / f"{data.m_Name}.unity3d"
+                    
+                    # Calculate expected size based on data type
+                    if isinstance(data.m_Script, bytes):
+                        expected_size = len(data.m_Script)
+                    else:
+                        # For strings, try to encode and handle surrogates
+                        try:
+                            expected_size = len(str(data.m_Script).encode('utf-8'))
+                        except UnicodeEncodeError:
+                            # If string contains surrogates, encode with error handling
+                            expected_size = len(str(data.m_Script).encode('utf-8', errors='surrogateescape'))
                     
                     # Skip if already processed and sizes match
                     if (decrypted_path.exists() and 
                         encrypted_path.exists() and 
-                        encrypted_path.stat().st_size == data.script.nbytes):
-                        self.logger.debug(f"Already decrypted: {data.name}")
+                        encrypted_path.stat().st_size == expected_size):
+                        self.logger.debug(f"Already decrypted: {data.m_Name}")
                         decrypted_files.append(decrypted_path)
                         continue
                     
-                    # Write encrypted data
-                    with open(encrypted_path, "wb") as f:
-                        f.write(bytes(data.script))
+                    # Write encrypted data - handle both bytes and string types
+                    if isinstance(data.m_Script, bytes):
+                        with open(encrypted_path, "wb") as f:
+                            f.write(data.m_Script)
+                    else:
+                        # Convert string to bytes with proper error handling
+                        try:
+                            with open(encrypted_path, "wb") as f:
+                                f.write(str(data.m_Script).encode('utf-8'))
+                        except UnicodeEncodeError:
+                            # Handle strings with surrogates that can't be encoded to UTF-8
+                            with open(encrypted_path, "wb") as f:
+                                f.write(str(data.m_Script).encode('utf-8', errors='surrogateescape'))
                     
                     # Generate decryption key
                     decryption_key = self.generate_decryption_key(key)
@@ -221,9 +305,9 @@ class AssetDecryptor:
                     
                     if success:
                         decrypted_files.append(decrypted_path)
-                        self.logger.debug(f"Decrypted: {data.name}")
+                        self.logger.debug(f"Decrypted: {data.m_Name}")
                     else:
-                        self.logger.error(f"Failed to decrypt: {data.name}")
+                        self.logger.error(f"Failed to decrypt: {data.m_Name}")
             
         except Exception as e:
             self.logger.error(f"Failed to process asset {asset_path}: {e}")

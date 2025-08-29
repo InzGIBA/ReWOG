@@ -33,8 +33,12 @@ class WeaponListProcessor:
             for obj in env.objects:
                 if obj.type.name == "TextAsset":
                     data = obj.read()
-                    if data.name == "new_banners":
-                        text = data.text.replace("\r", "")
+                    if data.m_Name == "new_banners":
+                        # Handle m_Script which can be either bytes or string
+                        if isinstance(data.m_Script, bytes):
+                            text = data.m_Script.decode('utf-8', errors='ignore').replace("\r", "")
+                        else:
+                            text = str(data.m_Script).replace("\r", "")
                         lines = text.split("\n")
                         
                         # Process lines
@@ -128,18 +132,20 @@ class AssetUnpacker:
                     data = obj.read()
                     
                     # Determine output filename and extension
-                    filename = getattr(data, 'name', f"object_{obj.path_id}")
+                    filename = getattr(data, 'm_Name', f"object_{obj.path_id}")
                     if not filename:
                         filename = f"object_{obj.path_id}"
                     
                     # Set appropriate extension based on type
                     if obj.type.name == "TextAsset":
-                        if hasattr(data, 'script') and len(data.script) > 0:
+                        if hasattr(data, 'm_Script') and len(data.m_Script) > 0:
                             # Check if it's binary data or text
                             try:
-                                data.text  # Try to access text property
+                                # Try to decode as text if it's bytes
+                                if isinstance(data.m_Script, bytes):
+                                    data.m_Script.decode('utf-8')
                                 extension = ".txt"
-                            except:
+                            except UnicodeDecodeError:
                                 extension = ".bytes"
                         else:
                             extension = ".txt"
@@ -157,21 +163,47 @@ class AssetUnpacker:
                     # Extract and save the data
                     try:
                         if obj.type.name == "TextAsset":
-                            if hasattr(data, 'script'):
-                                with open(output_path, "wb") as f:
-                                    f.write(bytes(data.script))
+                            if hasattr(data, 'm_Script'):
+                                if isinstance(data.m_Script, bytes):
+                                    with open(output_path, "wb") as f:
+                                        f.write(data.m_Script)
+                                else:
+                                    # Handle string data with proper surrogate error handling
+                                    try:
+                                        with open(output_path, "w", encoding="utf-8") as f:
+                                            f.write(str(data.m_Script))
+                                    except UnicodeEncodeError:
+                                        # Handle strings with surrogates by writing as binary
+                                        with open(output_path.with_suffix(".bytes"), "wb") as f:
+                                            f.write(str(data.m_Script).encode('utf-8', errors='surrogateescape'))
+                                        # Update the path to reflect the changed extension
+                                        output_path = output_path.with_suffix(".bytes")
                             else:
+                                # Fallback for objects without m_Script
                                 with open(output_path, "w", encoding="utf-8") as f:
-                                    f.write(data.text)
+                                    f.write("")
                         elif obj.type.name == "Texture2D":
                             # Convert texture to image
                             image = data.image
                             if image:
                                 image.save(output_path)
                         else:
-                            # For other types, save raw data if available
+                            # For other types, try to extract raw data if available
                             if hasattr(data, 'save'):
-                                data.save(output_path)
+                                try:
+                                    # Try to get the raw data and save it ourselves
+                                    if hasattr(data, 'raw_data'):
+                                        with open(output_path, "wb") as f:
+                                            f.write(data.raw_data)
+                                    elif hasattr(data, 'bytes'):
+                                        with open(output_path, "wb") as f:
+                                            f.write(data.bytes)
+                                    else:
+                                        # Skip objects we can't extract
+                                        continue
+                                except Exception:
+                                    # Skip objects that can't be extracted
+                                    continue
                         
                         extracted_files.append(output_path)
                         
@@ -227,8 +259,8 @@ class AssetUnpacker:
                 # Try to get additional info
                 try:
                     data = obj.read()
-                    if hasattr(data, 'name'):
-                        obj_info["name"] = data.name
+                    if hasattr(data, 'm_Name'):
+                        obj_info["name"] = data.m_Name
                 except:
                     pass
                 

@@ -8,8 +8,8 @@ Thank you for your interest in contributing to WOG Dump! This document provides 
 
 1. **Fork and Clone**
    ```bash
-   git clone https://github.com/your-username/WOG-dump.git
-   cd WOG-dump
+   git clone https://github.com/your-username/ReWOG.git
+   cd ReWOG
    ```
 
 2. **Set up Development Environment**
@@ -220,6 +220,87 @@ src/wog_dump/
 4. **Tests** - Add comprehensive tests
 5. **Documentation** - Update docs and examples
 
+### Code Quality Standards
+
+**Complexity Guidelines:**
+- Functions should be < 50 lines
+- Classes should be < 300 lines
+- Files should be < 500 lines
+- Cyclomatic complexity < 10
+
+**Performance Guidelines:**
+- Use async/await for I/O operations
+- Implement proper caching strategies
+- Use generators for large data processing
+- Profile memory usage for large operations
+
+**Security Guidelines:**
+- Validate all user inputs
+- Use secure defaults for configuration
+- Sanitize file paths and names
+- Handle sensitive data appropriately
+
+## 🛠️ Advanced Development
+
+### Local Development Environment
+
+**VS Code Setup:**
+```json
+// .vscode/settings.json
+{
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "python.linting.enabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.formatting.provider": "black",
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": ["tests"]
+}
+```
+
+**Pre-commit Configuration:**
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 23.9.1
+    hooks:
+      - id: black
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.1.0
+    hooks:
+      - id: flake8
+```
+
+### Performance Testing
+
+```bash
+# Benchmark specific operations
+python -m pytest tests/benchmarks/ --benchmark-only
+
+# Profile memory usage
+python -m memory_profiler src/wog_dump/core/download.py
+
+# CPU profiling
+python -m cProfile -o profile.stats -m wog_dump.cli.main full-pipeline
+```
+
+### Integration Testing
+
+```bash
+# Run integration tests with real network calls
+pytest tests/integration/ --network
+
+# Test with different Python versions using tox
+tox
+
+# Test cross-platform compatibility
+docker run --rm -v $(pwd):/app python:3.12-alpine /app/scripts/test.sh
+```
+
 ## 📋 Pull Request Process
 
 1. **Ensure CI Passes**
@@ -256,7 +337,7 @@ For maintainers:
    - List all changes since last release
 
 3. **Create Release**
-   - Tag release: `git tag v2.1.0`
+   - Tag release: `git tag v2.3.0`
    - Push tags: `git push --tags`
    - Create GitHub release
 

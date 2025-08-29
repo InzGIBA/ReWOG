@@ -18,9 +18,11 @@ class TestWOGConfig:
         config = WOGConfig(base_dir=temp_dir)
         
         assert config.base_dir == temp_dir
-        assert config.assets_dir == temp_dir / "assets"
-        assert config.encrypted_dir == temp_dir / "encrypted"
-        assert config.decrypted_dir == temp_dir / "decrypted"
+        assert config.assets_dir == temp_dir / "runtime" / "assets"
+        assert config.encrypted_dir == temp_dir / "runtime" / "encrypted"
+        assert config.decrypted_dir == temp_dir / "runtime" / "decrypted"
+        assert config.weapons_file == temp_dir / "runtime" / "weapons.txt"
+        assert config.keys_file == temp_dir / "runtime" / "keys.txt"
         assert config.max_threads == 4
         assert config.game_version == "2.2.1z5"
         assert config.unity_version == "2019.2.18f1"
@@ -29,9 +31,9 @@ class TestWOGConfig:
         """Test that directories are created automatically."""
         config = WOGConfig(
             base_dir=temp_dir,
-            assets_dir=temp_dir / "test_assets",
-            encrypted_dir=temp_dir / "test_encrypted", 
-            decrypted_dir=temp_dir / "test_decrypted",
+            assets_dir=temp_dir / "runtime" / "test_assets",
+            encrypted_dir=temp_dir / "runtime" / "test_encrypted", 
+            decrypted_dir=temp_dir / "runtime" / "test_decrypted",
         )
         
         assert config.assets_dir.exists()
@@ -46,7 +48,7 @@ class TestWOGConfig:
         headers = config.get_api_headers()
         
         assert headers['Content-Type'] == 'application/octet-stream'
-        assert headers['User-Agent'] == f'UnityPlayer/{config.unity_version} (UnityWebRequest/1.0, libcurl/7.52.0-DEV)'
+        assert headers['User-Agent'] == f'UnityPlayer/{config.unity_version} (UnityWebRequest/1.0, libcurl/8.5.0-DEV)'
         assert headers['X-Unity-Version'] == config.unity_version
     
     def test_combined_blacklist(self, temp_dir: Path) -> None:

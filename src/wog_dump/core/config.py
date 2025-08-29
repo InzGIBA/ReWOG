@@ -56,26 +56,70 @@ class WOGConfig(BaseModel):
         default=None,
         description="Path to decryption keys file",
     )
+
+    # Authentication
+    auth_id: int = Field(
+        default=5684358,
+        description="Authentication ID for API queries",
+    )
+    auth_session: int = Field(
+        default=11,
+        description="Authentication session for API queries",
+    )
+    device_id: str = Field(
+        default="c8c52c9b992c6980ca6e15bf5006dff7488ce100",
+        description="Device ID for API queries",
+    )
     
     # Game-specific settings
+    game_mode: str = Field(
+        default="DISASSEMBLY",
+        description="Game mode for API queries",
+    )
     game_version: str = Field(
+        # default="2.2.2v5",
         default="2.2.1z5",
         description="Game version for API queries",
     )
     unity_version: str = Field(
+        # default="2022.3.23f1",
         default="2019.2.18f1",
         description="Unity version for API queries",
-    )
-    device_id: str = Field(
-        default="e35c060a502dd9fdee3bfa107ab0cc24477f6a1a",
-        description="Device ID for API queries",
     )
     
     # Blacklists
     weapon_blacklist: list[str] = Field(
         default_factory=lambda: [
-            "hk_g28", "drag_racing", "tac_50", "zis_tmp", 
-            "groza_1", "glock_19x", "cat_349f"
+            "ac_cobra",
+            "allosaurus",
+            "cap_america",
+            "delorean",
+            "gorilla",
+            "hmmwv",
+            "hot_rod",
+            "horse",
+            "lion",
+            "lotus_seven",
+            "wolf",
+            "ducati916",
+            "corsair",
+            "t72",
+            "fnx_45",
+            "korth_super_sport_alx",
+            "canik_tp9",
+            "swiss_army_knife_spartan",
+            "beretta_dt11",
+            "zis_tmp",
+            "cat_349f",
+            "drag_racing",
+            "hk_g28",
+            "tac_50",
+            "groza_1",
+            "glock_19x",
+            "grand_power_k100",
+            "browning_citori",
+            "solothurn_s18_1000",
+            "st_etienne_1907",
         ],
         description="List of weapons to exclude from processing",
     )
@@ -92,15 +136,15 @@ class WOGConfig(BaseModel):
     def set_default_paths(self) -> "WOGConfig":
         """Set default paths relative to base_dir if not provided."""
         if self.assets_dir is None:
-            self.assets_dir = self.base_dir / "assets"
+            self.assets_dir = self.base_dir / "runtime" / "assets"
         if self.encrypted_dir is None:
-            self.encrypted_dir = self.base_dir / "encrypted"
+            self.encrypted_dir = self.base_dir / "runtime" / "encrypted"
         if self.decrypted_dir is None:
-            self.decrypted_dir = self.base_dir / "decrypted"
+            self.decrypted_dir = self.base_dir / "runtime" / "decrypted"
         if self.weapons_file is None:
-            self.weapons_file = self.base_dir / "weapons.txt"
+            self.weapons_file = self.base_dir / "runtime" / "weapons.txt"
         if self.keys_file is None:
-            self.keys_file = self.base_dir / "keys.txt"
+            self.keys_file = self.base_dir / "runtime" / "keys.txt"
             
         # Create directories after setting paths
         for dir_path in [self.assets_dir, self.encrypted_dir, self.decrypted_dir]:
@@ -110,11 +154,11 @@ class WOGConfig(BaseModel):
         return self
     
     def get_api_headers(self) -> dict[str, str]:
-        """Get headers for API requests."""
+        """Get headers for API requests analysis."""
         return {
             'Content-Type': 'application/octet-stream',
-            'User-Agent': f'UnityPlayer/{self.unity_version} (UnityWebRequest/1.0, libcurl/7.52.0-DEV)',
-            'Accept-Encoding': 'identity',
+            'User-Agent': f'UnityPlayer/{self.unity_version} (UnityWebRequest/1.0, libcurl/8.5.0-DEV)',
+            'Accept-Encoding': 'deflate, gzip',
             'Accept': '*/*',
             'X-Unity-Version': self.unity_version,
         }

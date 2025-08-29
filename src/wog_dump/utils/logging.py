@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -42,9 +43,14 @@ class WOGLogger:
             markup=True,
         )
         rich_handler.setLevel(logging.INFO)
+
+        timestamp_str = datetime.now().strftime("%Y%m%d")  
         
         # File handler for debug logs
-        log_file = Path("wog_dump.log")
+        _file = f"{timestamp_str}.log"
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)  # Create logs directory if it doesn't exist
+        log_file = log_dir / _file
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.DEBUG)
         
@@ -82,9 +88,7 @@ class WOGLogger:
         """Print application banner."""
         table = Table.grid(padding=1)
         table.add_column(style="cyan", justify="center")
-        table.add_row("🔫 WOG Dump v2.0")
-        table.add_row("World of Guns Model Dumper")
-        table.add_row("Modern Python 3.12+ Edition")
+        table.add_row("🔫 WOG Dump v2.3 / World of Guns Model Dumper")
         
         self.console.print(table)
         self.console.print()

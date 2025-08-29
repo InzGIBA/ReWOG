@@ -30,15 +30,19 @@ class TestCLIIntegration:
         result = runner.invoke(cli, ['--version'])
         
         assert result.exit_code == 0
-        assert "2.0.0" in result.output
+        assert "2.3.0" in result.output
     
     def test_info_command(self) -> None:
         """Test info command."""
         runner = CliRunner()
         
         with runner.isolated_filesystem():
+            # Create the runtime directory structure that config expects
+            Path("runtime").mkdir(exist_ok=True)
+            
             result = runner.invoke(cli, ['info'])
         
+        # Info command should succeed even with missing files
         assert result.exit_code == 0
         assert "Configuration" in result.output
         assert "Status" in result.output
@@ -51,6 +55,10 @@ class TestCLIIntegration:
         
         # Mock the download and processing
         with runner.isolated_filesystem():
+            # Create the runtime directory structure
+            runtime_dir = Path("runtime")
+            runtime_dir.mkdir(exist_ok=True)
+            
             mock_asset_path = Path("spider_gen.unity3d")
             mock_download.return_value = mock_asset_path
             mock_process.return_value = ["ak74", "m4a1", "glock17"]
@@ -145,8 +153,10 @@ class TestCLIIntegration:
         runner = CliRunner()
         
         with runner.isolated_filesystem():
-            # Create empty weapon list
-            Path("weapons.txt").write_text("ak74\nm4a1\n")
+            # Create runtime directory and weapon list in correct location
+            runtime_dir = Path("runtime")
+            runtime_dir.mkdir(exist_ok=True)
+            (runtime_dir / "weapons.txt").write_text("ak74\nm4a1\n")
             
             result = runner.invoke(cli, ['decrypt-assets'])
         

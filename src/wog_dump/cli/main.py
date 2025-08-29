@@ -21,7 +21,7 @@ from ..utils.normal_map import NormalMapConverter
 @click.option('--config-dir', type=click.Path(path_type=Path), 
               help='Custom configuration directory')
 @click.option('--max-threads', type=int, help='Maximum number of threads')
-@click.version_option(version='2.0.0', prog_name='WOG Dump')
+@click.version_option(version='2.2.0', prog_name='WOG Dump')
 @click.pass_context
 def cli(ctx: click.Context, verbose: bool, debug: bool, 
         config_dir: Path | None, max_threads: int | None) -> None:
@@ -229,7 +229,7 @@ def unpack_assets(ctx: click.Context, input_dir: Path | None, output_dir: Path |
         if input_dir is None:
             input_dir = config.decrypted_dir
         if output_dir is None:
-            output_dir = config.base_dir / "unpacked"
+            output_dir = config.base_dir / "runtime" / "unpacked"
         
         # Ensure directories are Path objects
         if not isinstance(output_dir, Path):
@@ -324,7 +324,7 @@ def full_pipeline(ctx: click.Context, update_keys: bool, skip_download: bool,
         # Step 3: Decrypt assets
         if not skip_decrypt:
             logger.print_status("Step 3: Decrypting assets...", "info")
-            ctx.invoke(decrypt_assets, update_keys=False)  # Keys already updated if needed
+            ctx.invoke(decrypt_assets, update_keys=update_keys)
         
         # Step 4: Unpack assets
         logger.print_status("Step 4: Unpacking assets...", "info")
@@ -333,7 +333,7 @@ def full_pipeline(ctx: click.Context, update_keys: bool, skip_download: bool,
         # Step 5: Convert normal maps (optional)
         if convert_normals:
             logger.print_status("Step 5: Converting normal maps...", "info")
-            unpacked_dir = config.base_dir / "unpacked"
+            unpacked_dir = config.base_dir / "runtime" / "unpacked"
             if unpacked_dir.exists():
                 # Call the convert_normals command directly
                 from wog_dump.utils.normal_map import NormalMapConverter

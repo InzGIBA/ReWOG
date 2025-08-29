@@ -4,15 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wog-dump"
-version = "2.1.0"
+version = "2.3.0"
 description = "A modern tool to download, decrypt and unpack 3D gun models from World of Guns: Gun Disassembly"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "hampta", email = "hampta@example.com"}
+    {name = "hampta", email = "hampta@example.com"},
+    {name = "inzgiba", email = "inzgiba@gmail.com"}
 ]
 maintainers = [
-    {name = "hampta", email = "hampta@example.com"}
+    {name = "inzgiba", email = "inzgiba@gmail.com"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -57,10 +58,10 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hampta/WOG-dump"
-Repository = "https://github.com/hampta/WOG-dump"
-Documentation = "https://github.com/hampta/WOG-dump/blob/main/README.md"
-"Bug Tracker" = "https://github.com/hampta/WOG-dump/issues"
+Homepage = "https://github.com/InzGIBA/ReWOG"
+Repository = "https://github.com/InzGIBA/ReWOG"
+Documentation = "https://github.com/InzGIBA/ReWOG/blob/main/README.md"
+"Bug Tracker" = "https://github.com/InzGIBA/ReWOG/issues"
 
 [project.scripts]
 wog-dump = "wog_dump.cli.main:main"

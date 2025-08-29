@@ -337,7 +337,7 @@ For maintainers:
    - List all changes since last release
 
 3. **Create Release**
-   - Tag release: `git tag v2.3.1`
+   - Tag release: `git tag v2.3.2`
    - Push tags: `git push --tags`
    - Create GitHub release
 

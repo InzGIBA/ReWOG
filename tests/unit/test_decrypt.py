@@ -10,6 +10,7 @@ import pytest
 
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.decrypt import AssetDecryptor, DecryptionError, KeyManager
+from wog_dump.core.storage import DataStorageManager
 
 
 class TestKeyManager:
@@ -22,7 +23,7 @@ class TestKeyManager:
         assert manager.session is not None
     
     def test_save_and_load_keys(self, test_config: WOGConfig, sample_keys: dict[str, str]) -> None:
-        """Test saving and loading keys."""
+        """Test saving and loading keys with JSON storage."""
         manager = KeyManager(test_config)
         
         # Save keys
@@ -32,17 +33,22 @@ class TestKeyManager:
         loaded_keys = manager.load_keys()
         
         assert loaded_keys == sample_keys
+        
+        # Verify JSON storage
+        storage = DataStorageManager(test_config)
+        storage_keys = storage.get_keys()
+        assert storage_keys == sample_keys
     
     def test_load_keys_missing_file(self, test_config: WOGConfig) -> None:
-        """Test loading keys when file doesn't exist."""
+        """Test loading keys when no data exists."""
         manager = KeyManager(test_config)
         keys = manager.load_keys()
         assert keys == {}
     
     def test_save_keys_invalid_path(self, test_config: WOGConfig) -> None:
         """Test saving keys with invalid path."""
-        # Set keys_file to a directory that doesn't exist
-        test_config.keys_file = Path("/nonexistent/path/keys.txt")
+        # Set base_dir to a directory that doesn't exist to force storage error
+        test_config.base_dir = Path("/nonexistent/path")
         manager = KeyManager(test_config)
         
         with pytest.raises(DecryptionError):

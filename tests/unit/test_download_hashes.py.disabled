@@ -1,0 +1,222 @@
+"""Unit tests for download manager hash functionality."""
+
+from __future__ import annotations
+
+import hashlib
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+import requests
+
+from wog_dump.core.config import WOGConfig
+from wog_dump.core.download import DownloadManager
+from wog_dump.core.storage import DataStorageManager
+
+
+class TestDownloadManagerHashes:
+    """Test hash-related functionality in DownloadManager."""
+    
+    def test_get_asset_hash_success(self, test_config: WOGConfig) -> None:
+        """Test successfully fetching asset hash from server."""
+        with patch('wog_dump.core.download.requests.Session.get') as mock_get:
+            mock_response = Mock()
+            mock_response.text = "abcd1234abcd5678"  # Valid hex string
+            mock_response.raise_for_status.return_value = None
+            mock_get.return_value = mock_response
+            
+            with DownloadManager(test_config) as manager:
+                hash_value = manager.get_asset_hash("ak74")
+            
+            assert hash_value == "abcd1234abcd5678"
+            mock_get.assert_called_once()
+            
+    def test_get_asset_hash_invalid_format(self, test_config: WOGConfig) -> None:
+        """Test handling of invalid hash format from server."""
+        with patch('wog_dump.core.download.requests.Session.get') as mock_get:
+            mock_response = Mock()
+            mock_response.text = "invalid_hash_format!"
+            mock_response.raise_for_status.return_value = None
+            mock_get.return_value = mock_response
+            
+            with DownloadManager(test_config) as manager:
+                hash_value = manager.get_asset_hash("ak74")
+            
+            assert hash_value is None
+            
+    def test_get_asset_hash_network_error(self, test_config: WOGConfig) -> None:
+        """Test handling network error when fetching hash."""
+        with patch('wog_dump.core.download.requests.Session.get') as mock_get:
+            mock_get.side_effect = requests.RequestException("Network error")
+            
+            with DownloadManager(test_config) as manager:
+                hash_value = manager.get_asset_hash("ak74")
+            
+            assert hash_value is None
+            
+    def test_calculate_file_hash(self, test_config: WOGConfig) -> None:
+        """Test calculating MD5 hash of local file."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            test_file = temp_path / "test_file.bin"
+            
+            # Create test file with known content
+            test_data = b"Hello, World! This is test data."
+            test_file.write_bytes(test_data)
+            
+            # Calculate expected hash
+            expected_hash = hashlib.md5(test_data).hexdigest()
+            
+            with DownloadManager(test_config) as manager:
+                calculated_hash = manager.calculate_file_hash(test_file)
+            
+            assert calculated_hash == expected_hash
+            
+    def test_calculate_file_hash_missing_file(self, test_config: WOGConfig) -> None:
+        """Test calculating hash of non-existent file."""
+        with DownloadManager(test_config) as manager:
+            hash_value = manager.calculate_file_hash(Path("/nonexistent/file.bin"))
+        
+        assert hash_value is None
+        
+    def test_get_multiple_hashes(self, test_config: WOGConfig) -> None:
+        """Test fetching multiple asset hashes in parallel."""
+        asset_names = ["ak74", "m4a1", "glock17"]
+        expected_hashes = {
+            "ak74": "hash1",
+            "m4a1": "hash2", 
+            "glock17": "hash3"
+        }
+        
+        with patch.object(DownloadManager, 'get_asset_hash') as mock_get_hash:
+            def side_effect(asset_name):
+                return expected_hashes.get(asset_name)
+            
+            mock_get_hash.side_effect = side_effect
+            
+            with DownloadManager(test_config) as manager:
+                result = manager.get_multiple_hashes(asset_names)
+            
+            assert result == expected_hashes
+            assert mock_get_hash.call_count == len(asset_names)
+            
+    def test_check_asset_needs_update_with_hash(self, test_config: WOGConfig) -> None:
+        """Test asset update checking with hash validation."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Setup test environment
+            test_config.assets_dir = Path(temp_dir) / "assets"
+            test_config.assets_dir.mkdir(exist_ok=True)
+            
+            asset_path = test_config.assets_dir / "ak74.unity3d"
+            test_data = b"test asset data"
+            asset_path.write_bytes(test_data)
+            
+            # Calculate hash
+            file_hash = hashlib.md5(test_data).hexdigest()
+            
+            with patch.object(DownloadManager, 'get_asset_size') as mock_size, \
+                 patch.object(DownloadManager, 'get_asset_hash') as mock_hash, \
+                 patch.object(DataStorageManager, 'is_hash_validation_expired') as mock_expired, \
+                 patch.object(DataStorageManager, 'get_asset_hash') as mock_stored_hash:
+                
+                # Setup mocks
+                mock_size.return_value = len(test_data)
+                mock_hash.return_value = file_hash
+                mock_expired.return_value = False
+                mock_stored_hash.return_value = file_hash
+                
+                with DownloadManager(test_config) as manager:
+                    needs_update = manager.check_asset_needs_update("ak74")
+                
+                assert needs_update is False  # Hash matches, no update needed
+                
+    def test_check_asset_needs_update_hash_mismatch(self, test_config: WOGConfig) -> None:
+        """Test asset update checking when hashes don't match."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Setup test environment
+            test_config.assets_dir = Path(temp_dir) / "assets"
+            test_config.assets_dir.mkdir(exist_ok=True)
+            
+            asset_path = test_config.assets_dir / "ak74.unity3d"
+            test_data = b"test asset data"
+            asset_path.write_bytes(test_data)
+            
+            with patch.object(DownloadManager, 'get_asset_size') as mock_size, \
+                 patch.object(DataStorageManager, 'is_hash_validation_expired') as mock_expired, \
+                 patch.object(DataStorageManager, 'get_asset_hash') as mock_stored_hash:
+                
+                # Setup mocks - different hash indicates file changed
+                mock_size.return_value = len(test_data)
+                mock_expired.return_value = False
+                mock_stored_hash.return_value = "different_hash"
+                
+                with DownloadManager(test_config) as manager:
+                    needs_update = manager.check_asset_needs_update("ak74")
+                
+                assert needs_update is True  # Hash mismatch, update needed
+                
+    def test_download_single_asset_with_hash(self, test_config: WOGConfig) -> None:
+        """Test downloading asset with hash validation and storage."""
+        test_data = b"mock asset data"
+        file_hash = hashlib.md5(test_data).hexdigest()
+        
+        with patch('wog_dump.core.download.requests.Session.get') as mock_get, \
+             patch.object(DownloadManager, 'get_asset_hash') as mock_hash, \
+             patch.object(DataStorageManager, 'save_asset_hash') as mock_save_hash:
+            
+            # Setup download response
+            mock_response = Mock()
+            mock_response.headers = {"Content-Length": str(len(test_data))}
+            mock_response.iter_content.return_value = [test_data]
+            mock_response.raise_for_status.return_value = None
+            mock_get.return_value = mock_response
+            
+            # Setup hash response
+            mock_hash.return_value = file_hash
+            
+            with DownloadManager(test_config) as manager:
+                success = manager.download_single_asset("ak74")
+            
+            assert success is True
+            mock_save_hash.assert_called_once_with("ak74", file_hash)
+            
+    def test_refresh_asset_hashes(self, test_config: WOGConfig) -> None:
+        """Test refreshing asset hashes from server."""
+        asset_names = ["ak74", "m4a1"]
+        expected_hashes = {"ak74": "hash1", "m4a1": "hash2"}
+        
+        with patch.object(DownloadManager, 'get_multiple_hashes') as mock_get_hashes, \
+             patch.object(DataStorageManager, 'save_multiple_hashes') as mock_save_hashes:
+            
+            mock_get_hashes.return_value = expected_hashes
+            
+            with DownloadManager(test_config) as manager:
+                result = manager.refresh_asset_hashes(asset_names)
+            
+            assert result == expected_hashes
+            mock_save_hashes.assert_called_once_with(expected_hashes)
+            
+    def test_validate_cached_assets(self, test_config: WOGConfig) -> None:
+        """Test validating cached assets using hash comparison."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Setup test environment
+            test_config.assets_dir = Path(temp_dir) / "assets"
+            test_config.assets_dir.mkdir(exist_ok=True)
+            
+            # Create test asset
+            asset_path = test_config.assets_dir / "ak74.unity3d"
+            test_data = b"test asset data"
+            asset_path.write_bytes(test_data)
+            file_hash = hashlib.md5(test_data).hexdigest()
+            
+            weapon_list = ["ak74", "m4a1"]  # m4a1 doesn't exist
+            
+            with patch.object(DataStorageManager, 'get_asset_hash') as mock_get_hash:
+                mock_get_hash.side_effect = lambda x: file_hash if x == "ak74" else None
+                
+                with DownloadManager(test_config) as manager:
+                    valid, invalid = manager.validate_cached_assets(weapon_list)
+                
+                assert "ak74" in valid
+                assert "m4a1" in invalid

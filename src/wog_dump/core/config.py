@@ -62,13 +62,18 @@ class WOGConfig(BaseModel):
     )
 
     # File Configuration
+    data_file: Path | None = Field(
+        default=None,
+        description="Path to unified JSON data file",
+    )
+    # Legacy file paths for migration support
     weapons_file: Path | None = Field(
         default=None,
-        description="Path to weapons list file",
+        description="Path to legacy weapons list file (for migration)",
     )
     keys_file: Path | None = Field(
         default=None,
-        description="Path to decryption keys file",
+        description="Path to legacy decryption keys file (for migration)",
     )
 
     # Authentication Configuration
@@ -78,7 +83,7 @@ class WOGConfig(BaseModel):
         description="Authentication ID for API queries",
     )
     auth_session: int = Field(
-        default=14,
+        default=15,
         ge=1,
         description="Authentication session for API queries",
     )
@@ -139,7 +144,7 @@ class WOGConfig(BaseModel):
 
     model_config = {"extra": "forbid", "validate_assignment": True}
 
-    @field_validator('base_dir', 'assets_dir', 'encrypted_dir', 'decrypted_dir', 'weapons_file', 'keys_file')
+    @field_validator('base_dir', 'assets_dir', 'encrypted_dir', 'decrypted_dir', 'data_file', 'weapons_file', 'keys_file')
     @classmethod
     def validate_paths(cls, v: Path | None) -> Path | None:
         """Validate and resolve path fields."""
@@ -167,6 +172,8 @@ class WOGConfig(BaseModel):
             self.encrypted_dir = runtime_dir / "encrypted"
         if self.decrypted_dir is None:
             self.decrypted_dir = runtime_dir / "decrypted"
+        if self.data_file is None:
+            self.data_file = runtime_dir / "data.json"
         if self.weapons_file is None:
             self.weapons_file = runtime_dir / "weapons.txt"
         if self.keys_file is None:
@@ -195,7 +202,7 @@ class WOGConfig(BaseModel):
                     pass
 
         # Create parent directories for files
-        file_paths = [self.weapons_file, self.keys_file]
+        file_paths = [self.data_file, self.weapons_file, self.keys_file]
         for file_path in file_paths:
             if file_path and not file_path.parent.exists():
                 try:

@@ -9,6 +9,7 @@ from collections.abc import Generator
 import pytest
 
 from wog_dump.core.config import WOGConfig, reset_config
+from wog_dump.core.storage import DataStorageManager
 
 
 @pytest.fixture
@@ -20,7 +21,7 @@ def temp_dir() -> Generator[Path, None, None]:
 
 @pytest.fixture
 def test_config(temp_dir: Path) -> WOGConfig:
-    """Create a test configuration."""
+    """Create a test configuration with JSON storage."""
     reset_config()  # Reset global config
     
     config = WOGConfig(
@@ -28,8 +29,9 @@ def test_config(temp_dir: Path) -> WOGConfig:
         assets_dir=temp_dir / "assets",
         encrypted_dir=temp_dir / "encrypted",
         decrypted_dir=temp_dir / "decrypted",
-        weapons_file=temp_dir / "weapons.txt",
-        keys_file=temp_dir / "keys.txt",
+        data_file=temp_dir / "data.json",
+        weapons_file=temp_dir / "weapons.txt",  # Legacy support
+        keys_file=temp_dir / "keys.txt",  # Legacy support
         max_threads=2,  # Reduce for testing
     )
     
@@ -39,6 +41,20 @@ def test_config(temp_dir: Path) -> WOGConfig:
     config.decrypted_dir.mkdir(exist_ok=True)
     
     return config
+
+
+@pytest.fixture
+def test_storage(test_config: WOGConfig) -> DataStorageManager:
+    """Create a test storage manager."""
+    return DataStorageManager(test_config)
+
+
+@pytest.fixture
+def populated_storage(test_storage: DataStorageManager, sample_weapon_list: list[str], sample_keys: dict[str, str]) -> DataStorageManager:
+    """Create a storage manager with sample data."""
+    test_storage.save_weapons(sample_weapon_list)
+    test_storage.save_keys(sample_keys)
+    return test_storage
 
 
 @pytest.fixture

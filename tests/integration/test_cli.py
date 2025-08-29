@@ -30,7 +30,7 @@ class TestCLIIntegration:
         result = runner.invoke(cli, ['--version'])
 
         assert result.exit_code == 0
-        assert "2.3.1" in result.output
+        assert "2.3.2" in result.output
 
     def test_info_command(self) -> None:
         """Test info command."""

@@ -37,7 +37,7 @@ When reporting a bug or issue, please include:
 **Environment:**
 - OS: Ubuntu 22.04
 - Python: 3.12.1
-- WOG Dump: 2.3.1
+- WOG Dump: 2.3.2
 
 **Description:**
 When running `wog-dump download-assets`, the tool crashes with a connection error.

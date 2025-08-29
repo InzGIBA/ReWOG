@@ -7,7 +7,7 @@ comprehensive error handling, and performance monitoring.
 
 from __future__ import annotations
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 __author__ = "hampta, inzgiba"
 __email__ = "inzgiba@gmail.com"
 __license__ = "MIT"

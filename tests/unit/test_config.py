@@ -21,6 +21,7 @@ class TestWOGConfig:
         assert config.assets_dir == temp_dir / "runtime" / "assets"
         assert config.encrypted_dir == temp_dir / "runtime" / "encrypted"
         assert config.decrypted_dir == temp_dir / "runtime" / "decrypted"
+        assert config.data_file == temp_dir / "runtime" / "data.json"
         assert config.weapons_file == temp_dir / "runtime" / "weapons.txt"
         assert config.keys_file == temp_dir / "runtime" / "keys.txt"
         assert config.max_threads == 4

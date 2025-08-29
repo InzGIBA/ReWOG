@@ -156,9 +156,9 @@ db.sqlite3-wal
 *.env
 *.sqlite3-*
 
-assets/
-decrypted/
-encrypted/
-weapons.txt
-weapons.json
-keys.txt
+runtime/assets/
+runtime/decrypted/
+runtime/encrypted/
+runtime/*.json
+runtime/*.txt
+runtime/*.bak

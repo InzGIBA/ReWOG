@@ -11,6 +11,7 @@ import click
 from ..core.config import get_config, set_config
 from ..core.decrypt import AssetDecryptor, KeyManager, DecryptionError, AuthenticationError
 from ..core.download import DownloadManager, DownloadError
+from ..core.storage import DataStorageManager
 from ..core.unpack import AssetUnpacker, WeaponListProcessor, UnpackError
 from ..utils.logging import get_logger, set_log_level
 from ..utils.normal_map import NormalMapConverter, NormalMapError
@@ -75,7 +76,7 @@ def validate_config(ctx: click.Context) -> None:
               help='Chunk size for file operations in KB (1-1024)')
 @click.option('--strict-mode', is_flag=True,
               help='Enable strict validation and error handling')
-@click.version_option(version='2.3.1', prog_name='WOG Dump')
+@click.version_option(version='2.3.2', prog_name='WOG Dump')
 @click.pass_context
 def cli(ctx: click.Context, verbose: bool, debug: bool,
         config_dir: Path | None, max_threads: int | None,
@@ -521,6 +522,140 @@ def full_pipeline(ctx: click.Context, update_keys: bool, skip_download: bool,
 
 
 @cli.command()
+@click.option('--clear', is_flag=True,
+              help='Clear all cached data')
+@click.option('--migrate', is_flag=True,
+              help='Migrate data from legacy txt files')
+@click.option('--show-cache', is_flag=True,
+              help='Show detailed cache statistics')
+@click.option('--refresh-hashes', is_flag=True,
+              help='Refresh asset hashes from server')
+@click.option('--validate-hashes', is_flag=True,
+              help='Validate local assets against stored hashes')
+@click.option('--clear-hashes', is_flag=True,
+              help='Clear all stored asset hashes')
+@click.pass_context
+def cache(ctx: click.Context, clear: bool, migrate: bool, show_cache: bool, 
+         refresh_hashes: bool, validate_hashes: bool, clear_hashes: bool) -> None:
+    """Manage data cache and migration with hash validation.
+
+    Modern JSON-based storage with caching capabilities and hash-based integrity checking.
+    Supports migration from legacy weapons.txt and keys.txt files.
+    """
+    logger = ctx.obj['logger']
+    config = ctx.obj['config']
+
+    with error_handler("Cache management"):
+        logger.print_banner()
+        
+        storage = DataStorageManager(config)
+        
+        if clear:
+            with logger.operation_context("cache_clear", "cache clear"):
+                storage.clear_cache()
+                logger.print_status("Cache cleared successfully", "success")
+        
+        elif migrate:
+            with logger.operation_context("migration", "data migration"):
+                success = storage.migrate_from_txt_files()
+                if success:
+                    logger.print_status("Migration completed successfully", "success")
+                else:
+                    logger.print_status("No data to migrate or migration failed", "warning")
+        
+        elif refresh_hashes:
+            with logger.operation_context("hash_refresh", "hash refresh"):
+                from ..core.download import DownloadManager
+                
+                # Get weapons list
+                weapons = storage.get_weapons()
+                if not weapons:
+                    logger.error("No weapons found. Run 'download-weapons' first.")
+                    return
+                    
+                with DownloadManager(config) as downloader:
+                    new_hashes = downloader.refresh_asset_hashes(weapons)
+                    logger.print_status(f"Refreshed {len(new_hashes)} asset hashes", "success")
+        
+        elif validate_hashes:
+            with logger.operation_context("hash_validation", "hash validation"):
+                from ..core.download import DownloadManager
+                
+                weapons = storage.get_weapons()
+                if not weapons:
+                    logger.error("No weapons found. Run 'download-weapons' first.")
+                    return
+                    
+                with DownloadManager(config) as downloader:
+                    valid, invalid = downloader.validate_cached_assets(weapons)
+                    
+                    if invalid:
+                        logger.console.print(f"\n[bold red]Invalid assets found ({len(invalid)}):[/bold red]")
+                        for asset in invalid[:10]:  # Show first 10
+                            logger.console.print(f"  • {asset}")
+                        if len(invalid) > 10:
+                            logger.console.print(f"  ... and {len(invalid) - 10} more")
+                    
+                    logger.print_status(f"Validation: {len(valid)} valid, {len(invalid)} invalid", 
+                                      "success" if len(invalid) == 0 else "warning")
+        
+        elif clear_hashes:
+            with logger.operation_context("hash_clear", "hash clear"):
+                storage.clear_all_hashes()
+                logger.print_status("All asset hashes cleared", "success")
+        
+        elif show_cache:
+            cache_stats = storage.get_cache_stats()
+            
+            # Display cache statistics
+            cache_data = [
+                ["Data File", str(storage.data_file)],
+                ["Weapons Count", str(cache_stats["weapons"]["count"])],
+                ["Keys Count", str(cache_stats["keys"]["count"])],
+                ["Cache Created", cache_stats["cache"]["created_at"]],
+                ["Cache Updated", cache_stats["cache"]["updated_at"]],
+                ["Cache Version", cache_stats["cache"]["version"]],
+                ["Cache Expired", "Yes" if cache_stats["cache"]["expired"] else "No"],
+                ["Hash Validation", "Enabled" if cache_stats["cache"]["hash_validation_enabled"] else "Disabled"],
+                ["Assets with Hashes", str(cache_stats["cache"]["assets_with_hashes"])],
+                ["Last Hash Check", cache_stats["cache"]["last_hash_check"] or "Never"],
+                ["Hash Check Expired", "Yes" if cache_stats["cache"]["hash_check_expired"] else "No"],
+            ]
+            
+            logger.print_table("Cache Statistics", ["Property", "Value"], cache_data)
+            
+            # Show weapons info if available
+            if cache_stats["weapons"]["count"] > 0:
+                weapons = storage.get_weapons()
+                logger.console.print(f"\n[bold]Sample weapons (first 10):[/bold]")
+                for weapon in weapons[:10]:
+                    hash_status = "✓" if storage.get_asset_hash(weapon) else "✗"
+                    logger.console.print(f"  {hash_status} {weapon}")
+                if len(weapons) > 10:
+                    logger.console.print(f"  ... and {len(weapons) - 10} more")
+                    
+            # Show hash statistics
+            if cache_stats["cache"]["assets_with_hashes"] > 0:
+                all_hashes = storage.get_all_hashes()
+                logger.console.print(f"\n[bold]Hash Coverage:[/bold]")
+                logger.console.print(f"  Assets with hashes: {len(all_hashes)}")
+                if cache_stats["weapons"]["count"] > 0:
+                    coverage = (len(all_hashes) / cache_stats["weapons"]["count"]) * 100
+                    logger.console.print(f"  Coverage: {coverage:.1f}%")
+        
+        else:
+            # Default: show basic cache status
+            cache_stats = storage.get_cache_stats()
+            logger.console.print(f"\n[bold]Cache Status:[/bold]")
+            logger.console.print(f"  Weapons: {cache_stats['weapons']['count']}")
+            logger.console.print(f"  Keys: {cache_stats['keys']['count']}")
+            logger.console.print(f"  Expired: {'Yes' if cache_stats['cache']['expired'] else 'No'}")
+            logger.console.print(f"  Hash Validation: {'Enabled' if cache_stats['cache']['hash_validation_enabled'] else 'Disabled'}")
+            logger.console.print(f"  Assets with Hashes: {cache_stats['cache']['assets_with_hashes']}")
+            logger.console.print(f"\nUse --help for cache management options.")
+
+
+@cli.command()
 @click.option('--show-performance', is_flag=True, help='Show performance metrics')
 @click.option('--validate-files', is_flag=True, help='Validate existing files')
 @click.pass_context
@@ -565,33 +700,52 @@ def _collect_status_info(config: WOGConfig) -> list[list[str]]:
     """Collect system status information."""
     status_data = []
 
-    # Check weapon list
-    weapons_exist = config.weapons_file.exists()
-    if weapons_exist:
-        try:
-            processor = WeaponListProcessor(config)
-            weapons = processor.load_weapon_list()
-            weapons_status = f"{len(weapons)} weapons"
-        except Exception:
-            weapons_status = "Error loading"
+    # Check JSON data storage
+    storage = DataStorageManager(config)
+    cache_stats = storage.get_cache_stats()
+    
+    weapons_count = cache_stats["weapons"]["count"]
+    keys_count = cache_stats["keys"]["count"]
+    
+    if weapons_count > 0:
+        weapons_status = f"{weapons_count} weapons (JSON)"
     else:
-        weapons_status = "Not found"
+        # Check legacy file
+        weapons_exist = config.weapons_file and config.weapons_file.exists()
+        if weapons_exist:
+            try:
+                processor = WeaponListProcessor(config)
+                weapons = processor._load_legacy_format()
+                weapons_status = f"{len(weapons)} weapons (legacy)"
+            except Exception:
+                weapons_status = "Error loading legacy"
+        else:
+            weapons_status = "Not found"
 
     status_data.append(["Weapon List", weapons_status])
 
     # Check keys
-    keys_exist = config.keys_file.exists()
-    if keys_exist:
-        try:
-            key_manager = KeyManager(config)
-            keys = key_manager.load_keys()
-            keys_status = f"{len(keys)} keys"
-        except Exception:
-            keys_status = "Error loading"
+    if keys_count > 0:
+        keys_status = f"{keys_count} keys (JSON)"
     else:
-        keys_status = "Not found"
+        # Check legacy file
+        keys_exist = config.keys_file and config.keys_file.exists()
+        if keys_exist:
+            try:
+                key_manager = KeyManager(config)
+                keys = key_manager._load_legacy_format()
+                keys_status = f"{len(keys)} keys (legacy)"
+            except Exception:
+                keys_status = "Error loading legacy"
+        else:
+            keys_status = "Not found"
 
     status_data.append(["Decryption Keys", keys_status])
+    
+    # Cache information
+    cache_expired = "Yes" if cache_stats["cache"]["expired"] else "No"
+    status_data.append(["Cache Expired", cache_expired])
+    status_data.append(["Data File", str(storage.data_file)])
 
     # Check assets
     assets = list(config.assets_dir.glob("*.unity3d"))

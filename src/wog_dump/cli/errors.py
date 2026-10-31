@@ -6,6 +6,8 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import click
+
 from ..core.auth import AuthError
 from ..core.decrypt import DecryptionError
 from ..core.download import DownloadError
@@ -24,6 +26,13 @@ class OperationCancelled(CLIError):
     """Raised when operation is cancelled by user."""
 
     pass
+
+
+def print_banner_if_standalone(ctx: click.Context) -> None:
+    """Print the banner unless this command was invoked by full-pipeline."""
+    logger = (ctx.obj or {}).get("logger") or get_logger()
+    if not (ctx.obj and ctx.obj.get("pipeline_nested")):
+        logger.print_banner()
 
 
 @contextmanager

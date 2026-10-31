@@ -20,6 +20,7 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 from rich.table import Table
 from rich.text import Text
@@ -198,6 +199,8 @@ class WOGLogger:
             MofNCompleteColumn(),
             "•",
             "[progress.percentage]{task.percentage:>3.1f}%",
+            "•",
+            TimeRemainingColumn(),
             "•",
             TimeElapsedColumn(),
             console=self.console,

@@ -46,6 +46,8 @@ def full_pipeline(
 
     with error_handler("Full pipeline"):
         logger.print_banner()
+        # Invoked subcommands must not repeat the banner
+        ctx.obj["pipeline_nested"] = True
         logger.print_status("Starting complete WOG Dump pipeline...", "processing")
 
         pipeline_steps = [

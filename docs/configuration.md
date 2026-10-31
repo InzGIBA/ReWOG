@@ -50,7 +50,7 @@ wrong values are rejected server-side. Update them when the game updates.
 |---|---|---|
 | `WOG_MAX_THREADS` | `4` | Worker threads for parallel downloads/key fetches (1–16) |
 | `WOG_REQUEST_DELAY` | `0.1` | Minimum interval in seconds between asset-server requests |
-| `WOG_API_REQUEST_DELAY` | `0.5` | Minimum interval in seconds between key-API requests |
+| `WOG_API_REQUEST_DELAY` | `0.25` | Minimum interval in seconds between key-API requests |
 | `WOG_ENABLE_VALIDATION` | `true` | Validate files after download/decryption |
 | `WOG_ENABLE_BACKUP` | `true` | Keep backups during destructive operations |
 | `WOG_STRICT_MODE` | `false` | Fail the whole run on the first error instead of continuing |

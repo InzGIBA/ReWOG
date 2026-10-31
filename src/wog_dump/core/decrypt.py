@@ -224,20 +224,30 @@ class AssetDecryptor:
             self.logger.warning(f"No assets found in {self.config.assets_dir}")
             return [], []
 
-        for asset_path in assets:
-            asset_name = asset_path.stem
+        with self.logger.create_task_progress() as progress:
+            task = progress.add_task("Decrypting assets", total=len(assets))
 
-            if asset_name not in keys:
-                self.logger.warning(f"No key found for {asset_name}")
-                failed.append(asset_name)
-                continue
+            for asset_path in assets:
+                asset_name = asset_path.stem
 
-            try:
-                files = self.decrypt_asset(asset_path, keys[asset_name])
-                successful.extend(files)
-            except Exception as e:
-                self.logger.error(f"Failed to decrypt {asset_name}: {e}")
-                failed.append(asset_name)
+                if asset_name not in keys:
+                    self.logger.warning(f"No key found for {asset_name}")
+                    failed.append(asset_name)
+                    progress.update(task, advance=1)
+                    continue
+
+                try:
+                    files = self.decrypt_asset(asset_path, keys[asset_name])
+                    successful.extend(files)
+                except Exception as e:
+                    self.logger.error(f"Failed to decrypt {asset_name}: {e}")
+                    failed.append(asset_name)
+
+                if failed:
+                    progress.update(
+                        task, description=f"Decrypting assets ({len(failed)} failed)"
+                    )
+                progress.update(task, advance=1)
 
         successful_assets = len(assets) - len(failed)
         self.logger.info(

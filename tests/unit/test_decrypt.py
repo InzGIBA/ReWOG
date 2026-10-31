@@ -48,6 +48,38 @@ class TestKeyManager:
         keys = manager.load_keys()
         assert keys == {}
 
+    def test_load_keys_quiet_suppresses_warning(
+        self, test_config: WOGConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """quiet=True is for merge callers: an empty store is expected there."""
+        manager = KeyManager(test_config)
+
+        with caplog.at_level("WARNING", logger="wog_dump"):
+            manager.load_keys(quiet=True)
+        assert "No decryption keys found" not in caplog.text
+
+        with caplog.at_level("WARNING", logger="wog_dump"):
+            manager.load_keys()
+        assert "No decryption keys found" in caplog.text
+
+    @patch.object(KeyManager, "fetch_key")
+    def test_fetch_keys_parallel_progress_runs(
+        self,
+        mock_fetch_key: Mock,
+        test_config: WOGConfig,
+        sample_weapon_list: list[str],
+    ) -> None:
+        """The parallel fetch completes with a progress bar and returns keys."""
+        manager = KeyManager(test_config)
+        manager.auth = Mock()
+        manager.auth.ensure_session.return_value = None
+        mock_fetch_key.side_effect = lambda weapon, retries=3: f"key_{weapon}"
+
+        keys = manager.fetch_keys_parallel(sample_weapon_list)
+
+        assert keys == {weapon: f"key_{weapon}" for weapon in sample_weapon_list}
+        assert mock_fetch_key.call_count == len(sample_weapon_list)
+
     def test_unusable_database_path_raises(self, test_config: WOGConfig) -> None:
         """An unusable database path fails loudly at startup."""
         test_config.db_path = Path("/nonexistent/dir/wog_dump.db")

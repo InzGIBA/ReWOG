@@ -189,23 +189,33 @@ class KeyManager:
         failed_weapons: list[str] = []
         max_workers = max_workers or min(self.config.max_threads, len(weapons))
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_weapon = {
-                executor.submit(self.fetch_key, weapon, 3): weapon for weapon in weapons
-            }
+        with self.logger.create_task_progress() as progress:
+            task = progress.add_task("Fetching keys", total=len(weapons))
 
-            for future in as_completed(future_to_weapon):
-                weapon = future_to_weapon[future]
-                try:
-                    key = future.result()
-                    if key:
-                        keys[weapon] = key
-                    else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_weapon = {
+                    executor.submit(self.fetch_key, weapon, 3): weapon
+                    for weapon in weapons
+                }
+
+                for future in as_completed(future_to_weapon):
+                    weapon = future_to_weapon[future]
+                    try:
+                        key = future.result()
+                        if key:
+                            keys[weapon] = key
+                        else:
+                            failed_weapons.append(weapon)
+                    except Exception as e:
+                        self.logger.error(f"Failed to fetch key for {weapon}: {e}")
                         failed_weapons.append(weapon)
-                        self.logger.warning(f"No key available for {weapon}")
-                except Exception as e:
-                    self.logger.error(f"Failed to fetch key for {weapon}: {e}")
-                    failed_weapons.append(weapon)
+
+                    if failed_weapons:
+                        progress.update(
+                            task,
+                            description=f"Fetching keys ({len(failed_weapons)} failed)",
+                        )
+                    progress.update(task, advance=1)
 
         self.logger.info(f"Fetched {len(keys)} keys out of {len(weapons)} weapons")
 
@@ -228,8 +238,14 @@ class KeyManager:
         except Exception as e:
             raise DecryptionError(f"Failed to save keys: {e}") from e
 
-    def load_keys(self, try_migration: bool = True) -> dict[str, str]:
-        """Load keys from the database, importing legacy txt files once."""
+    def load_keys(
+        self, try_migration: bool = True, quiet: bool = False
+    ) -> dict[str, str]:
+        """Load keys from the database, importing legacy txt files once.
+
+        ``quiet`` suppresses the "no keys" warning - for callers that are
+        about to merge freshly fetched keys over the (possibly empty) store.
+        """
         try:
             keys = self.db.get_keys()
 
@@ -248,7 +264,8 @@ class KeyManager:
                         self._key_cache.update(keys)
                         return keys
 
-            self.logger.warning("No decryption keys found")
+            if not quiet:
+                self.logger.warning("No decryption keys found")
             return {}
 
         except Exception as e:

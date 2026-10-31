@@ -11,7 +11,7 @@ import UnityPy
 from ..core.decrypt import AssetDecryptor
 from ..core.keys import KeyManager
 from .download import _load_weapon_list, _update_keys
-from .errors import error_handler
+from .errors import error_handler, print_banner_if_standalone
 
 
 @click.command()
@@ -37,7 +37,7 @@ def decrypt_assets(
     config = ctx.obj["config"]
 
     with error_handler("Asset decryption"):
-        logger.print_banner()
+        print_banner_if_standalone(ctx)
 
         weapon_list = _load_weapon_list(config, weapons)
 

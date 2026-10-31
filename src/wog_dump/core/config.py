@@ -95,7 +95,7 @@ class WOGConfig(BaseModel):
         description="Minimum interval between asset-server requests in seconds",
     )
     api_request_delay: float = Field(
-        default=0.5,
+        default=0.25,
         ge=0.0,
         le=60.0,
         description="Minimum interval between key-API requests in seconds",

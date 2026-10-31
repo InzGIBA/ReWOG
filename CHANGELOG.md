@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🖥️ Interface & feedback
+
+- **Progress bars with ETA for every long operation** - fetching keys (`query=3` per weapon) previously ran for minutes with no output at all; key fetching, update checks and bulk decryption now show a live progress bar (count, percentage, remaining time), with failed/missing counters in the bar itself
+- **A missing asset no longer aborts the batch**: an HTTP 404 is now a per-asset skip with one clear warning ("Skipping asset not found on server") instead of an ERROR that stopped all remaining batches - one bad name used to silently cut the run from 288 assets down to 49
+- **No repeated banners in `full-pipeline`**: sub-commands invoked by the pipeline no longer re-print the big banner (it appeared 4+ times)
+- **No misleading "No decryption keys found"** during `--update-keys` on a fresh database (the warning came from the pre-merge load of an empty store)
+- **Lower key-API throttle default**: `WOG_API_REQUEST_DELAY` 0.5s → 0.25s - 288 keys now take ~72s instead of ~144s while staying at/below the request rate the unthrottled 4-thread fetch used to produce
+
 ### 🔁 Reliability
 
 - **Resumable downloads**: interrupted transfers keep their partial data (`runtime/assets/*.tmp`) and the next run continues via an HTTP `Range` request instead of starting over; if the server file changed since, the download restarts automatically

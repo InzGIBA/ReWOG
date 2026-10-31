@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from ..utils.normal_map import NormalMapConverter
-from .errors import error_handler
+from .errors import error_handler, print_banner_if_standalone
 
 
 @click.command()
@@ -29,7 +29,7 @@ def convert_normals(
     logger = ctx.obj["logger"]
 
     with error_handler("Normal map conversion"):
-        logger.print_banner()
+        print_banner_if_standalone(ctx)
 
         converter = NormalMapConverter()
 

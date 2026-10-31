@@ -31,6 +31,14 @@ class DownloadError(Exception):
     """Raised when a download cannot be completed."""
 
 
+class AssetNotFoundError(DownloadError):
+    """Raised when the asset does not exist on the server (HTTP 404).
+
+    Permanent per definition: skipping the asset is correct, no retry or
+    batch abort will ever fix it.
+    """
+
+
 class ValidationError(DownloadError):
     """Raised when a downloaded file fails validation."""
 
@@ -48,6 +56,7 @@ class DownloadManager:
             "total_bytes": 0,
             "files_downloaded": 0,
             "files_failed": 0,
+            "files_skipped": 0,
         }
 
     def asset_url(self, asset_name: str) -> str:
@@ -162,7 +171,14 @@ class DownloadManager:
                 timeout=self.config.request_timeout,
                 headers=headers,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as e:
+                if response.status_code == 404:
+                    raise AssetNotFoundError(
+                        f"Asset not found on server: {asset_name}"
+                    ) from e
+                raise
 
             if resumed_bytes and response.status_code == 206:
                 # Server honored the range: append the remaining bytes
@@ -229,19 +245,28 @@ class DownloadManager:
         except OSError as e:
             raise DownloadError(f"Failed to download {asset_name}: {e}") from e
 
-    def download_single_asset(self, asset_name: str, validate: bool = True) -> bool:
-        """Download a single asset, returning True on success."""
+    def _download_with_status(self, asset_name: str, validate: bool = True) -> str:
+        """Download one asset; returns "ok", "not_found" or "failed"."""
         try:
             with self.logger.time_operation(f"download_{asset_name}"):
                 self._fetch_asset(asset_name, validate=validate)
             with self._stats_lock:
                 self._download_stats["files_downloaded"] += 1
-            return True
+            return "ok"
+        except AssetNotFoundError as e:
+            self.logger.warning(f"Skipping {e}")
+            with self._stats_lock:
+                self._download_stats["files_skipped"] += 1
+            return "not_found"
         except DownloadError as e:
             self.logger.error(str(e))
             with self._stats_lock:
                 self._download_stats["files_failed"] += 1
-            return False
+            return "failed"
+
+    def download_single_asset(self, asset_name: str, validate: bool = True) -> bool:
+        """Download a single asset, returning True on success."""
+        return self._download_with_status(asset_name, validate=validate) == "ok"
 
     def download_weapon_list(self, force_update: bool = False) -> Path:
         """Download the weapon list asset (spider_gen.unity3d)."""
@@ -268,23 +293,27 @@ class DownloadManager:
 
         to_download = []
 
-        with ThreadPoolExecutor(
-            max_workers=min(self.config.max_threads, len(weapon_list))
-        ) as executor:
-            future_to_weapon = {
-                executor.submit(self.check_asset_needs_update, weapon): weapon
-                for weapon in weapon_list
-            }
+        with self.logger.create_task_progress() as progress:
+            task = progress.add_task("Checking updates", total=len(weapon_list))
 
-            for future in as_completed(future_to_weapon):
-                weapon = future_to_weapon[future]
-                try:
-                    if future.result():
+            with ThreadPoolExecutor(
+                max_workers=min(self.config.max_threads, len(weapon_list))
+            ) as executor:
+                future_to_weapon = {
+                    executor.submit(self.check_asset_needs_update, weapon): weapon
+                    for weapon in weapon_list
+                }
+
+                for future in as_completed(future_to_weapon):
+                    weapon = future_to_weapon[future]
+                    try:
+                        if future.result():
+                            to_download.append(weapon)
+                    except Exception as e:
+                        self.logger.debug(f"Failed to check update for {weapon}: {e}")
+                        # If we can't check, assume it needs update
                         to_download.append(weapon)
-                except Exception as e:
-                    self.logger.debug(f"Failed to check update for {weapon}: {e}")
-                    # If we can't check, assume it needs update
-                    to_download.append(weapon)
+                    progress.update(task, advance=1)
 
         self.logger.info(
             f"Update check: {len(to_download)} of {len(weapon_list)} assets need updates"
@@ -294,7 +323,11 @@ class DownloadManager:
     def download_assets(
         self, weapon_list: list[str], check_updates: bool = True
     ) -> tuple[list[str], list[str]]:
-        """Download multiple assets in parallel and return (successful, failed)."""
+        """Download multiple assets in parallel and return (successful, failed).
+
+        Assets missing on the server (HTTP 404) are skipped with a warning
+        and do not count as failures.
+        """
         if not weapon_list:
             return [], []
 
@@ -308,6 +341,7 @@ class DownloadManager:
 
         successful: list[str] = []
         failed: list[str] = []
+        skipped = 0
         max_workers = min(self.config.max_threads, len(to_download))
 
         with self.logger.create_task_progress() as progress:
@@ -315,25 +349,40 @@ class DownloadManager:
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_weapon = {
-                    executor.submit(self.download_single_asset, weapon): weapon
+                    executor.submit(self._download_with_status, weapon): weapon
                     for weapon in to_download
                 }
 
                 for future in as_completed(future_to_weapon):
                     weapon = future_to_weapon[future]
                     try:
-                        if future.result():
+                        status = future.result()
+                        if status == "ok":
                             successful.append(weapon)
+                        elif status == "not_found":
+                            skipped += 1
                         else:
                             failed.append(weapon)
                     except Exception as e:
                         self.logger.error(f"Failed to download {weapon}: {e}")
                         failed.append(weapon)
+
+                    if failed or skipped:
+                        progress.update(
+                            task,
+                            description=(
+                                f"Downloading assets ({len(failed)} failed, "
+                                f"{skipped} missing)"
+                            ),
+                        )
                     progress.update(task, advance=1)
 
-        self.logger.info(
-            f"Download completed: {len(successful)} successful, {len(failed)} failed"
-        )
+        summary = f"Download completed: {len(successful)} successful"
+        if skipped:
+            summary += f", {skipped} missing on server (skipped)"
+        if failed:
+            summary += f", {len(failed)} failed"
+        self.logger.info(summary)
         return successful, failed
 
     def download_assets_batched(

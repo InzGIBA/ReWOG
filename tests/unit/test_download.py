@@ -351,3 +351,47 @@ class TestDownloadManager:
         assert manager.get_download_stats()["files_downloaded"] == len(
             sample_weapon_list
         )
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_missing_asset_skipped_not_failed(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        """A 404 asset is skipped with a warning instead of failing the batch."""
+        not_found_response = Mock()
+        not_found_response.status_code = 404
+        not_found_response.headers = {}
+        not_found_response.iter_content.return_value = []
+        not_found_response.raise_for_status.side_effect = requests.HTTPError(
+            "404 Client Error: Not Found"
+        )
+
+        ok_response = Mock()
+        ok_response.status_code = 200
+        ok_response.headers = {"Content-Length": "19"}
+        ok_response.iter_content.return_value = [b"UnityFS", b" mock bundle"]
+        ok_response.raise_for_status.return_value = None
+
+        def get_response(url: str, **kwargs: object) -> Mock:
+            if "missing" in url:
+                return not_found_response
+            return ok_response
+
+        mock_get.side_effect = get_response
+
+        with DownloadManager(test_config) as manager:
+            successful, failed = manager.download_assets(
+                ["ak74n", "missing_gun"], check_updates=False
+            )
+
+        assert successful == ["ak74n"]
+        assert failed == []  # 404 is not a failure that should stop batches
+        stats = manager.get_download_stats()
+        assert stats["files_skipped"] == 1
+        assert stats["files_failed"] == 0
+
+    def test_asset_not_found_error_is_download_error(
+        self, test_config: WOGConfig
+    ) -> None:
+        from wog_dump.core.download import AssetNotFoundError, DownloadError
+
+        assert issubclass(AssetNotFoundError, DownloadError)

@@ -6,7 +6,7 @@ import click
 
 from ..core.database import WOGDatabase
 from ..core.download import DownloadManager
-from .errors import error_handler
+from .errors import error_handler, print_banner_if_standalone
 
 
 @click.command()
@@ -37,7 +37,7 @@ def cache(
     config = ctx.obj["config"]
 
     with error_handler("Cache management"):
-        logger.print_banner()
+        print_banner_if_standalone(ctx)
 
         db = WOGDatabase(config)
 

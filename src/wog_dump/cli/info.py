@@ -9,6 +9,7 @@ from ..core.config import WOGConfig
 from ..core.database import WOGDatabase
 from ..utils.logging import WOGLogger
 from .decrypt import validate_decrypted_files
+from .errors import print_banner_if_standalone
 
 
 @click.command()
@@ -24,7 +25,7 @@ def info(ctx: click.Context, show_performance: bool, validate_files: bool) -> No
     logger = ctx.obj["logger"]
     config = ctx.obj["config"]
 
-    logger.print_banner()
+    print_banner_if_standalone(ctx)
 
     # Configuration info
     config_data = [

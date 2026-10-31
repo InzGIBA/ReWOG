@@ -11,7 +11,7 @@ from ..core.download import DownloadManager
 from ..core.keys import KeyManager
 from ..core.unpack import WeaponListProcessor
 from ..utils.logging import get_logger
-from .errors import error_handler
+from .errors import error_handler, print_banner_if_standalone
 
 
 def _load_weapon_list(config: WOGConfig, weapons: str | None) -> list[str]:
@@ -49,7 +49,7 @@ def download_weapons(ctx: click.Context, force: bool, validate: bool) -> None:
     config = ctx.obj["config"]
 
     with error_handler("Weapon list download"):
-        logger.print_banner()
+        print_banner_if_standalone(ctx)
 
         with logger.operation_context("download_weapons", "weapon list download"):
             with DownloadManager(config) as downloader:
@@ -82,8 +82,9 @@ def _update_keys(config: WOGConfig, weapon_list: list[str]) -> dict[str, str] | 
         key_manager = KeyManager(config)
         fetched = key_manager.fetch_keys_parallel(weapon_list)
         if fetched:
-            # Merge: a partial fetch must never drop existing keys
-            merged = {**key_manager.load_keys(), **fetched}
+            # Merge: a partial fetch must never drop existing keys; quiet -
+            # an empty store is expected here and not worth a warning
+            merged = {**key_manager.load_keys(quiet=True), **fetched}
             key_manager.save_keys(merged)
             return merged
         return None
@@ -128,7 +129,7 @@ def download_assets(
     config = ctx.obj["config"]
 
     with error_handler("Asset download"):
-        logger.print_banner()
+        print_banner_if_standalone(ctx)
 
         weapon_list = _load_weapon_list(config, weapons)
 

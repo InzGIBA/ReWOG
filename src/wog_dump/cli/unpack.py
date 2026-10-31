@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from ..core.unpack import AssetUnpacker
-from .errors import error_handler
+from .errors import error_handler, print_banner_if_standalone
 
 
 @click.command()
@@ -50,7 +50,7 @@ def unpack_assets(
     config = ctx.obj["config"]
 
     with error_handler("Asset unpacking"):
-        logger.print_banner()
+        print_banner_if_standalone(ctx)
 
         # Set directories
         if input_dir is None:

@@ -1,4 +1,4 @@
-# 🔫 ReWOG / v2.4
+# 🔫 ReWOG / v2.5
 
 ![World of Guns](https://cdn.cloudflare.steamstatic.com/steam/apps/262410/library_hero.jpg)
 
@@ -20,7 +20,7 @@
 ## 📋 Table of Contents
 
 - [📙 Description](#-description)
-- [✨ What's New in v2.4](#-whats-new-in-v24)
+- [✨ What's New in v2.5](#-whats-new-in-v25)
 - [🔗 Requirements](#-requirements)
 - [🚀 Installation](#-installation)
 - [🪄 How it Works](#-how-it-works)
@@ -37,17 +37,18 @@
 
 ## 📙 Description
 
-WOG Dump is a modern, completely refactored Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). This v2.4 release features the updated `query2026` game protocol, per-user credential storage, and login with your own game account.
+WOG Dump is a modern, completely refactored Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). The v2.5 release adds one-command Blender scene export on top of the v2.4 `query2026` protocol, per-user credential storage and game-account login.
 
 > 🎆 **Educational Tool**: Designed for 3D model enthusiasts, modders, and researchers interested in studying game assets and 3D modeling techniques.
 
-### ✨ What's New in v2.4
+### ✨ What's New in v2.5
 
-- 🔬 **query2026 protocol** - targets the current game API (game `2.2.3u9`, Unity 6); automatic re-login on session rejection
-- 🔐 **No secrets in the repo** - bundled keys and captured credentials removed; data lives in a per-user SQLite database
-- 🧑‍💻 **`wog-dump login` / `logout`** - use your own game account (email + password) to fetch keys
-- 🗝️ **MITM key capture workflow** - import keys/identity from mitmproxy or Fiddler captures (`scripts/extract_keys.py`)
-- ⚙️ **`.env` configuration** - credentials and endpoint overrides without touching the shell profile
+- 🎬 **`wog-dump build-scene`** - rebuilds the in-game assembled weapon as a Blender-ready glTF scene: exact part hierarchy and positions, game materials with textures, camera and studio lighting, real-world scale
+- 🧹 **No extra objects** - UI arrows, cutaway meshes, muzzle-flash effects and animation dummies are classified and skipped (`--extras` exports them on request)
+- 🖥️ **One-click Blender setup** - a generated `blender_setup.py` imports the scene, sorts collections and saves a `.blend`
+- 🔬 **query2026 protocol** (v2.4) - targets the current game API (game `2.2.3u9`, Unity 6); automatic re-login on session rejection
+- 🔐 **No secrets in the repo** (v2.4) - bundled keys and captured credentials removed; data lives in a per-user SQLite database
+- 🧑‍💻 **`wog-dump login` / `logout`** (v2.4) - use your own game account (email + password) to fetch keys
 - 🧪 **Live tests** - `pytest -m live` verifies fetch/download/decrypt against the real servers
 
 ## 🔗 Requirements
@@ -155,7 +156,7 @@ wog-dump convert-normals ./unpacked --recursive
 
 ### Command Line Interface
 
-WOG Dump v2.4 provides a comprehensive CLI with multiple commands:
+WOG Dump v2.5 provides a comprehensive CLI with multiple commands:
 
 ```bash
 # Get help for any command

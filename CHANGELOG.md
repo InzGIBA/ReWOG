@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-01
+
 ### 🎬 Blender scene export
 
 - **New `wog-dump build-scene <weapons>` command**: rebuilds the in-game assembled weapon as a glTF 2.0 scene ready for Blender - the full GameObject/Transform hierarchy with the exact local positions/rotations the game uses, every part covered with its game materials (atlas textures + flat colors), a fitted camera and a three-point studio light rig, all in one `runtime/scenes/<weapon>/<weapon>.glb`

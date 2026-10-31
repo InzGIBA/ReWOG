@@ -1,4 +1,9 @@
-"""Asset unpacking for WOG Dump with Unity asset processing."""
+"""Asset unpacking for WOG Dump with Unity asset processing.
+
+Each supported Unity object type is handled by an ``AssetExtractor``
+subclass registered in ``EXTRACTORS``; ``AssetUnpacker`` walks the
+objects of a bundle and delegates to the matching extractor.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +29,248 @@ class AssetProcessingError(UnpackError):
     """Raised when asset processing fails."""
 
     pass
+
+
+class AssetExtractor:
+    """Base class for per-type Unity object extractors.
+
+    Subclasses set ``obj_type`` to the Unity type name they handle and
+    implement ``_extract_data`` returning the written file (or None when
+    the object should be skipped). Read/name-check/error handling is
+    shared here.
+    """
+
+    obj_type: str = ""
+
+    def __init__(self) -> None:
+        self.logger = get_logger()
+
+    def extract(self, obj: Any, output_dir: Path) -> Path | None:
+        """Read an object and write its extracted form to output_dir."""
+        try:
+            data = obj.read()
+            if not data.m_Name:
+                return None
+            return self._extract_data(data, output_dir)
+        except Exception as e:
+            self.logger.debug(f"{self.obj_type or 'Object'} extraction failed: {e}")
+            return None
+
+    def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        """Write the object's payload; returns the output path or None."""
+        raise NotImplementedError
+
+
+class TextAssetExtractor(AssetExtractor):
+    """Writes TextAsset payloads with a content-based extension."""
+
+    obj_type = "TextAsset"
+
+    def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        if not (hasattr(data, "m_Script") and data.m_Script):
+            return None
+
+        content = data.m_Script
+
+        # Detect content type
+        if isinstance(content, bytes):
+            # Try to determine if it's text or binary
+            try:
+                text_content = content.decode("utf-8")
+                is_text = True
+            except UnicodeDecodeError:
+                is_text = False
+        else:
+            text_content = str(content)
+            is_text = True
+
+        # Choose extension and write method
+        if is_text:
+            if text_content.strip().startswith("{") or text_content.strip().startswith(
+                "["
+            ):
+                extension = ".json"
+            elif text_content.strip().startswith("<"):
+                extension = ".xml"
+            else:
+                extension = ".txt"
+
+            output_path = output_dir / f"{data.m_Name}{extension}"
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(text_content)
+        else:
+            extension = ".bytes"
+            output_path = output_dir / f"{data.m_Name}{extension}"
+            with open(output_path, "wb") as f:
+                f.write(content)
+
+        return output_path
+
+
+class Texture2DExtractor(AssetExtractor):
+    """Renders Texture2D objects to PNG."""
+
+    obj_type = "Texture2D"
+
+    def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        # Get the image data
+        image = data.image
+        if not image:
+            return None
+
+        output_path = output_dir / f"{data.m_Name}.png"
+        image.save(output_path)
+        return output_path
+
+
+class MeshExtractor(AssetExtractor):
+    """Writes Mesh objects as a basic OBJ file."""
+
+    obj_type = "Mesh"
+
+    def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        output_path = output_dir / f"{data.m_Name}.obj"
+
+        with open(output_path, "w") as f:
+            f.write(f"# Mesh: {data.m_Name}\n")
+            f.write("# Exported from WOG Dump\n\n")
+
+            # Write vertex data if available
+            if hasattr(data, "m_Vertices") and data.m_Vertices:
+                for vertex in data.m_Vertices:
+                    f.write(f"v {vertex.x} {vertex.y} {vertex.z}\n")
+
+            # Write UV coordinates if available
+            if hasattr(data, "m_UV") and data.m_UV:
+                for uv in data.m_UV:
+                    f.write(f"vt {uv.x} {uv.y}\n")
+
+            # Write normals if available
+            if hasattr(data, "m_Normals") and data.m_Normals:
+                for normal in data.m_Normals:
+                    f.write(f"vn {normal.x} {normal.y} {normal.z}\n")
+
+            # Write faces if available
+            if hasattr(data, "m_Triangles") and data.m_Triangles:
+                triangles = data.m_Triangles
+                for i in range(0, len(triangles), 3):
+                    if i + 2 < len(triangles):
+                        f.write(
+                            f"f {triangles[i]+1} {triangles[i+1]+1} {triangles[i+2]+1}\n"
+                        )
+
+        return output_path
+
+
+class MaterialExtractor(AssetExtractor):
+    """Dumps Material objects as JSON."""
+
+    obj_type = "Material"
+
+    def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        output_path = output_dir / f"{data.m_Name}.material.json"
+
+        material_data = {
+            "name": data.m_Name,
+            "shader": getattr(data, "m_Shader", {}).get("m_Name", "Unknown"),
+            "properties": {},
+        }
+
+        # Extract material properties if available
+        if hasattr(data, "m_SavedProperties"):
+            props = data.m_SavedProperties
+
+            # Colors
+            if hasattr(props, "m_Colors"):
+                for color_prop in props.m_Colors:
+                    material_data["properties"][color_prop["first"]] = {
+                        "type": "color",
+                        "value": [
+                            color_prop["second"]["r"],
+                            color_prop["second"]["g"],
+                            color_prop["second"]["b"],
+                            color_prop["second"]["a"],
+                        ],
+                    }
+
+            # Floats
+            if hasattr(props, "m_Floats"):
+                for float_prop in props.m_Floats:
+                    material_data["properties"][float_prop["first"]] = {
+                        "type": "float",
+                        "value": float_prop["second"],
+                    }
+
+            # Textures
+            if hasattr(props, "m_TexEnvs"):
+                for tex_prop in props.m_TexEnvs:
+                    material_data["properties"][tex_prop["first"]] = {
+                        "type": "texture",
+                        "texture_name": tex_prop["second"]["m_Texture"].get(
+                            "m_Name", "None"
+                        ),
+                    }
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(material_data, f, indent=2)
+
+        return output_path
+
+
+class AnimationClipExtractor(AssetExtractor):
+    """Dumps AnimationClip metadata as JSON."""
+
+    obj_type = "AnimationClip"
+
+    def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        output_path = output_dir / f"{data.m_Name}.anim.json"
+
+        anim_data = {
+            "name": data.m_Name,
+            "length": getattr(data, "m_Length", 0),
+            "frame_rate": getattr(data, "m_FrameRate", 0),
+            "legacy": getattr(data, "m_Legacy", False),
+        }
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(anim_data, f, indent=2)
+
+        return output_path
+
+
+class AudioClipExtractor(AssetExtractor):
+    """Dumps AudioClip metadata as JSON."""
+
+    obj_type = "AudioClip"
+
+    def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        output_path = output_dir / f"{data.m_Name}.audio.json"
+
+        audio_data = {
+            "name": data.m_Name,
+            "format": getattr(data, "m_Format", "Unknown"),
+            "frequency": getattr(data, "m_Frequency", 0),
+            "channels": getattr(data, "m_Channels", 0),
+        }
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(audio_data, f, indent=2)
+
+        return output_path
+
+
+# Registry: Unity object type name -> extractor instance
+EXTRACTORS: dict[str, AssetExtractor] = {
+    extractor.obj_type: extractor
+    for extractor in (
+        TextAssetExtractor(),
+        Texture2DExtractor(),
+        MeshExtractor(),
+        MaterialExtractor(),
+        AnimationClipExtractor(),
+        AudioClipExtractor(),
+    )
+}
 
 
 class WeaponListProcessor:
@@ -181,17 +428,7 @@ class WeaponListProcessor:
 
 
 class AssetUnpacker:
-    """Enhanced Unity asset unpacker with support for multiple object types."""
-
-    # Supported Unity object types and their handlers
-    SUPPORTED_TYPES = {
-        "TextAsset": "_extract_text_asset",
-        "Texture2D": "_extract_texture",
-        "Mesh": "_extract_mesh",
-        "Material": "_extract_material",
-        "AnimationClip": "_extract_animation",
-        "AudioClip": "_extract_audio",
-    }
+    """Unity asset unpacker dispatching to per-type extractors."""
 
     def __init__(self, config: WOGConfig | None = None) -> None:
         self.config = config or get_config()
@@ -217,7 +454,7 @@ class AssetUnpacker:
             output_dir = asset_path.parent / "unpacked" / asset_path.stem
 
         if extract_types is None:
-            extract_types = list(self.SUPPORTED_TYPES.keys())
+            extract_types = list(EXTRACTORS)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         extracted_files = []
@@ -228,33 +465,19 @@ class AssetUnpacker:
 
                 for obj in env.objects:
                     self._extraction_stats["objects_processed"] += 1
+                    obj_type = obj.type.name
 
-                    if obj.type.name not in extract_types:
+                    if obj_type not in extract_types or obj_type not in EXTRACTORS:
                         self._extraction_stats["objects_skipped"] += 1
                         continue
 
-                    if obj.type.name not in self.SUPPORTED_TYPES:
+                    extracted_file = EXTRACTORS[obj_type].extract(obj, output_dir)
+
+                    if extracted_file:
+                        extracted_files.append(extracted_file)
+                        self._extraction_stats["objects_extracted"] += 1
+                    else:
                         self._extraction_stats["objects_skipped"] += 1
-                        continue
-
-                    try:
-                        # Get the extraction method
-                        extract_method = getattr(
-                            self, self.SUPPORTED_TYPES[obj.type.name]
-                        )
-                        extracted_file = extract_method(obj, output_dir)
-
-                        if extracted_file:
-                            extracted_files.append(extracted_file)
-                            self._extraction_stats["objects_extracted"] += 1
-                        else:
-                            self._extraction_stats["objects_skipped"] += 1
-
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Failed to extract object {obj.type.name}: {e}"
-                        )
-                        self._extraction_stats["objects_failed"] += 1
 
                 self.logger.info(
                     f"Unpacked {asset_path.name}: {len(extracted_files)} files extracted"
@@ -265,233 +488,6 @@ class AssetUnpacker:
             raise AssetProcessingError(
                 f"Failed to unpack asset {asset_path}: {e}"
             ) from e
-
-    def _extract_text_asset(self, obj: Any, output_dir: Path) -> Path | None:
-        """Extract TextAsset objects."""
-        try:
-            data = obj.read()
-            if not data.m_Name:
-                return None
-
-            # Determine appropriate extension based on content
-            if hasattr(data, "m_Script") and data.m_Script:
-                content = data.m_Script
-
-                # Detect content type
-                if isinstance(content, bytes):
-                    # Try to determine if it's text or binary
-                    try:
-                        text_content = content.decode("utf-8")
-                        is_text = True
-                    except UnicodeDecodeError:
-                        is_text = False
-                else:
-                    text_content = str(content)
-                    is_text = True
-
-                # Choose extension and write method
-                if is_text:
-                    if text_content.strip().startswith(
-                        "{"
-                    ) or text_content.strip().startswith("["):
-                        extension = ".json"
-                    elif text_content.strip().startswith("<"):
-                        extension = ".xml"
-                    else:
-                        extension = ".txt"
-
-                    output_path = output_dir / f"{data.m_Name}{extension}"
-                    with open(output_path, "w", encoding="utf-8") as f:
-                        f.write(text_content)
-                else:
-                    extension = ".bytes"
-                    output_path = output_dir / f"{data.m_Name}{extension}"
-                    with open(output_path, "wb") as f:
-                        f.write(content)
-
-                return output_path
-
-        except Exception as e:
-            self.logger.debug(f"TextAsset extraction failed: {e}")
-
-        return None
-
-    def _extract_texture(self, obj: Any, output_dir: Path) -> Path | None:
-        """Extract Texture2D objects."""
-        try:
-            data = obj.read()
-            if not data.m_Name:
-                return None
-
-            # Get the image data
-            image = data.image
-            if image:
-                output_path = output_dir / f"{data.m_Name}.png"
-                image.save(output_path)
-                return output_path
-
-        except Exception as e:
-            self.logger.debug(f"Texture extraction failed: {e}")
-
-        return None
-
-    def _extract_mesh(self, obj: Any, output_dir: Path) -> Path | None:
-        """Extract Mesh objects (basic implementation)."""
-        try:
-            data = obj.read()
-            if not data.m_Name:
-                return None
-
-            # Basic mesh data extraction
-            output_path = output_dir / f"{data.m_Name}.obj"
-
-            with open(output_path, "w") as f:
-                f.write(f"# Mesh: {data.m_Name}\n")
-                f.write("# Exported from WOG Dump\n\n")
-
-                # Write vertex data if available
-                if hasattr(data, "m_Vertices") and data.m_Vertices:
-                    for vertex in data.m_Vertices:
-                        f.write(f"v {vertex.x} {vertex.y} {vertex.z}\n")
-
-                # Write UV coordinates if available
-                if hasattr(data, "m_UV") and data.m_UV:
-                    for uv in data.m_UV:
-                        f.write(f"vt {uv.x} {uv.y}\n")
-
-                # Write normals if available
-                if hasattr(data, "m_Normals") and data.m_Normals:
-                    for normal in data.m_Normals:
-                        f.write(f"vn {normal.x} {normal.y} {normal.z}\n")
-
-                # Write faces if available
-                if hasattr(data, "m_Triangles") and data.m_Triangles:
-                    triangles = data.m_Triangles
-                    for i in range(0, len(triangles), 3):
-                        if i + 2 < len(triangles):
-                            f.write(
-                                f"f {triangles[i]+1} {triangles[i+1]+1} {triangles[i+2]+1}\n"
-                            )
-
-            return output_path
-
-        except Exception as e:
-            self.logger.debug(f"Mesh extraction failed: {e}")
-
-        return None
-
-    def _extract_material(self, obj: Any, output_dir: Path) -> Path | None:
-        """Extract Material objects as JSON."""
-        try:
-            data = obj.read()
-            if not data.m_Name:
-                return None
-
-            output_path = output_dir / f"{data.m_Name}.material.json"
-
-            material_data = {
-                "name": data.m_Name,
-                "shader": getattr(data, "m_Shader", {}).get("m_Name", "Unknown"),
-                "properties": {},
-            }
-
-            # Extract material properties if available
-            if hasattr(data, "m_SavedProperties"):
-                props = data.m_SavedProperties
-
-                # Colors
-                if hasattr(props, "m_Colors"):
-                    for color_prop in props.m_Colors:
-                        material_data["properties"][color_prop["first"]] = {
-                            "type": "color",
-                            "value": [
-                                color_prop["second"]["r"],
-                                color_prop["second"]["g"],
-                                color_prop["second"]["b"],
-                                color_prop["second"]["a"],
-                            ],
-                        }
-
-                # Floats
-                if hasattr(props, "m_Floats"):
-                    for float_prop in props.m_Floats:
-                        material_data["properties"][float_prop["first"]] = {
-                            "type": "float",
-                            "value": float_prop["second"],
-                        }
-
-                # Textures
-                if hasattr(props, "m_TexEnvs"):
-                    for tex_prop in props.m_TexEnvs:
-                        material_data["properties"][tex_prop["first"]] = {
-                            "type": "texture",
-                            "texture_name": tex_prop["second"]["m_Texture"].get(
-                                "m_Name", "None"
-                            ),
-                        }
-
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(material_data, f, indent=2)
-
-            return output_path
-
-        except Exception as e:
-            self.logger.debug(f"Material extraction failed: {e}")
-
-        return None
-
-    def _extract_animation(self, obj: Any, output_dir: Path) -> Path | None:
-        """Extract AnimationClip objects (placeholder)."""
-        try:
-            data = obj.read()
-            if not data.m_Name:
-                return None
-
-            output_path = output_dir / f"{data.m_Name}.anim.json"
-
-            anim_data = {
-                "name": data.m_Name,
-                "length": getattr(data, "m_Length", 0),
-                "frame_rate": getattr(data, "m_FrameRate", 0),
-                "legacy": getattr(data, "m_Legacy", False),
-            }
-
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(anim_data, f, indent=2)
-
-            return output_path
-
-        except Exception as e:
-            self.logger.debug(f"Animation extraction failed: {e}")
-
-        return None
-
-    def _extract_audio(self, obj: Any, output_dir: Path) -> Path | None:
-        """Extract AudioClip objects (placeholder)."""
-        try:
-            data = obj.read()
-            if not data.m_Name:
-                return None
-
-            # For now, just create a metadata file
-            output_path = output_dir / f"{data.m_Name}.audio.json"
-
-            audio_data = {
-                "name": data.m_Name,
-                "format": getattr(data, "m_Format", "Unknown"),
-                "frequency": getattr(data, "m_Frequency", 0),
-                "channels": getattr(data, "m_Channels", 0),
-            }
-
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(audio_data, f, indent=2)
-
-            return output_path
-
-        except Exception as e:
-            self.logger.debug(f"Audio extraction failed: {e}")
-
-        return None
 
     def unpack_multiple_assets(
         self,
@@ -627,11 +623,7 @@ class AssetUnpacker:
                 "total_objects": len(info["objects"]),
                 "type_distribution": info["types"],
                 "extractable_objects": len(
-                    [
-                        obj
-                        for obj in info["objects"]
-                        if obj["type"] in self.SUPPORTED_TYPES
-                    ]
+                    [obj for obj in info["objects"] if obj["type"] in EXTRACTORS]
                 ),
             }
 

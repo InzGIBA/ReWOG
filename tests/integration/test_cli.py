@@ -150,7 +150,7 @@ class TestCLIIntegration:
         assert result.exit_code == 0
         # Debug mode should enable more verbose output
 
-    @patch("wog_dump.cli.main.AuthManager")
+    @patch("wog_dump.cli.auth.AuthManager")
     def test_login_command(self, mock_auth: Mock) -> None:
         """Test the login command stores credentials via AuthManager."""
         from wog_dump.core.auth import Identity

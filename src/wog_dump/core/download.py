@@ -1,7 +1,12 @@
-"""Asset downloading for WOG Dump."""
+"""Asset downloading for WOG Dump.
+
+Downloads are resumable (HTTP Range), rate-limited and run in parallel;
+every file lands in place atomically via temp-file + rename.
+"""
 
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -10,7 +15,7 @@ import requests
 
 from ..utils.logging import get_logger
 from .config import WOGConfig, get_config
-from .http import create_session
+from .http import RateLimiter, create_session
 
 # Assets served from a subdirectory of the data server
 SUBDIRECTORY_ASSETS = {"spider_gen": "spider"}
@@ -37,6 +42,8 @@ class DownloadManager:
         self.config = config or get_config()
         self.logger = get_logger()
         self.session = create_session(self.config)
+        self._rate_limiter = RateLimiter(self.config.request_delay)
+        self._stats_lock = threading.Lock()
         self._download_stats = {
             "total_bytes": 0,
             "files_downloaded": 0,
@@ -55,11 +62,27 @@ class DownloadManager:
         """Local path where an asset is stored."""
         return self.config.assets_dir / f"{asset_name}.unity3d"
 
-    def validate_asset(self, asset_path: Path) -> bool:
-        """Validate asset file integrity."""
+    def validate_asset(
+        self, asset_path: Path, expected_size: int | None = None
+    ) -> bool:
+        """Validate asset file integrity.
+
+        When the server-declared size is known, an exact match is required -
+        a stronger check than any content heuristic. Otherwise fall back to
+        Unity signature detection with a minimum-size floor.
+        """
         try:
             if not asset_path.exists() or asset_path.stat().st_size == 0:
                 return False
+
+            if expected_size is not None:
+                if asset_path.stat().st_size != expected_size:
+                    self.logger.warning(
+                        f"Asset size mismatch for {asset_path}: expected "
+                        f"{expected_size}, got {asset_path.stat().st_size}"
+                    )
+                    return False
+                return True
 
             with open(asset_path, "rb") as f:
                 header = f.read(100)
@@ -83,6 +106,7 @@ class DownloadManager:
     def get_asset_size(self, asset_name: str) -> int:
         """Get the size of an asset from the server (0 when unavailable)."""
         try:
+            self._rate_limiter.wait()
             response = self.session.head(
                 self.asset_url(asset_name), timeout=self.config.request_timeout
             )
@@ -118,29 +142,73 @@ class DownloadManager:
 
         Downloads to a temporary file first, optionally validates it and only
         then moves it into place, so interrupted downloads never leave a
-        partial asset behind.
+        partial asset behind. When a partial temp file exists and the server
+        supports ranges, the download resumes from where it stopped.
 
         Raises DownloadError on failure.
         """
         asset_path = self.asset_path(asset_name)
         temp_path = asset_path.with_suffix(".tmp")
 
+        self._rate_limiter.wait()
+
         try:
+            resumed_bytes = temp_path.stat().st_size if temp_path.exists() else 0
+
+            headers = {"Range": f"bytes={resumed_bytes}-"} if resumed_bytes else None
             response = self.session.get(
                 self.asset_url(asset_name),
                 stream=True,
                 timeout=self.config.request_timeout,
+                headers=headers,
             )
             response.raise_for_status()
 
-            downloaded = 0
-            with open(temp_path, "wb") as f:
+            if resumed_bytes and response.status_code == 206:
+                # Server honored the range: append the remaining bytes
+                mode = "ab"
+                self.logger.debug(f"Resuming {asset_name} at byte {resumed_bytes:,}")
+                content_length = int(response.headers.get("Content-Length", 0))
+                expected_size = (
+                    resumed_bytes + content_length if content_length else None
+                )
+            else:
+                # Fresh download, or the server ignored the range request
+                mode = "wb"
+                resumed_bytes = 0
+                content_length = int(response.headers.get("Content-Length", 0))
+                expected_size = content_length or None
+
+            downloaded = resumed_bytes
+            with open(temp_path, mode) as f:
                 for chunk in response.iter_content(chunk_size=self.config.chunk_size):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
 
-            if validate and not self.validate_asset(temp_path):
+            # Transfer integrity: the final file must match the declared size
+            if expected_size is not None:
+                actual_size = temp_path.stat().st_size
+                if actual_size != expected_size:
+                    if resumed_bytes:
+                        # The server file likely changed since the partial
+                        # download; restart once from scratch
+                        self.logger.warning(
+                            f"Resumed download of {asset_name} does not match the "
+                            f"server file, restarting"
+                        )
+                        temp_path.unlink(missing_ok=True)
+                        return self._fetch_asset(asset_name, validate=validate)
+                    # Truncated transfer: keep the partial file so the next
+                    # attempt can resume instead of starting over
+                    raise ValidationError(
+                        f"Downloaded size {actual_size} does not match "
+                        f"Content-Length {expected_size} for {asset_name}"
+                    )
+
+            if validate and not self.validate_asset(temp_path, expected_size):
+                # A failed validation means corrupt bytes: no point resuming
+                temp_path.unlink(missing_ok=True)
                 raise ValidationError(
                     f"Downloaded asset failed validation: {asset_name}"
                 )
@@ -148,29 +216,31 @@ class DownloadManager:
             asset_path.unlink(missing_ok=True)
             temp_path.rename(asset_path)
 
-            self._download_stats["total_bytes"] += downloaded
+            with self._stats_lock:
+                self._download_stats["total_bytes"] += downloaded
             self.logger.debug(f"Downloaded {asset_name} ({downloaded:,} bytes)")
             return asset_path
 
         except DownloadError:
             raise
         except requests.RequestException as e:
+            # Keep the partial temp file so the next attempt can resume
             raise DownloadError(f"Network error downloading {asset_name}: {e}") from e
         except OSError as e:
             raise DownloadError(f"Failed to download {asset_name}: {e}") from e
-        finally:
-            temp_path.unlink(missing_ok=True)
 
     def download_single_asset(self, asset_name: str, validate: bool = True) -> bool:
         """Download a single asset, returning True on success."""
         try:
             with self.logger.time_operation(f"download_{asset_name}"):
                 self._fetch_asset(asset_name, validate=validate)
-            self._download_stats["files_downloaded"] += 1
+            with self._stats_lock:
+                self._download_stats["files_downloaded"] += 1
             return True
         except DownloadError as e:
             self.logger.error(str(e))
-            self._download_stats["files_failed"] += 1
+            with self._stats_lock:
+                self._download_stats["files_failed"] += 1
             return False
 
     def download_weapon_list(self, force_update: bool = False) -> Path:
@@ -224,7 +294,7 @@ class DownloadManager:
     def download_assets(
         self, weapon_list: list[str], check_updates: bool = True
     ) -> tuple[list[str], list[str]]:
-        """Download multiple assets and return successful and failed lists."""
+        """Download multiple assets in parallel and return (successful, failed)."""
         if not weapon_list:
             return [], []
 
@@ -236,18 +306,30 @@ class DownloadManager:
         else:
             to_download = weapon_list
 
-        successful = []
-        failed = []
+        successful: list[str] = []
+        failed: list[str] = []
+        max_workers = min(self.config.max_threads, len(to_download))
 
-        for weapon in to_download:
-            try:
-                if self.download_single_asset(weapon):
-                    successful.append(weapon)
-                else:
-                    failed.append(weapon)
-            except Exception as e:
-                self.logger.error(f"Failed to download {weapon}: {e}")
-                failed.append(weapon)
+        with self.logger.create_task_progress() as progress:
+            task = progress.add_task("Downloading assets", total=len(to_download))
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_weapon = {
+                    executor.submit(self.download_single_asset, weapon): weapon
+                    for weapon in to_download
+                }
+
+                for future in as_completed(future_to_weapon):
+                    weapon = future_to_weapon[future]
+                    try:
+                        if future.result():
+                            successful.append(weapon)
+                        else:
+                            failed.append(weapon)
+                    except Exception as e:
+                        self.logger.error(f"Failed to download {weapon}: {e}")
+                        failed.append(weapon)
+                    progress.update(task, advance=1)
 
         self.logger.info(
             f"Download completed: {len(successful)} successful, {len(failed)} failed"
@@ -319,7 +401,8 @@ class DownloadManager:
 
     def get_download_stats(self) -> dict[str, int]:
         """Get download statistics."""
-        return self._download_stats.copy()
+        with self._stats_lock:
+            return self._download_stats.copy()
 
     def __enter__(self) -> DownloadManager:
         return self

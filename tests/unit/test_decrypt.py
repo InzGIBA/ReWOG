@@ -10,12 +10,8 @@ import pytest
 
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.database import WOGDatabase
-from wog_dump.core.decrypt import (
-    AssetDecryptor,
-    AuthenticationError,
-    DecryptionError,
-    KeyManager,
-)
+from wog_dump.core.decrypt import AssetDecryptor
+from wog_dump.core.keys import AuthenticationError, DecryptionError, KeyManager
 
 
 class TestKeyManager:

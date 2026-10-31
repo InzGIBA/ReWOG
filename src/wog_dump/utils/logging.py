@@ -15,13 +15,11 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
-    DownloadColumn,
     MofNCompleteColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
     TimeElapsedColumn,
-    TransferSpeedColumn,
 )
 from rich.table import Table
 from rich.text import Text
@@ -191,23 +189,6 @@ class WOGLogger:
 
         self.console.print(text)
 
-    def create_download_progress(self) -> Progress:
-        """Create enhanced progress bar for downloads."""
-        return Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}", justify="right"),
-            BarColumn(bar_width=None),
-            "[progress.percentage]{task.percentage:>3.1f}%",
-            "•",
-            DownloadColumn(),
-            "•",
-            TransferSpeedColumn(),
-            "•",
-            TimeElapsedColumn(),
-            console=self.console,
-            expand=True,
-        )
-
     def create_task_progress(self) -> Progress:
         """Create enhanced progress bar for general tasks."""
         return Progress(
@@ -244,29 +225,6 @@ class WOGLogger:
             table.add_row(*padded_row[: len(headers)])
 
         self.console.print(table)
-
-    def print_error_summary(self, errors: list[str], max_display: int = 10) -> None:
-        """Print error summary with truncation for large lists."""
-        if not errors:
-            return
-
-        panel_content = []
-        display_errors = errors[:max_display]
-
-        for i, error in enumerate(display_errors, 1):
-            panel_content.append(f"{i:2d}. {error}")
-
-        if len(errors) > max_display:
-            panel_content.append(f"... and {len(errors) - max_display} more errors")
-
-        error_panel = Panel(
-            "\n".join(panel_content),
-            title="[bold red]Errors Encountered",
-            border_style="red",
-            padding=(1, 2),
-        )
-
-        self.console.print(error_panel)
 
     def print_performance_summary(self, operations: list[str] | None = None) -> None:
         """Print performance metrics summary."""

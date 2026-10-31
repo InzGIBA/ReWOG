@@ -15,7 +15,7 @@ import requests
 
 from ..utils.logging import get_logger
 from .config import WOGConfig
-from .http import create_session
+from .http import RateLimiter, create_session
 
 
 class ApiError(Exception):
@@ -53,6 +53,7 @@ class WOGApiClient:
         self.config = config
         self.logger = get_logger()
         self.session = session or create_session(self.config)
+        self._rate_limiter = RateLimiter(config.api_request_delay)
 
     def compress_request(self, params: str) -> bytes:
         """Compress request params with the 4-byte length prefix."""
@@ -79,6 +80,7 @@ class WOGApiClient:
         headers = self.config.get_api_headers()
         headers["Content-Length"] = str(len(payload))
 
+        self._rate_limiter.wait()
         try:
             response = self.session.put(
                 f"{self.config.api_base_url}?soc=steam",

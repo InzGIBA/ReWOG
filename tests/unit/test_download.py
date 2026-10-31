@@ -102,7 +102,8 @@ class TestDownloadManager:
         """Test downloading single asset successfully."""
         # Mock response
         mock_response = Mock()
-        mock_response.headers = {"Content-Length": "20"}
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Length": "19"}
         mock_response.iter_content.return_value = [b"UnityFS", b" mock bundle"]
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
@@ -116,6 +117,26 @@ class TestDownloadManager:
         asset_path = test_config.assets_dir / "test_asset.unity3d"
         assert asset_path.exists()
         assert asset_path.read_bytes() == b"UnityFS mock bundle"
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_download_single_asset_size_mismatch(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        """A truncated download (size != Content-Length) fails but stays resumable."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Length": "100"}
+        mock_response.iter_content.return_value = [b"UnityFS", b" partial"]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            success = manager.download_single_asset("test_asset")
+
+        assert success is False
+        # No final asset; the partial temp file is kept so the next run resumes
+        assert not (test_config.assets_dir / "test_asset.unity3d").exists()
+        assert (test_config.assets_dir / "test_asset.tmp").exists()
 
     @patch("wog_dump.core.download.requests.Session.get")
     def test_download_single_asset_failure(
@@ -218,3 +239,115 @@ class TestDownloadManager:
 
         assert successful == []
         assert failed == []
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_download_resumes_partial_file(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        """An interrupted download resumes via a Range request."""
+        # Partial temp file from a previous interrupted run: 8 bytes of 20
+        temp_path = test_config.assets_dir / "test_asset.tmp"
+        temp_path.write_bytes(b"UnityFS\x00")
+
+        remaining = b"rest of bundle"  # 14 bytes -> total 22
+        mock_response = Mock()
+        mock_response.status_code = 206
+        mock_response.headers = {"Content-Length": str(len(remaining))}
+        mock_response.iter_content.return_value = [remaining]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            success = manager.download_single_asset("test_asset")
+
+        assert success is True
+
+        # The Range header asked for the missing bytes
+        _, kwargs = mock_get.call_args
+        assert kwargs["headers"] == {"Range": "bytes=8-"}
+
+        # The final file is prefix + remainder, and no temp file remains
+        asset_path = test_config.assets_dir / "test_asset.unity3d"
+        assert asset_path.read_bytes() == b"UnityFS\x00" + remaining
+        assert not temp_path.exists()
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_download_resume_ignored_by_server(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        """A server answering 200 (no range support) triggers a full redownload."""
+        temp_path = test_config.assets_dir / "test_asset.tmp"
+        temp_path.write_bytes(b"stale partial")
+
+        full_body = b"UnityFS fresh full body"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Length": str(len(full_body))}
+        mock_response.iter_content.return_value = [full_body]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            success = manager.download_single_asset("test_asset")
+
+        assert success is True
+        asset_path = test_config.assets_dir / "test_asset.unity3d"
+        assert asset_path.read_bytes() == full_body
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_network_error_keeps_partial_for_resume(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        """A network failure mid-download leaves the partial file resumable."""
+        temp_path = test_config.assets_dir / "test_asset.tmp"
+        temp_path.write_bytes(b"UnityFS\x00")
+
+        mock_get.side_effect = requests.RequestException("connection reset")
+
+        with DownloadManager(test_config) as manager:
+            success = manager.download_single_asset("test_asset")
+
+        assert success is False
+        # Partial data survives for the next attempt
+        assert temp_path.read_bytes() == b"UnityFS\x00"
+
+    def test_validate_asset_with_expected_size(self, test_config: WOGConfig) -> None:
+        asset_path = test_config.assets_dir / "test_asset.unity3d"
+        asset_path.write_bytes(b"UnityFS bundle data")
+
+        with DownloadManager(test_config) as manager:
+            assert manager.validate_asset(asset_path, expected_size=19) is True
+            assert manager.validate_asset(asset_path, expected_size=999) is False
+
+    def test_validate_asset_signature_fallback(self, test_config: WOGConfig) -> None:
+        with DownloadManager(test_config) as manager:
+            good = test_config.assets_dir / "good.unity3d"
+            good.write_bytes(b"UnityFS signed")
+            assert manager.validate_asset(good) is True
+
+            tiny = test_config.assets_dir / "tiny.unity3d"
+            tiny.write_bytes(b"ab")
+            assert manager.validate_asset(tiny) is False
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_download_assets_parallel(
+        self, mock_get: Mock, test_config: WOGConfig, sample_weapon_list: list[str]
+    ) -> None:
+        """download_assets downloads the pending assets in parallel."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Length": "19"}
+        mock_response.iter_content.return_value = [b"UnityFS", b" mock bundle"]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            manager.check_for_updates = Mock(return_value=list(sample_weapon_list))
+            successful, failed = manager.download_assets(sample_weapon_list)
+
+        assert set(successful) == set(sample_weapon_list)
+        assert failed == []
+        assert mock_get.call_count == len(sample_weapon_list)
+        assert manager.get_download_stats()["files_downloaded"] == len(
+            sample_weapon_list
+        )

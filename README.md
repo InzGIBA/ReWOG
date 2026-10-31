@@ -293,29 +293,37 @@ ReWOG/
 │   ├── core/                        # Core business logic
 │   │   ├── __init__.py             
 │   │   ├── config.py                # Pydantic configuration management
-│   │   ├── download.py              # Multi-threaded asset downloading
-│   │   ├── decrypt.py               # XOR decryption (pure Python)
-│   │   ├── api.py                  # BZ2-over-HTTP query API client
+│   │   ├── http.py                  # Shared HTTP session factory + rate limiting
+│   │   ├── api.py                   # BZ2-over-HTTP query API client
 │   │   ├── auth.py                  # Game-account login and identity
 │   │   ├── database.py              # Local SQLite storage (weapons/keys/auth)
-│   │   └── unpack.py                # Unity asset extraction
+│   │   ├── keys.py                  # Decryption key fetching and caching
+│   │   ├── download.py              # Resumable parallel asset downloading
+│   │   ├── decrypt.py               # XOR decryption (pure Python)
+│   │   ├── unpack.py                # Unity asset extraction (per-type extractors)
+│   │   └── key_import.py            # MITM capture parsing (keys import)
 │   ├── utils/                       # Utility modules
 │   │   ├── __init__.py             
 │   │   ├── logging.py               # Rich-formatted logging
 │   │   └── normal_map.py            # Normal map format conversion
 │   └── cli/                         # Command-line interface
 │       ├── __init__.py             
-│       └── main.py                  # Click-based CLI commands
+│       ├── main.py                  # Click group, global options, main()
+│       ├── errors.py                # Shared CLI error handling
+│       ├── download.py              # download-weapons / download-assets
+│       ├── decrypt.py               # decrypt-assets
+│       ├── unpack.py                # unpack-assets
+│       ├── convert.py               # convert-normals
+│       ├── pipeline.py              # full-pipeline
+│       ├── auth.py                  # login / logout
+│       ├── cache.py                 # cache
+│       └── info.py                  # info
 ├── tests/                           # Comprehensive test suite
-│   ├── __init__.py                 
 │   ├── conftest.py                  # Pytest configuration and fixtures
 │   ├── unit/                        # Unit tests for individual modules
-│   │   ├── test_config.py          
-│   │   ├── test_download.py        
-│   │   └── test_normal_map.py      
-│   └── integration/                 # Integration and end-to-end tests
-│       └── test_cli.py             
-├── docs/                            # Additional documentation
+│   └── integration/                 # CLI end-to-end and live-server tests
+├── docs/                            # configuration.md, architecture.md, database.md, ...
+├── scripts/                         # extract_keys.py (MITM key import)
 ├── CHANGELOG.md                     # Version history and migration guides
 ├── CONTRIBUTING.md                  # Development and contribution guidelines
 ├── README.md                        # This file (main documentation)
@@ -324,7 +332,7 @@ ReWOG/
 
 ## 🔧 Configuration
 
-WOG Dump v2.0 uses Pydantic for robust configuration management:
+WOG Dump uses Pydantic for robust configuration management:
 
 ```python
 # Configuration is automatically managed
@@ -334,6 +342,13 @@ WOG Dump v2.0 uses Pydantic for robust configuration management:
 # View current configuration
 wog-dump info
 ```
+
+In-depth reference:
+
+- **[docs/configuration.md](docs/configuration.md)** — every environment variable, `.env` setup, rate limiting and resumable downloads
+- **[docs/architecture.md](docs/architecture.md)** — how the modules fit together, the extraction pipeline
+- **[docs/database.md](docs/database.md)** — where your keys and credentials live, schema and migration from pre-2.4 files
+- **[docs/mitm-capture.md](docs/mitm-capture.md)** — capturing keys and identity from your own game traffic
 
 ## 🧪 Testing
 
@@ -502,25 +517,62 @@ A: Yes — configure auth in `.env` and run `pytest -m live`. These live tests f
 
 ### Troubleshooting
 
-**Q: I get "Permission denied" errors, what should I do?**
-A: Ensure you have write permissions in the current directory, or specify a different output directory:
+**Q: `No game account configured` when fetching keys**
+A: The key API needs authentication. Either log in once with your game account:
 ```bash
-wog-dump --output-dir /path/to/writable/directory full-pipeline
+wog-dump login
+```
+or put `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (or a captured `WOG_AUTH_ID`/`WOG_AUTH_SESSION`, see [docs/mitm-capture.md](docs/mitm-capture.md)) into `.env`. Check what is configured with `wog-dump cache`.
+
+**Q: `Authentication failed (result=100)`**
+A: The API rejected the account credentials. Verify the email/password pair in the game client itself, then `wog-dump login` again. If you use a captured session, it expired — capture a fresh one or switch to account login.
+
+**Q: Key fetching fails with `Session rejected` (result=1000)**
+A: The stored session expired. WOG Dump re-logins automatically; if the error persists, the stored credentials are outdated — run `wog-dump logout && wog-dump login`.
+
+**Q: `429` / rate-limit errors from the API**
+A: Requests are too frequent. Raise the throttles in `.env`:
+```bash
+WOG_API_REQUEST_DELAY=2.0    # key API (default 0.5s)
+WOG_REQUEST_DELAY=0.5        # asset downloads (default 0.1s)
+```
+
+**Q: `No weapon list found. Run 'download-weapons' first.`**
+A: The database has no weapon list yet:
+```bash
+wog-dump download-weapons
+```
+Coming from a pre-2.4 installation with `runtime/weapons.txt`? Import it once with `wog-dump cache --migrate`.
+
+**Q: `No decryption keys found. Use --update-keys to fetch them.`**
+A: There are no keys in the database. Fetch them for the weapons you need (auth must be configured):
+```bash
+wog-dump decrypt-assets --update-keys
 ```
 
 **Q: The tool seems stuck or very slow, what's wrong?**
 A: Try these steps:
 1. Check your internet connection
-2. Reduce thread count: `--max-threads 2`
-3. Enable verbose logging: `--verbose`
-4. Check available disk space
+2. Reduce thread count: `wog-dump --max-threads 2 download-assets`
+3. Enable verbose logging: `--verbose` (or `--debug` for everything)
+4. Downloads are throttled by design — see `WOG_REQUEST_DELAY` above if you want them faster
+
+**Q: Key API stopped working after a game update (`result=1000` on every request)**
+A: The client version strings are validated server-side. Update them in `.env` to match the current client (find them in the game's installation or a fresh capture):
+```bash
+WOG_GAME_VERSION=2.2.3u9
+WOG_UNITY_VERSION=6000.0.84f1
+```
+
+**Q: Interrupted download — do I have to start over?**
+A: No. Partial downloads are kept as `runtime/assets/*.tmp` and resumed via HTTP `Range` requests on the next run. If a `.tmp` file refuses to go away, delete it to force a fresh download.
 
 **Q: How do I report bugs or request features?**
 A: Please create an issue on GitHub with:
 - Your operating system and Python version
 - Complete error message and traceback
 - Steps to reproduce the problem
-- Output of `wog-dump info --verbose`
+- Output of `wog-dump info`
 
 ## ⚠️ Legal Disclaimer
 

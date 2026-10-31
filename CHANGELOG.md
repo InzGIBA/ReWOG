@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🔁 Reliability
+
+- **Resumable downloads**: interrupted transfers keep their partial data (`runtime/assets/*.tmp`) and the next run continues via an HTTP `Range` request instead of starting over; if the server file changed since, the download restarts automatically
+- **Parallel asset downloads**: `download-assets` now downloads with a thread pool (`--max-threads`) and a live progress bar instead of a sequential loop
+- **Rate limiting**: all requests go through a thread-safe `RateLimiter` - `WOG_REQUEST_DELAY` (downloads, default 0.1s) and `WOG_API_REQUEST_DELAY` (key API, default 0.5s) enforce a minimum interval to keep the game servers happy
+- **Strict download validation**: a downloaded asset must match the server-declared `Content-Length` exactly; the old "accept anything ≥ 20 bytes" heuristic now only applies when the size is unknown
+
+### 🧹 Refactoring
+
+- **CLI split into modules**: the 935-line `cli/main.py` became one module per command group (`cli/download.py`, `cli/decrypt.py`, `cli/unpack.py`, `cli/pipeline.py`, `cli/auth.py`, `cli/cache.py`, `cli/info.py`, `cli/convert.py`, `cli/errors.py`); `cli/main.py` keeps the group, global options and `main()`
+- **`core/keys.py`**: `KeyManager` and the decrypt exception hierarchy moved out of `core/decrypt.py`, which now contains only the XOR asset decryption (`decrypt.py` re-exports the old names, imports keep working)
+- **Extractor registry in `core/unpack.py`**: one `AssetExtractor` subclass per Unity object type (`EXTRACTORS`) replaces the method-name dispatch table; supporting a new Unity type is now a self-contained subclass
+- Removed unused `WOGLogger.create_download_progress`/`print_error_summary`
+
+### 🧪 Testing
+
+- **Unit tests for previously untested modules**: `core/unpack.py` (0% → 92% coverage: all six extractors, weapon-list parsing, filtering, stats), `core/api.py`, `core/http.py`, `utils/logging.py`
+- **Download resume/parallel tests**: Range-request resume, server ignoring ranges, size-mismatch handling, thread-safe rate limiter
+- **Coverage floor**: `fail_under = 75` in `[tool.coverage.report]` keeps regressions visible
+
+### 📚 Documentation
+
+- **`docs/configuration.md`**: every environment variable, auth options, endpoints, rate limiting and resume behavior
+- **`docs/architecture.md`**: module map, pipeline stages, conventions
+- **`docs/database.md`**: SQLite schema, storage locations, migration from pre-2.4 files
+- **README**: realistic Troubleshooting section (auth failures, `result=1000`, rate limits, stale sessions - replacing advice that referenced non-existent CLI options), updated project structure, links to the new docs
+
 ## [2.4.0] - 2026-11-01
 
 ### 🔬 Protocol update (verified against the live client capture, Nov 2026)

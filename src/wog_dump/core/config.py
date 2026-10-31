@@ -88,6 +88,18 @@ class WOGConfig(BaseModel):
         le=300,
         description="Request timeout in seconds",
     )
+    request_delay: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=60.0,
+        description="Minimum interval between asset-server requests in seconds",
+    )
+    api_request_delay: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=60.0,
+        description="Minimum interval between key-API requests in seconds",
+    )
 
     # File Configuration
     data_file: Path = Field(description="Path to unified JSON data file")
@@ -265,9 +277,12 @@ class WOGConfig(BaseModel):
             "WOG_STRICT_MODE": "strict_mode",
             "WOG_ENABLE_BACKUP": "enable_backup",
             "WOG_ENABLE_VALIDATION": "enable_validation",
+            "WOG_REQUEST_DELAY": "request_delay",
+            "WOG_API_REQUEST_DELAY": "api_request_delay",
         }
         bool_fields = {"strict_mode", "enable_backup", "enable_validation"}
         int_fields = {"max_threads"}
+        float_fields = {"request_delay", "api_request_delay"}
 
         kwargs: dict[str, Any] = {}
         for env_key, config_key in env_mapping.items():
@@ -278,6 +293,8 @@ class WOGConfig(BaseModel):
                 kwargs[config_key] = raw.lower() in ("true", "1", "yes", "on")
             elif config_key in int_fields:
                 kwargs[config_key] = int(raw)
+            elif config_key in float_fields:
+                kwargs[config_key] = float(raw)
             else:
                 kwargs[config_key] = raw
 

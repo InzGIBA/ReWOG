@@ -7,18 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-01
+
 ### 🔬 Protocol update (verified against the live client capture, Nov 2026)
 
 - **The key API moved to `query2026.php`** - the old `query2018.php` endpoint answers every request with `result=1000`. Default `api_base_url`, `game_version` (`2.2.3u9`) and `unity_version` (`6000.0.84f1`, Unity 6) now match the current `disasm64.exe` client
 - **`result=1000` reinterpreted**: it means "session rejected", not a generic server error - key fetching now re-logins automatically on it
 - Verified live: the `hash=` request parameter the client sends is not enforced by the server; the `dev` device id is not validated (generated per installation); email login (`query=1`) still exists on the new endpoint
-
-### 🗝️ Added
-
-- **`extract_keys.py --identity`**: imports the captured client identity (id/session/dev) from a mitmproxy dump into the local database and prints ready-to-copy `.env` lines
-- **Capture parsing handles IP-connected traffic**: the game client connects to the API by raw IP address, so captures are now matched by query-endpoint path/payload instead of hostname
-- **`.env` support** (python-dotenv): `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_DEVICE_ID` (captured session) or `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (email login), plus `WOG_API_BASE_URL`/`WOG_DATA_BASE_URL` overrides; `.env.example` documents everything and `.env` is gitignored
-- **Live tests** (`pytest -m live`): fetch a real key, download an asset, decrypt it and load it in UnityPy - auto-skipped without credentials in `.env`; both live tests pass against the real servers
 
 ### ⚠️ Breaking Changes
 
@@ -32,12 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Generated device identity**: a random 40-hex device id is generated per installation and stored in the local database (no captured device id in the code)
 - `core/api.py` (shared BZ2-over-HTTP API client), `core/auth.py` (login/session management), `core/database.py` (SQLite storage)
 - Key fetching now fails fast with one clear message when no account is configured, and re-logins automatically once when a stored session is rejected
-
 - **MITM key capture workflow** ([#1](https://github.com/InzGIBA/ReWOG/issues/1)): the key API rejects requests that do not come from the real game client, so fresh keys now have to be captured from your own game traffic
   - `scripts/extract_keys.py` extracts `model`/`sync` pairs from mitmproxy `.flows` dumps, Fiddler `.saz` archives, or loose request/response dumps, and can merge them into the local key store (`--merge`) or export a shareable bundle (`-o`)
   - `docs/mitm-capture.md` — step-by-step instructions for capturing keys with mitmproxy or Fiddler
   - new `[mitm]` extra installs `mitmproxy` for reading `.flows` captures
 - `wog_dump.core.key_import` module with the capture parsers (unit-tested, including mitmproxy/SAZ/flat-file formats)
+- **`extract_keys.py --identity`**: imports the captured client identity (id/session/dev) from a mitmproxy dump into the local database and prints ready-to-copy `.env` lines
+- **Capture parsing handles IP-connected traffic**: the game client connects to the API by raw IP address, so captures are now matched by query-endpoint path/payload instead of hostname
+- **`.env` support** (python-dotenv): `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_DEVICE_ID` (captured session) or `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (email login), plus `WOG_API_BASE_URL`/`WOG_DATA_BASE_URL` overrides; `.env.example` documents everything and `.env` is gitignored
+- **Live tests** (`pytest -m live`): fetch a real key, download an asset, decrypt it and load it in UnityPy - auto-skipped without credentials in `.env`; both live tests pass against the real servers
 
 ### 🔧 Fixed
 
@@ -55,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Type safety**: `mypy --strict` passes with zero errors (was 87); config path fields are no longer `Optional`; fixed an operator-precedence bug in weapon-name parsing
 - **Removed dead code**: unused exceptions, the no-op `--parallel` flag, duplicate legacy-file parsing, the disabled hash test file
 - **README**: removed documentation of CLI options that never existed (`--resume`, `--dry-run`, `--validate-only`, `--export-config`)
+
+---
 
 ## [2.3.2] - 2025-08-29
 

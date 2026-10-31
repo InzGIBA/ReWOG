@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wog-dump"
-version = "2.3.2"
+dynamic = ["version"]
 description = "A modern tool to download, decrypt and unpack 3D gun models from World of Guns: Gun Disassembly"
 readme = "README.md"
 license = {text = "MIT"}
@@ -50,6 +50,7 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.5.0",
     "pre-commit>=3.4.0",
+    "types-requests>=2.31.0",
 ]
 test = [
     "pytest>=7.4.0",
@@ -66,6 +67,9 @@ Documentation = "https://github.com/InzGIBA/ReWOG/blob/main/README.md"
 [project.scripts]
 wog-dump = "wog_dump.cli.main:main"
 wog-convert-normals = "wog_dump.utils.normal_map:cli_main"
+
+[tool.hatch.version]
+path = "src/wog_dump/__init__.py"
 
 [tool.black]
 line-length = 88
@@ -142,11 +146,4 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
-]
-
-[dependency-groups]
-test = [
-    "pytest>=8.4.1",
-    "pytest-cov>=6.2.1",
-    "pytest-mock>=3.14.1",
 ]

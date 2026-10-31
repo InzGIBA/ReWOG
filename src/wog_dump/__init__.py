@@ -11,7 +11,9 @@ __version__ = "2.3.2"
 __author__ = "hampta, inzgiba"
 __email__ = "inzgiba@gmail.com"
 __license__ = "MIT"
-__description__ = "Enhanced tool for extracting 3D models from World of Guns: Gun Disassembly"
+__description__ = (
+    "Enhanced tool for extracting 3D models from World of Guns: Gun Disassembly"
+)
 
 # Version info tuple for programmatic access
 VERSION_INFO = tuple(int(x) for x in __version__.split("."))

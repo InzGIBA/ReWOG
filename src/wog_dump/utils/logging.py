@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
-import sys
 import time
-from contextlib import contextmanager
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     DownloadColumn,
@@ -22,8 +24,9 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 from rich.table import Table
-from rich.panel import Panel
 from rich.text import Text
+
+from .. import __version__
 
 
 class PerformanceMonitor:
@@ -66,7 +69,7 @@ class PerformanceMonitor:
         }
 
     @contextmanager
-    def timer(self, operation: str):
+    def timer(self, operation: str) -> Iterator[None]:
         """Context manager for timing operations."""
         self.start_timer(operation)
         try:
@@ -111,13 +114,13 @@ class WOGLogger:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = log_dir / f"wog_dump_{timestamp}.log"
 
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
 
         # Enhanced formatter with more context
         file_formatter = logging.Formatter(
             fmt="%(asctime)s | %(name)s | %(levelname)-8s | %(funcName)s:%(lineno)d | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         file_handler.setFormatter(file_formatter)
 
@@ -128,30 +131,30 @@ class WOGLogger:
         # Log initialization
         self.debug(f"Logger initialized - Log file: {log_file}")
 
-    def info(self, message: str, **kwargs) -> None:
+    def info(self, message: str, **kwargs: Any) -> None:
         """Log info message."""
         self.logger.info(message, **kwargs)
 
-    def debug(self, message: str, **kwargs) -> None:
+    def debug(self, message: str, **kwargs: Any) -> None:
         """Log debug message."""
         self.logger.debug(message, **kwargs)
 
-    def warning(self, message: str, **kwargs) -> None:
+    def warning(self, message: str, **kwargs: Any) -> None:
         """Log warning message."""
         self.logger.warning(message, **kwargs)
 
-    def error(self, message: str, **kwargs) -> None:
+    def error(self, message: str, **kwargs: Any) -> None:
         """Log error message."""
         self.logger.error(message, **kwargs)
 
-    def critical(self, message: str, **kwargs) -> None:
+    def critical(self, message: str, **kwargs: Any) -> None:
         """Log critical message."""
         self.logger.critical(message, **kwargs)
 
     def print_banner(self) -> None:
         """Print enhanced application banner."""
         banner_text = Text.assemble(
-            ("🔫 WOG Dump v2.3", "bold cyan"),
+            (f"🔫 WOG Dump v{__version__}", "bold cyan"),
             (" | ", "white"),
             ("World of Guns Model Extractor", "cyan"),
         )
@@ -164,7 +167,9 @@ class WOGLogger:
 
         self.console.print(panel)
 
-    def print_status(self, message: str, status: str = "info", prefix: str = "WOG DUMP") -> None:
+    def print_status(
+        self, message: str, status: str = "info", prefix: str = "WOG DUMP"
+    ) -> None:
         """Print status message with enhanced styling."""
         status_styles = {
             "info": ("ℹ️", "blue"),
@@ -218,8 +223,9 @@ class WOGLogger:
             expand=True,
         )
 
-    def print_table(self, title: str, headers: list[str], rows: list[list[str]],
-                   style: str = "cyan") -> None:
+    def print_table(
+        self, title: str, headers: list[str], rows: list[list[str]], style: str = "cyan"
+    ) -> None:
         """Print a formatted table with enhanced styling."""
         table = Table(
             title=title,
@@ -235,7 +241,7 @@ class WOGLogger:
         for row in rows:
             # Handle different row lengths gracefully
             padded_row = row + [""] * (len(headers) - len(row))
-            table.add_row(*padded_row[:len(headers)])
+            table.add_row(*padded_row[: len(headers)])
 
         self.console.print(table)
 
@@ -299,12 +305,14 @@ class WOGLogger:
 
         self.console.print(table)
 
-    def time_operation(self, operation_name: str):
+    def time_operation(self, operation_name: str) -> AbstractContextManager[None]:
         """Context manager to time operations."""
         return self.performance_monitor.timer(operation_name)
 
     @contextmanager
-    def operation_context(self, operation: str, description: str | None = None):
+    def operation_context(
+        self, operation: str, description: str | None = None
+    ) -> Iterator[None]:
         """Context manager for tracking operations with progress."""
         if description is None:
             description = operation
@@ -316,10 +324,14 @@ class WOGLogger:
             try:
                 yield
                 duration = time.perf_counter() - start_time
-                self.print_status(f"Completed {description} in {duration:.2f}s", "success")
+                self.print_status(
+                    f"Completed {description} in {duration:.2f}s", "success"
+                )
             except Exception as e:
                 duration = time.perf_counter() - start_time
-                self.print_status(f"Failed {description} after {duration:.2f}s: {str(e)}", "error")
+                self.print_status(
+                    f"Failed {description} after {duration:.2f}s: {str(e)}", "error"
+                )
                 raise
 
     def log_system_info(self) -> None:

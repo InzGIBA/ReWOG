@@ -1,9 +1,10 @@
-"""Normal map converter for WOG Dump - clean version without numpy."""
+"""Normal map converter for WOG Dump."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 from PIL import Image, ImageChops
@@ -13,7 +14,6 @@ from ..utils.logging import get_logger
 
 class NormalMapError(Exception):
     """Raised when normal map operations fail."""
-    pass
 
 
 class NormalMapConverter:
@@ -29,7 +29,9 @@ class NormalMapConverter:
 
         return any(indicator in name_lower for indicator in normal_indicators)
 
-    def convert_normal_map(self, input_path: Path, output_path: Path | None = None) -> Path:
+    def convert_normal_map(
+        self, input_path: Path, output_path: Path | None = None
+    ) -> Path:
         """Convert a Unity normal map to standard format.
 
         Unity stores normal maps with:
@@ -44,52 +46,56 @@ class NormalMapConverter:
         - Blue channel: Z component (set to neutral)
         """
         if output_path is None:
-            output_path = input_path.parent / f"{input_path.stem}_converted{input_path.suffix}"
+            output_path = (
+                input_path.parent / f"{input_path.stem}_converted{input_path.suffix}"
+            )
 
         try:
             with Image.open(input_path) as img:
                 if img.mode != "RGBA":
                     img = img.convert("RGBA")
 
-                # Split channels
-                r, g, b, a = img.split()
+                _, _, b, a = img.split()
 
-                # Convert Unity format:
-                # Red = Alpha (X component)
-                # Green = Blue (Y component, NOT inverted by default)
-                # Blue = maximum Z (255 = 1.0 in normalized space)
-                x_channel = a
-                y_channel = b  # Use blue channel as-is
-                z_channel = Image.new('L', img.size, 255)  # Use 255 for maximum Z
-
-                # Merge channels
-                converted = Image.merge("RGB", (x_channel, y_channel, z_channel))
-                converted.save(output_path)
-
-                self.logger.debug(f"Converted normal map: {input_path} -> {output_path}")
-                return output_path
-
-        except Exception as e:
-            raise NormalMapError(f"Failed to convert {input_path}: {e}") from e
-
-    def convert_normal_map_advanced(self, input_path: Path, output_path: Path | None = None,
-                                  invert_y: bool = True, calculate_z: bool = True) -> Path:
-        """Advanced normal map conversion with options (for backward compatibility)."""
-        if output_path is None:
-            output_path = input_path.parent / f"{input_path.stem}_converted{input_path.suffix}"
-
-        try:
-            with Image.open(input_path) as img:
-                if img.mode != "RGBA":
-                    img = img.convert("RGBA")
-
-                r, g, b, a = img.split()
-
+                # Unity format: X lives in alpha, Y in blue (not inverted);
+                # Z is unknown, so use the maximum value.
                 x_channel = a
                 y_channel = b
-                if invert_y:
-                    y_channel = ImageChops.invert(b)
-                z_channel = Image.new('L', img.size, 128)
+                z_channel = Image.new("L", img.size, 255)
+
+                converted = Image.merge("RGB", (x_channel, y_channel, z_channel))
+                converted.save(output_path)
+
+                self.logger.debug(
+                    f"Converted normal map: {input_path} -> {output_path}"
+                )
+                return output_path
+
+        except Exception as e:
+            raise NormalMapError(f"Failed to convert {input_path}: {e}") from e
+
+    def convert_normal_map_advanced(
+        self,
+        input_path: Path,
+        output_path: Path | None = None,
+        invert_y: bool = True,
+    ) -> Path:
+        """Convert a normal map with optional Y-channel inversion."""
+        if output_path is None:
+            output_path = (
+                input_path.parent / f"{input_path.stem}_converted{input_path.suffix}"
+            )
+
+        try:
+            with Image.open(input_path) as img:
+                if img.mode != "RGBA":
+                    img = img.convert("RGBA")
+
+                _, _, b, a = img.split()
+
+                x_channel = a
+                y_channel = ImageChops.invert(b) if invert_y else b
+                z_channel = Image.new("L", img.size, 128)
 
                 converted = Image.merge("RGB", (x_channel, y_channel, z_channel))
                 converted.save(output_path)
@@ -99,18 +105,15 @@ class NormalMapConverter:
         except Exception as e:
             raise NormalMapError(f"Failed to convert {input_path}: {e}") from e
 
-    def validate_normal_map(self, image_path: Path) -> dict[str, any]:
-        """Validate and analyze a normal map (simplified version)."""
-        result = {
+    def validate_normal_map(self, image_path: Path) -> dict[str, Any]:
+        """Validate a normal map and detect its format."""
+        result: dict[str, Any] = {
             "is_valid": False,
-            "format": "unknown",  # Use "format" to match test expectations
-            "format_detected": "unknown",  # Keep this for backward compatibility
-            "mode": "unknown",  # Add mode field for test compatibility
+            "format": "unknown",
+            "mode": "unknown",
             "size": (0, 0),
             "channels": {},
             "issues": [],
-            "confidence": 0.0,
-            "recommendations": []
         }
 
         try:
@@ -122,56 +125,54 @@ class NormalMapConverter:
                     result["issues"].append(f"Unsupported mode: {img.mode}")
                     return result
 
-                # Analyze channel data to determine format
-                r, g, b, a = img.split()
-
-                # Sample a few pixels to determine format
+                # Sample pixels spread over the image and average the channels
                 sample_pixels = []
                 width, height = img.size
-                for y in range(0, height, height//4 or 1):
-                    for x in range(0, width, width//4 or 1):
-                        pixel = img.getpixel((x, y))
-                        sample_pixels.append(pixel)
+                for y in range(0, height, height // 4 or 1):
+                    for x in range(0, width, width // 4 or 1):
+                        sample_pixels.append(img.getpixel((x, y)))
 
-                if sample_pixels:
-                    # Calculate average channel values
-                    avg_r = sum(p[0] for p in sample_pixels) / len(sample_pixels)
-                    avg_g = sum(p[1] for p in sample_pixels) / len(sample_pixels)
-                    avg_b = sum(p[2] for p in sample_pixels) / len(sample_pixels)
-                    avg_a = sum(p[3] for p in sample_pixels) / len(sample_pixels)
+                averages = {
+                    "r": sum(p[0] for p in sample_pixels) / len(sample_pixels),
+                    "g": sum(p[1] for p in sample_pixels) / len(sample_pixels),
+                    "b": sum(p[2] for p in sample_pixels) / len(sample_pixels),
+                    "a": sum(p[3] for p in sample_pixels) / len(sample_pixels),
+                }
+                result["channels"] = {
+                    name: round(value, 1) for name, value in averages.items()
+                }
 
-                    # Unity format: data primarily in green and alpha channels
-                    # Standard format: data primarily in red and green channels
-                    if avg_a > 50 and avg_g > 50 and avg_r < 50:
-                        format_type = "unity"
-                    elif avg_r > 50 and avg_g > 50:
-                        format_type = "standard"
-                    else:
-                        format_type = "unity"  # Default fallback
+                # Unity format: data primarily in green and alpha channels
+                # Standard format: data primarily in red and green channels
+                if averages["a"] > 50 and averages["g"] > 50 and averages["r"] < 50:
+                    format_type = "unity"
+                elif averages["r"] > 50 and averages["g"] > 50:
+                    format_type = "standard"
                 else:
                     format_type = "unity"
 
                 result["is_valid"] = True
                 result["format"] = format_type
-                result["format_detected"] = format_type
-                result["confidence"] = 0.8
 
         except Exception as e:
             result["issues"].append(f"Failed to open image: {e}")
 
         return result
 
-    def batch_convert_directory(self, directory: Path, recursive: bool = True,
-                              pattern: str = "*_n*.png", backup: bool = False) -> list[Path]:
+    def batch_convert_directory(
+        self,
+        directory: Path,
+        recursive: bool = True,
+        pattern: str = "*_n*.png",
+        backup: bool = False,
+    ) -> list[Path]:
         """Convert all normal maps in a directory."""
-        # Find normal map files
-        if recursive:
-            normal_maps = list(directory.rglob(pattern))
-        else:
-            normal_maps = list(directory.glob(pattern))
+        normal_maps = list(
+            directory.rglob(pattern) if recursive else directory.glob(pattern)
+        )
 
         # Filter to only image files
-        image_extensions = {'.png', '.jpg', '.jpeg', '.tga', '.bmp'}
+        image_extensions = {".png", ".jpg", ".jpeg", ".tga", ".bmp"}
         normal_maps = [f for f in normal_maps if f.suffix.lower() in image_extensions]
 
         if not normal_maps:
@@ -187,9 +188,11 @@ class NormalMapConverter:
 
             for normal_map in normal_maps:
                 try:
-                    # Create backup if requested
                     if backup:
-                        backup_path = normal_map.parent / f"{normal_map.stem}_backup{normal_map.suffix}"
+                        backup_path = (
+                            normal_map.parent
+                            / f"{normal_map.stem}_backup{normal_map.suffix}"
+                        )
                         if not backup_path.exists():
                             backup_path.write_bytes(normal_map.read_bytes())
 
@@ -208,19 +211,21 @@ class NormalMapConverter:
 
 # CLI Interface
 @click.command()
-@click.argument('path', type=click.Path(exists=True, path_type=Path))
-@click.option('--recursive', '-r', is_flag=True, help='Process directories recursively')
-@click.option('--pattern', '-p', default='*_n*.png', help='File pattern to match')
-@click.option('--backup', '-b', is_flag=True, help='Create backups before conversion')
-@click.option('--verbose', '-v', is_flag=True, help='Verbose output')
-def cli_main(path: Path, recursive: bool, pattern: str, backup: bool, verbose: bool) -> None:
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option("--recursive", "-r", is_flag=True, help="Process directories recursively")
+@click.option("--pattern", "-p", default="*_n*.png", help="File pattern to match")
+@click.option("--backup", "-b", is_flag=True, help="Create backups before conversion")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+def cli_main(
+    path: Path, recursive: bool, pattern: str, backup: bool, verbose: bool
+) -> None:
     """Convert Unity normal maps to standard format.
 
     PATH can be a single image file or directory containing normal maps.
     """
     logger = get_logger()
     if verbose:
-        logger.logger.setLevel(10)  # DEBUG
+        logger.set_level("DEBUG")
 
     converter = NormalMapConverter()
 

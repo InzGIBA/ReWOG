@@ -211,17 +211,17 @@ wog-dump --max-threads 16 download-assets
 wog-dump download-assets --weapons "ak74,ak47,akm"  # AK variants
 wog-dump download-assets --weapons "m4a1,m16a4"     # M4/M16 variants
 
-# Resume interrupted downloads
-wog-dump download-assets --resume
+# Check what needs updating without downloading
+wog-dump download-assets --check-only
 
-# Force re-download of existing files
-wog-dump download-assets --force
+# Refresh the weapon list from the server
+wog-dump download-weapons --force
 ```
 
 **Performance Optimization:**
 ```bash
 # High-performance setup for powerful machines
-wog-dump --max-threads 32 full-pipeline
+wog-dump --max-threads 16 full-pipeline
 
 # Conservative setup for limited resources
 wog-dump --max-threads 2 --verbose full-pipeline
@@ -230,16 +230,28 @@ wog-dump --max-threads 2 --verbose full-pipeline
 wog-dump full-pipeline --chunk-size 4096
 ```
 
+**Cache Management:**
+```bash
+# Import weapons.txt / keys.txt into the JSON data store
+wog-dump cache --migrate
+
+# Show detailed cache statistics
+wog-dump cache --show-cache
+
+# Check that downloaded assets exist and are non-empty
+wog-dump cache --validate-assets
+```
+
 **Development and Testing:**
 ```bash
-# Dry run to see what would be processed
-wog-dump download-assets --dry-run
+# See what would be downloaded without downloading it
+wog-dump download-assets --check-only
 
-# Validate downloaded files without processing
-wog-dump decrypt-assets --validate-only
+# Validate decrypted files after decryption
+wog-dump decrypt-assets --validate
 
-# Export configuration for reproducible builds
-wog-dump info --export-config > wog_config.json
+# Show full configuration and file status
+wog-dump info --verbose
 ```
 
 ### Using as Python Library
@@ -275,6 +287,7 @@ ReWOG/
 │   │   ├── config.py                # Pydantic configuration management
 │   │   ├── download.py              # Multi-threaded asset downloading
 │   │   ├── decrypt.py               # XOR decryption (pure Python)
+│   │   ├── storage.py               # JSON data storage (weapons/keys)
 │   │   └── unpack.py                # Unity asset extraction
 │   ├── utils/                       # Utility modules
 │   │   ├── __init__.py             

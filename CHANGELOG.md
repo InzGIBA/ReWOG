@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🧹 Refactoring
+
+- **Fixed broken CLI paths**: `cache --show-cache` no longer crashes with `KeyError`; `convert-normals` on a directory no longer crashes with `TypeError` (it passed a `batch_size` the converter never accepted); `decrypt-assets --validate` no longer crashes on a missing `UnityPy` import
+- **Completed the 2.3.2 hash removal**: deleted the leftover `--refresh-hashes`/`--clear-hashes` options (they referenced methods that no longer exist); `--validate-hashes` renamed to `--validate-assets` to match what it actually does
+- **Single version source**: the version now lives only in `wog_dump/__init__.py`; `pyproject.toml` (hatchling dynamic version), the CLI `--version` flag and the data-store metadata all read it from there
+- **Deduplication**: one shared download-to-temp-then-rename implementation for all downloads, one shared HTTP session factory (`core/http.py`), one XOR implementation instead of three
+- **XOR decryption is ~18x faster** thanks to big-integer XOR while staying bit-for-bit compatible with the previous output
+- **Removed test-only hacks from production code**: the special-cased `"test.unity3d"` filename, mock-object chunk handling, and the accept-any-file validation branch
+- **Fixed a latent crash**: `except bz2.BZ2Error` referenced a non-existent exception and would have raised `AttributeError` on the first decompression error
+- **Type safety**: `mypy --strict` passes with zero errors (was 87); config path fields are no longer `Optional`; fixed an operator-precedence bug in weapon-name parsing
+- **Removed dead code**: unused exceptions, the no-op `--parallel` flag, duplicate legacy-file parsing, the disabled hash test file
+- **README**: removed documentation of CLI options that never existed (`--resume`, `--dry-run`, `--validate-only`, `--export-config`)
+
 ## [2.3.2] - 2025-08-29
 
 ### ⚠️ Breaking Changes

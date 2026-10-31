@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 
@@ -23,7 +23,7 @@ def temp_dir() -> Generator[Path, None, None]:
 def test_config(temp_dir: Path) -> WOGConfig:
     """Create a test configuration with JSON storage."""
     reset_config()  # Reset global config
-    
+
     config = WOGConfig(
         base_dir=temp_dir,
         assets_dir=temp_dir / "assets",
@@ -34,12 +34,12 @@ def test_config(temp_dir: Path) -> WOGConfig:
         keys_file=temp_dir / "keys.txt",  # Legacy support
         max_threads=2,  # Reduce for testing
     )
-    
+
     # Create directories
     config.assets_dir.mkdir(exist_ok=True)
     config.encrypted_dir.mkdir(exist_ok=True)
     config.decrypted_dir.mkdir(exist_ok=True)
-    
+
     return config
 
 
@@ -50,7 +50,11 @@ def test_storage(test_config: WOGConfig) -> DataStorageManager:
 
 
 @pytest.fixture
-def populated_storage(test_storage: DataStorageManager, sample_weapon_list: list[str], sample_keys: dict[str, str]) -> DataStorageManager:
+def populated_storage(
+    test_storage: DataStorageManager,
+    sample_weapon_list: list[str],
+    sample_keys: dict[str, str],
+) -> DataStorageManager:
     """Create a storage manager with sample data."""
     test_storage.save_weapons(sample_weapon_list)
     test_storage.save_keys(sample_keys)
@@ -62,7 +66,7 @@ def sample_weapon_list() -> list[str]:
     """Sample weapon list for testing."""
     return [
         "ak74",
-        "m4a1", 
+        "m4a1",
         "glock17",
         "desert_eagle",
         "mp5",
@@ -85,11 +89,11 @@ def sample_keys() -> dict[str, str]:
 def mock_unity_asset(temp_dir: Path) -> Path:
     """Create a mock Unity asset file for testing."""
     asset_path = temp_dir / "test_asset.unity3d"
-    
+
     # Create a simple mock file (in real usage this would be a Unity asset)
     with open(asset_path, "wb") as f:
         f.write(b"MOCK_UNITY_ASSET_DATA")
-    
+
     return asset_path
 
 

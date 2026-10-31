@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 📄 Logging
+
+- **The log file now always captures INFO and above** - previously the CLI's console verbosity (`WARNING` by default) also silenced the file, so most runs left an almost empty log. Console status lines ("Starting/Completed ...") are mirrored into the file as `[status] message` INFO records, so the log is a complete history of a run
+- **DEBUG in the file via `.env`**: `WOG_LOG_LEVEL=DEBUG` (default `INFO`); console verbosity stays on the `-v`/`-d` flags, and `-d` now really shows DEBUG on the console
+- **One rotating log file** `wog.log` (5 MB × 3 backups) instead of a new `wog_dump_<timestamp>.log` on every run; full tracebacks of unexpected errors always land in the file
+- **Logs moved out of the working directory**: they now live next to the per-user database (`~/.local/share/wog_dump/logs/`), overridable with `WOG_LOG_DIR`; `wog-dump info` shows the path
+
 ### 🖥️ Interface & feedback
 
 - **Progress bars with ETA for every long operation** - fetching keys (`query=3` per weapon) previously ran for minutes with no output at all; key fetching, update checks and bulk decryption now show a live progress bar (count, percentage, remaining time), with failed/missing counters in the bar itself

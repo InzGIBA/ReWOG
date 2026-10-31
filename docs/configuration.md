@@ -55,6 +55,26 @@ wrong values are rejected server-side. Update them when the game updates.
 | `WOG_ENABLE_BACKUP` | `true` | Keep backups during destructive operations |
 | `WOG_STRICT_MODE` | `false` | Fail the whole run on the first error instead of continuing |
 
+## Logging
+
+The console and the log file have independent verbosity:
+
+- **Console**: quiet by default (warnings/errors only); `wog-dump -v` shows
+  INFO, `wog-dump -d` shows DEBUG.
+- **Log file**: always captures INFO and above — including full tracebacks —
+  no matter how quiet the console is. Set `WOG_LOG_LEVEL=DEBUG` to include
+  debug output in the file.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WOG_LOG_LEVEL` | `INFO` | Log file verbosity (`DEBUG`/`INFO`/`WARNING`/`ERROR`) |
+| `WOG_LOG_DIR` | `<user data dir>/logs` | Directory for log files |
+
+Logs go to a single rotating file `wog.log` (5 MB × 3 backups) in the
+user data directory next to the database — for example
+`~/.local/share/wog_dump/logs/wog.log` on Linux. `wog-dump info` shows
+the exact path in use.
+
 ### Rate limiting
 
 The two delay settings throttle every request (downloads and API calls

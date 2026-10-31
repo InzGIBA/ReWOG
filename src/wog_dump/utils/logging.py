@@ -1,14 +1,24 @@
-"""Enhanced logging system for WOG Dump with structured output and performance monitoring."""
+"""Logging for WOG Dump: stdlib logging with Rich console output.
+
+Verbosity is controlled per destination:
+
+- **Console**: quiet by default (WARNING); ``-v`` shows INFO, ``-d`` shows
+  DEBUG. Progress bars and status lines are separate from this.
+- **Log file**: one rotating ``wog.log`` that always captures INFO and
+  above; set ``WOG_LOG_LEVEL=DEBUG`` in ``.env`` to include debug output.
+  The file lives in the per-user data directory next to the database
+  (``WOG_LOG_DIR`` overrides) - not in the working directory.
+"""
 
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -26,6 +36,38 @@ from rich.table import Table
 from rich.text import Text
 
 from .. import __version__
+from ..core.config import default_db_path
+
+LOG_FILE_NAME = "wog.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUP_COUNT = 3
+
+_FILE_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+
+def default_log_dir() -> Path:
+    """Directory for log files (honors ``WOG_LOG_DIR``).
+
+    Defaults to a ``logs`` folder next to the per-user database, so runs
+    from different checkouts share one history instead of littering the
+    working directory.
+    """
+    override = os.environ.get("WOG_LOG_DIR")
+    if override:
+        return Path(override).expanduser()
+    return default_db_path().parent / "logs"
+
+
+def log_file_level() -> int:
+    """File verbosity from ``WOG_LOG_LEVEL`` (default INFO)."""
+    raw = os.environ.get("WOG_LOG_LEVEL", "").strip().upper()
+    return _FILE_LEVELS.get(raw, logging.INFO)
 
 
 class PerformanceMonitor:
@@ -78,24 +120,30 @@ class PerformanceMonitor:
 
 
 class WOGLogger:
-    """Enhanced logger for WOG Dump with Rich formatting and performance monitoring."""
+    """Logger for WOG Dump with Rich console formatting and file history."""
 
-    def __init__(self, name: str = "wog_dump", level: int = logging.INFO) -> None:
+    def __init__(
+        self, name: str = "wog_dump", console_level: int | str = logging.WARNING
+    ) -> None:
         self.console = Console()
         self.logger = logging.getLogger(name)
-        self.logger.setLevel(level)
+        # The node passes everything through; each handler filters for
+        # itself, so the log file keeps INFO+ even when the CLI silences
+        # the console.
+        self.logger.setLevel(logging.DEBUG)
         self.performance_monitor = PerformanceMonitor()
+        self._console_handler: RichHandler | None = None
+        self._file_handler: RotatingFileHandler | None = None
+        self.log_file: Path | None = None
+        self._setup_handlers(console_level)
 
-        # Prevent duplicate handlers
-        if not self.logger.handlers:
-            self._setup_handlers()
-
-    def _setup_handlers(self) -> None:
-        """Set up logging handlers with enhanced formatting."""
-        # Clear any existing handlers
+    def _setup_handlers(self, console_level: int | str) -> None:
+        """Set up console and rotating-file handlers."""
         self.logger.handlers.clear()
 
-        # Rich console handler with custom formatting
+        if isinstance(console_level, str):
+            console_level = getattr(logging, console_level.upper(), logging.WARNING)
+
         rich_handler = RichHandler(
             console=self.console,
             show_path=False,
@@ -104,51 +152,69 @@ class WOGLogger:
             rich_tracebacks=True,
             tracebacks_show_locals=True,
         )
-        rich_handler.setLevel(logging.INFO)
+        rich_handler.setLevel(console_level)
+        self._console_handler = rich_handler
 
-        # Create logs directory and file handler
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = log_dir / f"wog_dump_{timestamp}.log"
-
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
-        file_handler.setLevel(logging.DEBUG)
-
-        # Enhanced formatter with more context
         file_formatter = logging.Formatter(
             fmt="%(asctime)s | %(name)s | %(levelname)-8s | %(funcName)s:%(lineno)d | %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        file_handler.setFormatter(file_formatter)
 
-        # Add handlers
+        try:
+            log_dir = default_log_dir()
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / LOG_FILE_NAME
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=LOG_MAX_BYTES,
+                backupCount=LOG_BACKUP_COUNT,
+                encoding="utf-8",
+            )
+        except OSError:
+            # Read-only filesystem or no permissions: console-only logging
+            file_handler = None
+            log_file = None
+
+        if file_handler is not None:
+            file_handler.setLevel(log_file_level())
+            file_handler.setFormatter(file_formatter)
+            self.logger.addHandler(file_handler)
+            self._file_handler = file_handler
+            self.log_file = log_file
+
         self.logger.addHandler(rich_handler)
-        self.logger.addHandler(file_handler)
+        self.debug(f"Logger initialized - Log file: {self.log_file or 'console only'}")
 
-        # Log initialization
-        self.debug(f"Logger initialized - Log file: {log_file}")
-
-    def info(self, message: str, **kwargs: Any) -> None:
+    def info(self, message: str) -> None:
         """Log info message."""
-        self.logger.info(message, **kwargs)
+        self.logger.info(message)
 
-    def debug(self, message: str, **kwargs: Any) -> None:
+    def debug(self, message: str) -> None:
         """Log debug message."""
-        self.logger.debug(message, **kwargs)
+        self.logger.debug(message)
 
-    def warning(self, message: str, **kwargs: Any) -> None:
+    def warning(self, message: str) -> None:
         """Log warning message."""
-        self.logger.warning(message, **kwargs)
+        self.logger.warning(message)
 
-    def error(self, message: str, **kwargs: Any) -> None:
+    def error(self, message: str) -> None:
         """Log error message."""
-        self.logger.error(message, **kwargs)
+        self.logger.error(message)
 
-    def critical(self, message: str, **kwargs: Any) -> None:
+    def critical(self, message: str) -> None:
         """Log critical message."""
-        self.logger.critical(message, **kwargs)
+        self.logger.critical(message)
+
+    @property
+    def console_level(self) -> int:
+        """Current console verbosity."""
+        if self._console_handler is not None:
+            return self._console_handler.level
+        return logging.WARNING
+
+    def is_debug(self) -> bool:
+        """Whether the console currently shows DEBUG output (``-d``)."""
+        return self.console_level <= logging.DEBUG
 
     def print_banner(self) -> None:
         """Print enhanced application banner."""
@@ -165,6 +231,7 @@ class WOGLogger:
         )
 
         self.console.print(panel)
+        self.debug(f"Banner: WOG Dump v{__version__}")
 
     def print_status(
         self, message: str, status: str = "info", prefix: str = "WOG DUMP"
@@ -189,6 +256,9 @@ class WOGLogger:
         )
 
         self.console.print(text)
+        # Status lines are the operational history of a run - keep them
+        # in the log file even when the console is quiet
+        self.logger.info(f"[{status}] {message}")
 
     def create_task_progress(self) -> Progress:
         """Create enhanced progress bar for general tasks."""
@@ -308,17 +378,15 @@ class WOGLogger:
             self.debug(line)
 
     def set_level(self, level: int | str) -> None:
-        """Set logging level with validation."""
+        """Set console verbosity (-v INFO, -d DEBUG).
+
+        The log file level is independent and comes from WOG_LOG_LEVEL.
+        """
         if isinstance(level, str):
-            level = getattr(logging, level.upper(), logging.INFO)
+            level = getattr(logging, level.upper(), logging.WARNING)
 
-        self.logger.setLevel(level)
-
-        # Update handler levels
-        for handler in self.logger.handlers:
-            if isinstance(handler, RichHandler):
-                # Console handler should show INFO and above
-                handler.setLevel(max(level, logging.INFO))
+        if self._console_handler is not None:
+            self._console_handler.setLevel(level)
 
 
 # Global logger management
@@ -347,6 +415,6 @@ def get_logger(name: str = "wog_dump") -> WOGLogger:
 
 
 def set_log_level(level: int | str) -> None:
-    """Set the log level for the global logger."""
+    """Set the console log level for the global logger."""
     logger = get_logger()
     logger.set_level(level)

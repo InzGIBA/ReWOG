@@ -27,6 +27,12 @@ def isolated_database(tmp_path: Path) -> Generator[Path, None, None]:
         os.environ["WOG_DB_PATH"] = old_value
 
 
+@pytest.fixture(autouse=True)
+def isolated_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep test log files out of the real user data directory."""
+    monkeypatch.setenv("WOG_LOG_DIR", str(tmp_path / "logs"))
+
+
 @pytest.fixture
 def temp_dir() -> Generator[Path, None, None]:
     """Create a temporary directory for tests."""

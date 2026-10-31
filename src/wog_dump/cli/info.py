@@ -35,6 +35,7 @@ def info(ctx: click.Context, show_performance: bool, validate_files: bool) -> No
         ["Assets Directory", str(config.assets_dir)],
         ["Encrypted Directory", str(config.encrypted_dir)],
         ["Decrypted Directory", str(config.decrypted_dir)],
+        ["Log File", str(logger.log_file or "console only")],
         ["Max Threads", str(config.max_threads)],
         ["Chunk Size", f"{config.chunk_size // 1024} KB"],
         ["Strict Mode", "Enabled" if config.strict_mode else "Disabled"],

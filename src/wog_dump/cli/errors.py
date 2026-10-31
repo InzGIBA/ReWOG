@@ -55,6 +55,7 @@ def error_handler(operation_name: str) -> Iterator[None]:
         sys.exit(1)
     except Exception as e:
         logger.error(f"Unexpected error in {operation_name}: {e}")
-        if logger.logger.level <= 10:  # DEBUG level
-            logger.logger.exception("Full traceback:")
+        # ERROR passes the INFO-level file handler: the traceback always
+        # lands in the log file, and on the console only with -d
+        logger.logger.exception("Full traceback:")
         sys.exit(1)

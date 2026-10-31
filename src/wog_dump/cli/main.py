@@ -129,9 +129,9 @@ def cli(
     # Validate configuration
     validate_config(ctx)
 
-    # Log system info in debug mode
-    if logger.logger.level <= 10:  # DEBUG
-        logger.log_system_info()
+    # DEBUG records: shown on the console with -d, kept in the log file
+    # when WOG_LOG_LEVEL=DEBUG
+    logger.log_system_info()
 
 
 cli.add_command(download_weapons)
@@ -159,8 +159,9 @@ def main() -> None:
     except Exception as e:
         logger = get_logger()
         logger.error(f"Unexpected error: {e}")
-        if logger.logger.level <= 10:  # DEBUG level
-            logger.logger.exception("Full traceback:")
+        # ERROR passes the INFO-level file handler: the traceback always
+        # lands in the log file, and on the console only with -d
+        logger.logger.exception("Full traceback:")
         sys.exit(1)
 
 

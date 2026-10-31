@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import UnityPy
+from UnityPy.export import MeshExporter
 
 from ..core.config import WOGConfig, get_config
 from ..core.database import WOGDatabase
 from ..utils.logging import get_logger
+from ..utils.normal_map import is_unity_swizzled_normal, unswizzle_normal_map
 
 
 class UnpackError(Exception):
@@ -108,7 +110,12 @@ class TextAssetExtractor(AssetExtractor):
 
 
 class Texture2DExtractor(AssetExtractor):
-    """Renders Texture2D objects to PNG."""
+    """Renders Texture2D objects to PNG.
+
+    Unity's swizzled (DXT5nm-style) normal maps are detected and
+    rewritten as standard opaque RGB maps - exported raw they look
+    semi-transparent because the X channel lives in alpha.
+    """
 
     obj_type = "Texture2D"
 
@@ -118,46 +125,69 @@ class Texture2DExtractor(AssetExtractor):
         if not image:
             return None
 
+        if is_unity_swizzled_normal(image):
+            image = unswizzle_normal_map(image)
+            self.logger.debug(f"Unswizzled normal map: {data.m_Name}")
+
         output_path = output_dir / f"{data.m_Name}.png"
         image.save(output_path)
         return output_path
 
 
 class MeshExtractor(AssetExtractor):
-    """Writes Mesh objects as a basic OBJ file."""
+    """Writes Mesh objects as OBJ files.
+
+    Unity 6 meshes keep their vertices in packed ``m_VertexData`` (the
+    legacy ``m_Vertices`` array is None), so the OBJ text comes from
+    UnityPy's mesh exporter; meshes with populated legacy arrays fall
+    back to a manual writer.
+    """
 
     obj_type = "Mesh"
 
     def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
         output_path = output_dir / f"{data.m_Name}.obj"
 
+        obj_text: str | None = None
+        try:
+            obj_text = MeshExporter.export_mesh_obj(data)
+        except Exception as e:
+            self.logger.debug(f"Mesh exporter failed for {data.m_Name}: {e}")
+
+        if obj_text and any(line.startswith("v ") for line in obj_text.splitlines()):
+            output_path.write_text(obj_text, encoding="utf-8")
+            return output_path
+
+        return self._write_legacy_obj(data, output_path)
+
+    def _write_legacy_obj(self, data: Any, output_path: Path) -> Path | None:
+        """Write an OBJ from legacy m_Vertices/m_UV/m_Normals/m_Triangles arrays."""
+        vertices = getattr(data, "m_Vertices", None) or []
+        if not vertices:
+            return None
+
+        uvs = getattr(data, "m_UV", None) or []
+        normals = getattr(data, "m_Normals", None) or []
+        triangles = getattr(data, "m_Triangles", None) or []
+
         with open(output_path, "w") as f:
             f.write(f"# Mesh: {data.m_Name}\n")
             f.write("# Exported from WOG Dump\n\n")
 
-            # Write vertex data if available
-            if hasattr(data, "m_Vertices") and data.m_Vertices:
-                for vertex in data.m_Vertices:
-                    f.write(f"v {vertex.x} {vertex.y} {vertex.z}\n")
+            for vertex in vertices:
+                f.write(f"v {vertex.x} {vertex.y} {vertex.z}\n")
 
-            # Write UV coordinates if available
-            if hasattr(data, "m_UV") and data.m_UV:
-                for uv in data.m_UV:
-                    f.write(f"vt {uv.x} {uv.y}\n")
+            for uv in uvs:
+                f.write(f"vt {uv.x} {uv.y}\n")
 
-            # Write normals if available
-            if hasattr(data, "m_Normals") and data.m_Normals:
-                for normal in data.m_Normals:
-                    f.write(f"vn {normal.x} {normal.y} {normal.z}\n")
+            for normal in normals:
+                f.write(f"vn {normal.x} {normal.y} {normal.z}\n")
 
-            # Write faces if available
-            if hasattr(data, "m_Triangles") and data.m_Triangles:
-                triangles = data.m_Triangles
-                for i in range(0, len(triangles), 3):
-                    if i + 2 < len(triangles):
-                        f.write(
-                            f"f {triangles[i]+1} {triangles[i+1]+1} {triangles[i+2]+1}\n"
-                        )
+            for i in range(0, len(triangles) - 2, 3):
+                f.write(
+                    f"f {triangles[i] + 1} {triangles[i + 1] + 1} "
+                    f"{triangles[i + 2] + 1}\n"
+                )
 
         return output_path
 

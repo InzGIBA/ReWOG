@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
+from PIL import Image
 
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.unpack import (
@@ -31,6 +33,25 @@ def make_env(objects: list[Mock]) -> Mock:
     env = Mock()
     env.objects = objects
     return env
+
+
+def make_swizzled_normal(size: int = 8) -> Image.Image:
+    """Synthesize an image with the Unity swizzled normal map signature:
+    red forced white, X in alpha, Y in green, both forming unit normals."""
+    img = Image.new("RGBA", (size, size))
+    img.putdata(
+        [
+            (
+                255,
+                round(127.5 * (1 + 0.9 * math.cos((x * 3 + y) * 0.7))),
+                0,
+                round(127.5 * (1 + 0.9 * math.sin((x * 3 + y) * 0.7))),
+            )
+            for y in range(size)
+            for x in range(size)
+        ]
+    )
+    return img
 
 
 class TestExtractors:
@@ -90,15 +111,36 @@ class TestExtractors:
             is None
         )
 
-    def test_texture(self, tmp_path: Path) -> None:
-        image = Mock()
-        data = Mock(m_Name="skin", image=image)
+    def test_texture_plain_rgba_preserved(self, tmp_path: Path) -> None:
+        img = Image.new("RGBA", (8, 8))
+        img.putdata(
+            [
+                ((x * 30) % 256, (y * 30) % 256, 40, 255)
+                for y in range(8)
+                for x in range(8)
+            ]
+        )
+        data = Mock(m_Name="skin", image=img)
         result = EXTRACTORS["Texture2D"].extract(
             make_unity_object("Texture2D", data), tmp_path
         )
 
         assert result == tmp_path / "skin.png"
-        image.save.assert_called_once_with(tmp_path / "skin.png")
+        assert Image.open(result).mode == "RGBA"
+
+    def test_texture_swizzled_normal_unswizzled(self, tmp_path: Path) -> None:
+        """Swizzled normal maps are exported opaque, with X moved out of alpha."""
+        source = make_swizzled_normal()
+        data = Mock(m_Name="gas", image=source)
+        result = EXTRACTORS["Texture2D"].extract(
+            make_unity_object("Texture2D", data), tmp_path
+        )
+
+        saved = Image.open(result)
+        assert saved.mode == "RGB"
+        # X component (from alpha) now lives in red, Y (green) unchanged
+        assert saved.getpixel((4, 2))[0] == source.getpixel((4, 2))[3]
+        assert saved.getpixel((4, 2))[1] == source.getpixel((4, 2))[1]
 
     def test_texture_without_image_skipped(self, tmp_path: Path) -> None:
         data = Mock(m_Name="skin", image=None)
@@ -109,7 +151,24 @@ class TestExtractors:
             is None
         )
 
-    def test_mesh(self, tmp_path: Path) -> None:
+    def test_mesh_uses_unitypy_exporter(self, tmp_path: Path) -> None:
+        """Vertices live in packed m_VertexData on Unity 6, so the OBJ text
+        comes from UnityPy's mesh exporter."""
+        data = Mock(m_Name="gun_mesh")
+        obj_text = "g gun_mesh\nv 1.0 2.0 3.0\nvt 0.5 0.5\nf 1 1 1\n"
+
+        with patch(
+            "wog_dump.core.unpack.MeshExporter.export_mesh_obj", return_value=obj_text
+        ) as mock_export:
+            result = EXTRACTORS["Mesh"].extract(
+                make_unity_object("Mesh", data), tmp_path
+            )
+
+        mock_export.assert_called_once_with(data)
+        assert result == tmp_path / "gun_mesh.obj"
+        assert result.read_text() == obj_text
+
+    def test_mesh_legacy_fallback_when_exporter_fails(self, tmp_path: Path) -> None:
         vertex = SimpleNamespace(x=1.0, y=2.0, z=3.0)
         uv = SimpleNamespace(x=0.5, y=0.5)
         normal = SimpleNamespace(x=0.0, y=1.0, z=0.0)
@@ -120,7 +179,14 @@ class TestExtractors:
             m_Normals=[normal],
             m_Triangles=[0, 1, 2],
         )
-        result = EXTRACTORS["Mesh"].extract(make_unity_object("Mesh", data), tmp_path)
+
+        with patch(
+            "wog_dump.core.unpack.MeshExporter.export_mesh_obj",
+            side_effect=RuntimeError("unsupported vertex format"),
+        ):
+            result = EXTRACTORS["Mesh"].extract(
+                make_unity_object("Mesh", data), tmp_path
+            )
 
         assert result == tmp_path / "gun_mesh.obj"
         content = result.read_text()
@@ -128,6 +194,40 @@ class TestExtractors:
         assert "vt 0.5 0.5" in content
         assert "vn 0.0 1.0 0.0" in content
         assert "f 1 2 3" in content
+
+    def test_mesh_legacy_fallback_when_exporter_output_empty(
+        self, tmp_path: Path
+    ) -> None:
+        vertex = SimpleNamespace(x=1.0, y=2.0, z=3.0)
+        data = Mock(
+            m_Name="gun_mesh",
+            m_Vertices=[vertex],
+            m_UV=[],
+            m_Normals=[],
+            m_Triangles=[],
+        )
+
+        with patch(
+            "wog_dump.core.unpack.MeshExporter.export_mesh_obj", return_value=""
+        ):
+            result = EXTRACTORS["Mesh"].extract(
+                make_unity_object("Mesh", data), tmp_path
+            )
+
+        assert result == tmp_path / "gun_mesh.obj"
+        assert "v 1.0 2.0 3.0" in result.read_text()
+
+    def test_mesh_without_vertex_data_skipped(self, tmp_path: Path) -> None:
+        data = SimpleNamespace(m_Name="empty")
+
+        with patch(
+            "wog_dump.core.unpack.MeshExporter.export_mesh_obj",
+            side_effect=RuntimeError("no vertex data"),
+        ):
+            assert (
+                EXTRACTORS["Mesh"].extract(make_unity_object("Mesh", data), tmp_path)
+                is None
+            )
 
     def test_material(self, tmp_path: Path) -> None:
         props = Mock(
@@ -297,7 +397,7 @@ class TestAssetUnpacker:
         self, mock_load: Mock, test_config: WOGConfig, mock_unity_asset: Path
     ) -> None:
         text = Mock(m_Name="notes", m_Script="hello")
-        image = Mock()
+        image = Image.new("RGB", (2, 2), (10, 20, 30))
         texture = Mock(m_Name="skin", image=image)
         unsupported = Mock()
         unsupported.type.name = "Transform"
@@ -326,7 +426,7 @@ class TestAssetUnpacker:
         self, mock_load: Mock, test_config: WOGConfig, mock_unity_asset: Path
     ) -> None:
         text = Mock(m_Name="notes", m_Script="hello")
-        texture = Mock(m_Name="skin", image=Mock())
+        texture = Mock(m_Name="skin", image=Image.new("RGB", (2, 2), (1, 2, 3)))
         mock_load.return_value = make_env(
             [
                 make_unity_object("TextAsset", text),

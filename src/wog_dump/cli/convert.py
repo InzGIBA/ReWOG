@@ -15,7 +15,11 @@ from .errors import error_handler, print_banner_if_standalone
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
 @click.option("--recursive", "-r", is_flag=True, help="Process directories recursively")
 @click.option("--backup", "-b", is_flag=True, help="Create backups before conversion")
-@click.option("--pattern", default="*_n*.png", help="File pattern to match")
+@click.option(
+    "--pattern",
+    default="*.png",
+    help="File pattern to match; only swizzled normal maps are converted",
+)
 @click.pass_context
 def convert_normals(
     ctx: click.Context, path: Path, recursive: bool, backup: bool, pattern: str

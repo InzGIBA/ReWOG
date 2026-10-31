@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 Fixed
+
+- **Meshes export as real OBJ geometry instead of empty stubs**: Unity 6 stores vertices in packed `m_VertexData` while the legacy `m_Vertices` array is `None`, so every exported `.obj` was a 2-line header (all 175 Colt 1911 meshes). Extraction now renders OBJ text through UnityPy's mesh exporter (verified on real data: 175/175 files with vertices, UVs and faces); the old manual writer remains as a fallback for meshes with legacy arrays
+- **Swizzled normal maps no longer come out semi-transparent**: Unity (DXT5nm-style) keeps the X component in the alpha channel, so a raw RGBA export looks washed-out and ~50% transparent in viewers. Extraction now detects such textures and rewrites them to standard opaque RGB (X from alpha, Y from green, Z reconstructed as `sqrt(1 - x^2 - y^2)`)
+- **Detection is strict enough to leave real game data alone**: the check requires the constant-white red signature, varying green/alpha channels and valid unit normals. The game's genuine RGBA data - the `cuts` cutaway overlay baked at ~32% opacity, atlas masks, the 1D heat ramp in `gas` - is exported unchanged (verified on Colt 1911)
+- **`convert-normals` works on the game's real file names**: the old default pattern `*_n*.png` matched none of the game's textures (`gas.png`, `cuts.png`, ...). It now scans `*.png` by content, so re-runs are idempotent; it also fixes Y being read from blue instead of green and reconstructs Z instead of hardcoding 255
+
 ### 📄 Logging
 
 - **The log file now always captures INFO and above** - previously the CLI's console verbosity (`WARNING` by default) also silenced the file, so most runs left an almost empty log. Console status lines ("Starting/Completed ...") are mirrored into the file as `[status] message` INFO records, so the log is a complete history of a run

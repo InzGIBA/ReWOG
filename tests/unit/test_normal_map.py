@@ -2,13 +2,100 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 from PIL import Image
 
-from wog_dump.utils.normal_map import NormalMapConverter, NormalMapError
+from wog_dump.utils.normal_map import (
+    NormalMapConverter,
+    NormalMapError,
+    is_unity_swizzled_normal,
+    unswizzle_normal_map,
+)
+
+
+def make_swizzled_image(size: int = 32) -> Image.Image:
+    """Synthesize an image with the Unity swizzled normal map signature:
+    red forced white, X in alpha, Y in green, both forming unit normals."""
+    img = Image.new("RGBA", (size, size))
+    img.putdata(
+        [
+            (
+                255,
+                round(127.5 * (1 + 0.9 * math.cos((x * 7 + y * 3) * 0.35))),
+                0,
+                round(127.5 * (1 + 0.9 * math.sin((x * 7 + y * 3) * 0.35))),
+            )
+            for y in range(size)
+            for x in range(size)
+        ]
+    )
+    return img
+
+
+class TestSwizzleHelpers:
+    """Test the shared detection/unswizzle helpers."""
+
+    def test_detection_positive(self) -> None:
+        """Swizzled signature: constant white red, data in green and alpha."""
+        assert is_unity_swizzled_normal(make_swizzled_image()) is True
+
+    def test_detection_rejects_albedo(self) -> None:
+        img = Image.new("RGBA", (32, 32))
+        img.putdata(
+            [
+                ((x * 7) % 256, (y * 5) % 256, 30, ((x + y) * 3) % 256)
+                for y in range(32)
+                for x in range(32)
+            ]
+        )
+        assert is_unity_swizzled_normal(img) is False
+
+    def test_detection_rejects_images_without_alpha(self) -> None:
+        assert (
+            is_unity_swizzled_normal(Image.new("RGB", (8, 8), (128, 128, 255))) is False
+        )
+
+    def test_detection_rejects_color_ramp(self) -> None:
+        """Constant-red data that is not a normal map (e.g. the game's 1D
+        heat/glow ramps) must not be unswizzled: channel pairs fall far
+        outside the unit circle."""
+        img = Image.new("RGBA", (32, 32))
+        img.putdata(
+            [
+                (255, 255 if (x + y) % 2 else 0, 0, 255 if x % 2 else 0)
+                for y in range(32)
+                for x in range(32)
+            ]
+        )
+        assert is_unity_swizzled_normal(img) is False
+
+    def test_unswizzle_flat_pixel(self) -> None:
+        """A flat normal (X=0 in alpha, Y=0 in green) maps to (128, 128, 255)."""
+        img = Image.new("RGBA", (1, 1), (255, 128, 0, 128))
+        out = unswizzle_normal_map(img)
+
+        assert out.mode == "RGB"
+        assert out.getpixel((0, 0)) == (128, 128, 255)
+
+    def test_unswizzle_steep_pixel(self) -> None:
+        """X = +1 with Y = 0 leaves no room for Z."""
+        img = Image.new("RGBA", (1, 1), (255, 128, 0, 255))
+        out = unswizzle_normal_map(img)
+
+        assert out.getpixel((0, 0)) == (255, 128, 128)
+
+    def test_unswizzle_moves_alpha_to_red(self) -> None:
+        img = make_swizzled_image(8)
+        out = unswizzle_normal_map(img)
+
+        source = img.getpixel((2, 3))
+        result = out.getpixel((2, 3))
+        assert result[0] == source[3]  # X from alpha
+        assert result[1] == source[1]  # Y from green
 
 
 class TestNormalMapConverter:
@@ -74,11 +161,12 @@ class TestNormalMapConverter:
         converted_img = Image.open(output_path)
         assert converted_img.mode == "RGB"
 
-        # Verify channel mapping: Alpha->Red, Blue->Green, 255->Blue
+        # Verify channel mapping: Alpha->Red, Green->Green, Z reconstructed
+        # (X=200 -> x^2 term 41, Y=100 -> y^2 term 5, sum 46 -> z=229)
         pixel = converted_img.getpixel((0, 0))
-        assert pixel[0] == 200  # Red = original Alpha
-        assert pixel[1] == 150  # Green = original Blue
-        assert pixel[2] == 255  # Blue = maximum
+        assert pixel[0] == 200  # Red = original Alpha (X component)
+        assert pixel[1] == 100  # Green = original Green (Y component)
+        assert pixel[2] == 229  # Blue = reconstructed Z
 
     def test_convert_normal_map_with_output_path(self, temp_dir: Path) -> None:
         """Test normal map conversion with custom output path."""
@@ -137,10 +225,17 @@ class TestNormalMapConverter:
 
         assert output_path.exists()
 
-        # Check that Y channel is not inverted
+        # Check that Y channel is not inverted (Y comes from green)
         converted_img = Image.open(output_path)
         pixel = converted_img.getpixel((0, 0))
-        assert pixel[1] == 150  # Should be original blue value, not inverted
+        assert pixel[0] == 200  # X from alpha
+        assert pixel[1] == 100  # original green value, not inverted
+        assert pixel[2] == 229  # reconstructed Z
+
+        # Test with invert_y=True (DirectX <-> OpenGL flip)
+        inverted_path = converter.convert_normal_map_advanced(input_path)
+        inverted_img = Image.open(inverted_path)
+        assert inverted_img.getpixel((0, 0))[1] == 255 - 100
 
     def test_batch_convert_directory_empty(self, temp_dir: Path) -> None:
         """Test batch conversion on empty directory."""
@@ -154,19 +249,18 @@ class TestNormalMapConverter:
         """Test batch conversion with normal map files."""
         converter = NormalMapConverter()
 
-        # Create test normal maps
+        # Create test normal maps (must match the swizzled signature)
         for i in range(3):
             img_path = temp_dir / f"texture_{i}_n.png"
-            img = Image.new("RGBA", (16, 16), (i * 50, 100, 150, 200))
-            img.save(img_path)
+            make_swizzled_image(16).save(img_path)
 
-        # Create non-normal map (should be ignored)
+        # Create non-normal map (content does not match, left unchanged)
         other_img = temp_dir / "texture_diffuse.png"
         Image.new("RGB", (16, 16)).save(other_img)
 
         # Mock the actual conversion to avoid file operations
         converter.convert_normal_map = Mock(
-            side_effect=lambda src, dst=None: dst
+            side_effect=lambda src, dst=None, force=True: dst
             or src.parent / f"{src.stem}_converted{src.suffix}"
         )
 
@@ -184,8 +278,7 @@ class TestNormalMapConverter:
         subdir.mkdir()
 
         img_path = subdir / "texture_n.png"
-        img = Image.new("RGBA", (16, 16))
-        img.save(img_path)
+        make_swizzled_image(16).save(img_path)
 
         # Mock conversion
         converter.convert_normal_map = Mock(return_value=img_path)
@@ -199,18 +292,28 @@ class TestNormalMapConverter:
         converted_files = converter.batch_convert_directory(temp_dir, recursive=False)
         assert len(converted_files) == 0
 
+    def test_batch_convert_skips_already_converted(self, temp_dir: Path) -> None:
+        """Re-running batch conversion is idempotent: converted files no
+        longer match the swizzled signature and are left alone."""
+        converter = NormalMapConverter()
+
+        img_path = temp_dir / "texture_n.png"
+        make_swizzled_image(16).save(img_path)
+
+        first_run = converter.batch_convert_directory(temp_dir)
+        assert first_run == [img_path]
+        assert Image.open(img_path).mode == "RGB"
+
+        second_run = converter.batch_convert_directory(temp_dir)
+        assert second_run == []
+
     def test_validate_normal_map_unity_format(self, temp_dir: Path) -> None:
         """Test validation of Unity format normal map."""
         converter = NormalMapConverter()
 
-        # Create Unity format normal map (data in green and alpha)
+        # Create Unity format normal map (X in alpha, Y in green, red forced white)
         input_path = temp_dir / "unity_normal.png"
-        img = Image.new("RGBA", (32, 32))
-
-        # Unity format: G and A channels have data, R and B minimal
-        pixels = [(10, 120, 20, 180) for _ in range(32 * 32)]
-        img.putdata(pixels)
-        img.save(input_path)
+        make_swizzled_image(32).save(input_path)
 
         result = converter.validate_normal_map(input_path)
 

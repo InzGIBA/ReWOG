@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🖥️ Console redesign
+
+- **One aligned line per pipeline step**: `✓ Download — 237 assets, 2 not on server (1m08s)` replaces the nested "Starting…/Completed…" pairs that printed up to six lines per logical step; a failed step prints a red `✗` line
+- **Progress bars are transient** - they disappear when finished, so a completed run leaves only step lines, warnings and the final `Done in 13m15s — models in runtime/unpacked` summary instead of a wall of 100%-complete bars
+- **Batched downloads run under one aggregate bar** for the whole list instead of a "Checking updates" + "Downloading assets" bar pair per 50-asset batch
+- **Warnings are compact one-liners** (`⚠ message`) without the `[11/01/26 01:57:57] WARNING` developer formatting - timestamps, logger names and locations stay in the log file
+- **No more 900-row performance dump**: the timing table is opt-in (`full-pipeline --performance`), aggregates per-item metrics into one row per operation (`download (287 items)`) and is capped to the 12 slowest
+- Slim one-line banner instead of the full-width panel; dropped the fake "Pipeline Overview ✓" checklist, the "Sample weapons (first 10)" listing and the duplicated final messages; the 2-minute file validation pass now shows a progress bar instead of running silently between two status lines
+
 ### 🐛 Fixed
 
 - **Meshes export as real OBJ geometry instead of empty stubs**: Unity 6 stores vertices in packed `m_VertexData` while the legacy `m_Vertices` array is `None`, so every exported `.obj` was a 2-line header (all 175 Colt 1911 meshes). Extraction now renders OBJ text through UnityPy's mesh exporter (verified on real data: 175/175 files with vertices, UVs and faces); the old manual writer remains as a fallback for meshes with legacy arrays

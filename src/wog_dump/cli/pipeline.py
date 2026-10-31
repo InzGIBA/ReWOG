@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import sys
+import time
 
 import click
 
+from ..utils.logging import format_duration
 from .convert import convert_normals as convert_normals_command
 from .decrypt import decrypt_assets
 from .download import download_assets, download_weapons
@@ -24,6 +26,9 @@ from .unpack import unpack_assets
 @click.option(
     "--continue-on-error", is_flag=True, help="Continue pipeline on non-critical errors"
 )
+@click.option(
+    "--performance", is_flag=True, help="Print an aggregated timing breakdown"
+)
 @click.pass_context
 def full_pipeline(
     ctx: click.Context,
@@ -33,6 +38,7 @@ def full_pipeline(
     convert_normals: bool,
     batch_size: int,
     continue_on_error: bool,
+    performance: bool,
 ) -> None:
     """Run the complete WOG Dump pipeline.
 
@@ -46,84 +52,73 @@ def full_pipeline(
 
     with error_handler("Full pipeline"):
         logger.print_banner()
-        # Invoked subcommands must not repeat the banner
+        # This command owns the step-by-step console output; the invoked
+        # subcommands stay quiet and report results through return values
         ctx.obj["pipeline_nested"] = True
-        logger.print_status("Starting complete WOG Dump pipeline...", "processing")
 
-        pipeline_steps = [
-            ("Download weapon list", not skip_download),
-            ("Download assets", not skip_download),
-            ("Decrypt assets", not skip_decrypt),
-            ("Unpack assets", True),
-            ("Convert normal maps", convert_normals),
-        ]
+        flow = ["weapon list", "download", "decrypt", "unpack"]
+        if convert_normals:
+            flow.append("normal maps")
+        logger.console.print(f"[dim]{' → '.join(flow)}[/dim]\n")
 
-        # Show pipeline overview
-        logger.console.print("\n[bold cyan]Pipeline Overview:[/bold cyan]")
-        for i, (step_name, enabled) in enumerate(pipeline_steps, 1):
-            status = "✓" if enabled else "⏭"
-            logger.console.print(f"  {i}. {status} {step_name}")
-        logger.console.print()
+        started = time.perf_counter()
+        output_dir = config.base_dir / "runtime" / "unpacked"
 
         try:
-            # Step 1: Download weapon list
             if not skip_download:
-                logger.print_status("Step 1: Downloading weapon list...", "processing")
-                ctx.invoke(download_weapons, force=False, validate=True)
+                with logger.step("Weapon list") as step:
+                    weapons = ctx.invoke(download_weapons, force=False, validate=True)
+                    step.result(f"{len(weapons)} weapons")
 
-            # Step 2: Download assets
-            if not skip_download:
-                logger.print_status("Step 2: Downloading assets...", "processing")
-                ctx.invoke(
-                    download_assets,
-                    update_keys=update_keys,
-                    check_only=False,
-                    weapons=None,
-                    batch_size=batch_size,
-                    continue_on_error=continue_on_error,
-                )
+                with logger.step("Download") as step:
+                    successful, failed, missing = ctx.invoke(
+                        download_assets,
+                        update_keys=update_keys,
+                        check_only=False,
+                        weapons=None,
+                        batch_size=batch_size,
+                        continue_on_error=continue_on_error,
+                    )
+                    detail = f"{len(successful)} assets"
+                    if missing:
+                        detail += f", {missing} not on server"
+                    if failed:
+                        detail += f", {len(failed)} failed"
+                    step.result(detail)
 
-            # Step 3: Decrypt assets
             if not skip_decrypt:
-                logger.print_status("Step 3: Decrypting assets...", "processing")
-                ctx.invoke(
-                    decrypt_assets,
-                    update_keys=update_keys,
-                    weapons=None,
-                    validate=config.enable_validation,
+                with logger.step("Decrypt") as step:
+                    decrypted, failed_assets = ctx.invoke(
+                        decrypt_assets,
+                        update_keys=update_keys,
+                        weapons=None,
+                        validate=config.enable_validation,
+                    )
+                    detail = f"{len(decrypted)} files"
+                    if failed_assets:
+                        detail += f", {len(failed_assets)} failed"
+                    step.result(detail)
+
+            with logger.step("Unpack") as step:
+                extracted = ctx.invoke(
+                    unpack_assets,
+                    input_dir=None,
+                    output_dir=None,
+                    asset_filter=None,
+                    extract_types="Texture2D,Mesh,Material",
                 )
+                step.result(f"{extracted} files")
 
-            # Step 4: Unpack assets
-            logger.print_status("Step 4: Unpacking assets...", "processing")
-            ctx.invoke(
-                unpack_assets,
-                input_dir=None,
-                output_dir=None,
-                asset_filter=None,
-                extract_types="Texture2D,Mesh,Material",
-            )
-
-            # Step 5: Convert normal maps (optional)
             if convert_normals:
-                logger.print_status("Step 5: Converting normal maps...", "processing")
-                unpacked_dir = config.base_dir / "runtime" / "unpacked"
-                if unpacked_dir.exists():
-                    ctx.invoke(
+                with logger.step("Normal maps") as step:
+                    converted = ctx.invoke(
                         convert_normals_command,
-                        path=unpacked_dir,
+                        path=output_dir,
                         recursive=True,
                         backup=False,
-                        pattern="*_n*.png",
+                        pattern="*.png",
                     )
-
-            # Show performance summary
-            logger.print_performance_summary()
-
-            logger.print_status("Pipeline completed successfully!", "success")
-            logger.console.print(
-                "\n🎉 [bold green]All done! Your extracted models are"
-                " ready to use.[/bold green]"
-            )
+                    step.result(f"{converted} converted")
 
         except OperationCancelled:
             logger.print_status("Pipeline cancelled by user", "warning")
@@ -132,3 +127,13 @@ def full_pipeline(
             logger.error(f"Pipeline failed: {e}")
             if not continue_on_error:
                 sys.exit(1)
+
+        logger.console.print()
+        logger.console.print(
+            f"[bold green]Done[/bold green]"
+            f" [dim]in {format_duration(time.perf_counter() - started)}"
+            f" — models in {output_dir}[/dim]"
+        )
+
+        if performance:
+            logger.print_performance_summary()

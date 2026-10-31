@@ -118,7 +118,7 @@ class AssetDecryptor:
         decrypted_files = []
 
         try:
-            with self.logger.time_operation(f"decrypt_{asset_path.stem}"):
+            with self.logger.time_operation(f"decrypt:{asset_path.stem}"):
                 env = UnityPy.load(str(asset_path))
 
                 for obj in env.objects:

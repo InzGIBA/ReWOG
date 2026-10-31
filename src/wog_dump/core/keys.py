@@ -111,7 +111,7 @@ class KeyManager:
         for attempt in (0, 1):
             params = self._build_api_request_data(asset_name, identity)
             try:
-                with self.logger.time_operation(f"key_fetch_{asset_name}"):
+                with self.logger.time_operation(f"key_fetch:{asset_name}"):
                     response_text = self.client.call(params)
                 key = self._parse_api_response(response_text, asset_name)
                 if key and use_cache:

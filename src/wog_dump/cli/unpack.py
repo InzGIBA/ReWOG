@@ -40,7 +40,7 @@ def unpack_assets(
     output_dir: Path | None,
     asset_filter: str | None,
     extract_types: str,
-) -> None:
+) -> int:
     """Unpack decrypted Unity assets to extract models and textures.
 
     Extracts 3D models, textures, and materials from decrypted Unity asset files
@@ -51,6 +51,7 @@ def unpack_assets(
 
     with error_handler("Asset unpacking"):
         print_banner_if_standalone(ctx)
+        nested = bool(ctx.obj.get("pipeline_nested"))
 
         # Set directories
         if input_dir is None:
@@ -75,6 +76,7 @@ def unpack_assets(
         extract_type_list = [t.strip() for t in extract_types.split(",")]
 
         # Unpack assets
+        total_files = 0
         with logger.operation_context("unpacking", "asset unpacking"):
             unpacker = AssetUnpacker(config)
             results = unpacker.unpack_multiple_assets(
@@ -84,9 +86,12 @@ def unpack_assets(
             successful = sum(1 for files in results.values() if files)
             total_files = sum(len(files) for files in results.values())
 
-            logger.print_status(
-                f"Unpacked {successful}/{len(asset_files)} assets", "success"
-            )
-            logger.print_status(
-                f"Extracted {total_files} files to {output_dir}", "info"
-            )
+            if not nested:
+                logger.print_status(
+                    f"Unpacked {successful}/{len(asset_files)} assets", "success"
+                )
+                logger.print_status(
+                    f"Extracted {total_files} files to {output_dir}", "info"
+                )
+
+    return total_files

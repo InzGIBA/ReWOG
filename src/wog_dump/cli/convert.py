@@ -23,7 +23,7 @@ from .errors import error_handler, print_banner_if_standalone
 @click.pass_context
 def convert_normals(
     ctx: click.Context, path: Path, recursive: bool, backup: bool, pattern: str
-) -> None:
+) -> int:
     """Convert Unity normal maps to standard format with batch processing.
 
     Converts Unity's normal map format (data in green/alpha channels) to
@@ -34,20 +34,26 @@ def convert_normals(
 
     with error_handler("Normal map conversion"):
         print_banner_if_standalone(ctx)
+        nested = bool(ctx.obj.get("pipeline_nested"))
 
         converter = NormalMapConverter()
 
+        converted = 0
         with logger.operation_context("normal_conversion", "normal map conversion"):
             if path.is_file():
                 output_path = converter.convert_normal_map(path)
-                logger.print_status(f"Converted: {output_path}", "success")
+                converted = 1
+                if not nested:
+                    logger.print_status(f"Converted: {output_path}", "success")
             elif path.is_dir():
                 converted_files = converter.batch_convert_directory(
                     path, recursive=recursive, pattern=pattern, backup=backup
                 )
-                logger.print_status(
-                    f"Converted {len(converted_files)} normal maps", "success"
-                )
+                converted = len(converted_files)
+                if not nested:
+                    logger.print_status(f"Converted {converted} normal maps", "success")
             else:
                 logger.error(f"Invalid path: {path}")
                 sys.exit(1)
+
+    return converted

@@ -3,7 +3,11 @@
 Verbosity is controlled per destination:
 
 - **Console**: quiet by default (WARNING); ``-v`` shows INFO, ``-d`` shows
-  DEBUG. Progress bars and status lines are separate from this.
+  DEBUG. Console records are one compact line (``⚠ message``) - no
+  timestamps or logger names. Pipeline-level feedback uses one aligned
+  ``✓ Step — result (duration)`` line per step (``WOGLogger.step``);
+  progress bars are transient and disappear when finished, so a run
+  leaves behind only step lines, warnings and the final summary.
 - **Log file**: one rotating ``wog.log`` that always captures INFO and
   above; set ``WOG_LOG_LEVEL=DEBUG`` in ``.env`` to include debug output.
   The file lives in the per-user data directory next to the database
@@ -21,8 +25,6 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from rich.console import Console
-from rich.logging import RichHandler
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -50,6 +52,11 @@ _FILE_LEVELS = {
     "CRITICAL": logging.CRITICAL,
 }
 
+# Per-item metrics are recorded as "<verb>:<item>" (e.g. "download:ak47")
+# so the timing table can collapse them into one aggregated row per
+# verb; top-level operation names never contain a colon.
+_ITEM_METRIC_SEPARATOR = ":"
+
 
 def default_log_dir() -> Path:
     """Directory for log files (honors ``WOG_LOG_DIR``).
@@ -68,6 +75,69 @@ def log_file_level() -> int:
     """File verbosity from ``WOG_LOG_LEVEL`` (default INFO)."""
     raw = os.environ.get("WOG_LOG_LEVEL", "").strip().upper()
     return _FILE_LEVELS.get(raw, logging.INFO)
+
+
+def format_duration(seconds: float) -> str:
+    """Human-friendly duration: ``4.2s`` / ``57s`` / ``5m04s`` / ``1h07m``."""
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m{secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
+class ConsoleHandler(logging.Handler):
+    """Compact one-line console records: ``⚠ message``.
+
+    Timestamps, logger names and file locations stay in the log file;
+    the console only shows a level icon, the message and (for errors)
+    the traceback.
+    """
+
+    _ICONS = {
+        logging.DEBUG: ("dim", "·"),
+        logging.INFO: ("cyan", "·"),
+        logging.WARNING: ("yellow", "⚠"),
+        logging.ERROR: ("red", "✗"),
+        logging.CRITICAL: ("bold red", "✗"),
+    }
+
+    def __init__(self, console: Console) -> None:
+        super().__init__()
+        self.console = console
+        self.setFormatter(logging.Formatter("%(message)s"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            style, icon = self._ICONS.get(record.levelno, ("white", "·"))
+            message = self.format(record)
+            # soft_wrap: only explicit newlines break lines, so paths and
+            # command hints stay greppable (the terminal wraps visually)
+            self.console.print(
+                f"{icon} {message}" if message else icon,
+                style=style,
+                markup=False,
+                highlight=False,
+                soft_wrap=True,
+            )
+        except Exception:  # pragma: no cover - logging must never crash
+            self.handleError(record)
+
+
+class StepResult:
+    """Mutable handle passed by ``WOGLogger.step`` to attach a result."""
+
+    def __init__(self) -> None:
+        self.detail = ""
+
+    def result(self, detail: str) -> None:
+        """Set the short result shown next to the step title."""
+        self.detail = detail
 
 
 class PerformanceMonitor:
@@ -132,7 +202,7 @@ class WOGLogger:
         # the console.
         self.logger.setLevel(logging.DEBUG)
         self.performance_monitor = PerformanceMonitor()
-        self._console_handler: RichHandler | None = None
+        self._console_handler: ConsoleHandler | None = None
         self._file_handler: RotatingFileHandler | None = None
         self.log_file: Path | None = None
         self._setup_handlers(console_level)
@@ -144,16 +214,9 @@ class WOGLogger:
         if isinstance(console_level, str):
             console_level = getattr(logging, console_level.upper(), logging.WARNING)
 
-        rich_handler = RichHandler(
-            console=self.console,
-            show_path=False,
-            show_time=True,
-            markup=True,
-            rich_tracebacks=True,
-            tracebacks_show_locals=True,
-        )
-        rich_handler.setLevel(console_level)
-        self._console_handler = rich_handler
+        console_handler = ConsoleHandler(self.console)
+        console_handler.setLevel(console_level)
+        self._console_handler = console_handler
 
         file_formatter = logging.Formatter(
             fmt="%(asctime)s | %(name)s | %(levelname)-8s | %(funcName)s:%(lineno)d | %(message)s",
@@ -182,7 +245,7 @@ class WOGLogger:
             self._file_handler = file_handler
             self.log_file = log_file
 
-        self.logger.addHandler(rich_handler)
+        self.logger.addHandler(console_handler)
         self.debug(f"Logger initialized - Log file: {self.log_file or 'console only'}")
 
     def info(self, message: str) -> None:
@@ -217,26 +280,15 @@ class WOGLogger:
         return self.console_level <= logging.DEBUG
 
     def print_banner(self) -> None:
-        """Print enhanced application banner."""
-        banner_text = Text.assemble(
-            (f"🔫 WOG Dump v{__version__}", "bold cyan"),
-            (" | ", "white"),
-            ("World of Guns Model Extractor", "cyan"),
+        """Print the application banner."""
+        self.console.print(
+            f"🔫 [bold cyan]WOG Dump[/bold cyan] [cyan]v{__version__}[/cyan]"
+            " [dim]· World of Guns Model Extractor[/dim]"
         )
-
-        panel = Panel(
-            banner_text,
-            border_style="cyan",
-            padding=(1, 2),
-        )
-
-        self.console.print(panel)
         self.debug(f"Banner: WOG Dump v{__version__}")
 
-    def print_status(
-        self, message: str, status: str = "info", prefix: str = "WOG DUMP"
-    ) -> None:
-        """Print status message with enhanced styling."""
+    def print_status(self, message: str, status: str = "info") -> None:
+        """Print a single status line (icon + message)."""
         status_styles = {
             "info": ("ℹ️", "blue"),
             "success": ("✅", "green"),
@@ -247,21 +299,51 @@ class WOGLogger:
 
         emoji, color = status_styles.get(status, ("ℹ️", "blue"))
 
-        text = Text.assemble(
-            (f"[{prefix}]", f"bold {color}"),
-            (" ", "white"),
-            (emoji, "white"),
-            (" ", "white"),
-            (message, color),
-        )
+        text = Text.assemble((f"{emoji} ", "white"), (message, color))
 
-        self.console.print(text)
+        self.console.print(text, soft_wrap=True)
         # Status lines are the operational history of a run - keep them
         # in the log file even when the console is quiet
         self.logger.info(f"[{status}] {message}")
 
+    @contextmanager
+    def step(self, title: str) -> Iterator[StepResult]:
+        """One aligned console line per pipeline step.
+
+        While the step runs, its own progress bars are visible (they are
+        transient and vanish on completion); when it finishes, a single
+        ``✓ Title — detail (duration)`` line remains.
+        """
+        started = time.perf_counter()
+        result = StepResult()
+        self.logger.info(f"[step] {title} started")
+        try:
+            yield result
+        except Exception:
+            self.console.print(Text(f"✗ {title}"), style="red")
+            self.logger.info(
+                f"[step] {title} failed after "
+                f"{format_duration(time.perf_counter() - started)}"
+            )
+            raise
+
+        elapsed = time.perf_counter() - started
+        self.console.print(
+            Text.assemble(
+                ("✓ ", "green"),
+                (title.ljust(18), "bold"),
+                (f"— {result.detail}" if result.detail else "", "green"),
+                (f" ({format_duration(elapsed)})", "dim"),
+            )
+        )
+        self.logger.info(f"[step] {title}: {result.detail} in {elapsed:.2f}s")
+
     def create_task_progress(self) -> Progress:
-        """Create enhanced progress bar for general tasks."""
+        """Create a progress bar for a task.
+
+        Bars are transient: once finished they disappear, leaving the
+        step lines as the run's summary.
+        """
         return Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}", justify="right"),
@@ -275,6 +357,7 @@ class WOGLogger:
             TimeElapsedColumn(),
             console=self.console,
             expand=True,
+            transient=True,
         )
 
     def print_table(
@@ -299,40 +382,52 @@ class WOGLogger:
 
         self.console.print(table)
 
-    def print_performance_summary(self, operations: list[str] | None = None) -> None:
-        """Print performance metrics summary."""
-        if operations is None:
-            operations = list(self.performance_monitor.metrics.keys())
+    def print_performance_summary(self, max_rows: int = 12) -> None:
+        """Print a compact timing table.
 
-        if not operations:
-            self.console.print("[yellow]No performance metrics available[/yellow]")
+        Per-item metrics (``key_fetch_ak47``, ``download_m4``, ...) are
+        aggregated into one row per verb with an item count, so a full
+        288-weapon pipeline stays within a single screen.
+        """
+        grouped: dict[str, list[float]] = {}
+        for name, times in self.performance_monitor.metrics.items():
+            key = (
+                name.split(_ITEM_METRIC_SEPARATOR, 1)[0]
+                if _ITEM_METRIC_SEPARATOR in name
+                else name
+            )
+            grouped.setdefault(key, []).extend(times)
+
+        if not grouped:
             return
 
+        rows = sorted(
+            ((name, times) for name, times in grouped.items()),
+            key=lambda item: sum(item[1]),
+            reverse=True,
+        )[:max_rows]
+
         table = Table(
-            title="Performance Summary",
+            title="Timings",
             show_header=True,
             header_style="bold magenta",
             border_style="magenta",
         )
-
         table.add_column("Operation", style="cyan")
         table.add_column("Count", justify="right")
-        table.add_column("Total (s)", justify="right")
-        table.add_column("Average (s)", justify="right")
-        table.add_column("Min (s)", justify="right")
-        table.add_column("Max (s)", justify="right")
+        table.add_column("Total", justify="right")
+        table.add_column("Average", justify="right")
+        table.add_column("Max", justify="right")
 
-        for operation in operations:
-            stats = self.performance_monitor.get_stats(operation)
-            if stats:
-                table.add_row(
-                    operation,
-                    str(stats["count"]),
-                    f"{stats['total']:.2f}",
-                    f"{stats['average']:.2f}",
-                    f"{stats['min']:.2f}",
-                    f"{stats['max']:.2f}",
-                )
+        for name, times in rows:
+            label = f"{name} ({len(times)} items)" if len(times) > 1 else name
+            table.add_row(
+                label,
+                str(len(times)),
+                format_duration(sum(times)),
+                format_duration(sum(times) / len(times)),
+                format_duration(max(times)),
+            )
 
         self.console.print(table)
 
@@ -344,26 +439,23 @@ class WOGLogger:
     def operation_context(
         self, operation: str, description: str | None = None
     ) -> Iterator[None]:
-        """Context manager for tracking operations with progress."""
+        """Time an operation; the history goes to the file only.
+
+        Console feedback is left to progress bars and the command's own
+        result line - nested "Starting/Completed" pairs used to bury the
+        actual output.
+        """
         if description is None:
             description = operation
 
-        self.print_status(f"Starting {description}...", "processing")
-
+        self.logger.info(f"[op] Starting {description}")
         with self.time_operation(operation):
-            start_time = time.perf_counter()
             try:
                 yield
-                duration = time.perf_counter() - start_time
-                self.print_status(
-                    f"Completed {description} in {duration:.2f}s", "success"
-                )
             except Exception as e:
-                duration = time.perf_counter() - start_time
-                self.print_status(
-                    f"Failed {description} after {duration:.2f}s: {str(e)}", "error"
-                )
+                self.logger.debug(f"[op] Failed {description}: {e}")
                 raise
+        self.logger.info(f"[op] Completed {description}")
 
     def log_system_info(self) -> None:
         """Log system information for debugging."""

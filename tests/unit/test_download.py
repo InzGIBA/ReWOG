@@ -235,7 +235,7 @@ class TestDownloadManager:
             # Mock check_for_updates to return empty list
             manager.check_for_updates = Mock(return_value=[])
 
-            successful, failed = manager.download_assets(sample_weapon_list)
+            successful, failed, missing = manager.download_assets(sample_weapon_list)
 
         assert successful == []
         assert failed == []
@@ -343,7 +343,7 @@ class TestDownloadManager:
 
         with DownloadManager(test_config) as manager:
             manager.check_for_updates = Mock(return_value=list(sample_weapon_list))
-            successful, failed = manager.download_assets(sample_weapon_list)
+            successful, failed, missing = manager.download_assets(sample_weapon_list)
 
         assert set(successful) == set(sample_weapon_list)
         assert failed == []
@@ -379,12 +379,13 @@ class TestDownloadManager:
         mock_get.side_effect = get_response
 
         with DownloadManager(test_config) as manager:
-            successful, failed = manager.download_assets(
+            successful, failed, missing = manager.download_assets(
                 ["ak74n", "missing_gun"], check_updates=False
             )
 
         assert successful == ["ak74n"]
         assert failed == []  # 404 is not a failure that should stop batches
+        assert missing == 1
         stats = manager.get_download_stats()
         assert stats["files_skipped"] == 1
         assert stats["files_failed"] == 0

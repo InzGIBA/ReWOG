@@ -39,7 +39,7 @@ def _load_weapon_list(config: WOGConfig, weapons: str | None) -> list[str]:
 )
 @click.option("--validate", is_flag=True, help="Validate downloaded file integrity")
 @click.pass_context
-def download_weapons(ctx: click.Context, force: bool, validate: bool) -> None:
+def download_weapons(ctx: click.Context, force: bool, validate: bool) -> list[str]:
     """Download and extract the weapon list from game servers.
 
     This command downloads the spider_gen.unity3d asset containing the complete
@@ -50,7 +50,9 @@ def download_weapons(ctx: click.Context, force: bool, validate: bool) -> None:
 
     with error_handler("Weapon list download"):
         print_banner_if_standalone(ctx)
+        nested = bool(ctx.obj.get("pipeline_nested"))
 
+        weapon_list: list[str] = []
         with logger.operation_context("download_weapons", "weapon list download"):
             with DownloadManager(config) as downloader:
                 asset_path = downloader.download_weapon_list(force_update=force)
@@ -62,17 +64,12 @@ def download_weapons(ctx: click.Context, force: bool, validate: bool) -> None:
                 processor = WeaponListProcessor(config)
                 weapon_list = processor.process_weapon_list_asset(asset_path)
 
-                logger.print_status(
-                    f"Successfully extracted {len(weapon_list)} weapons", "success"
-                )
+                if not nested:
+                    logger.print_status(
+                        f"Weapon list: {len(weapon_list)} weapons", "success"
+                    )
 
-                if weapon_list:
-                    logger.console.print("\n[bold]Sample weapons (first 10):[/bold]")
-                    for i, weapon in enumerate(weapon_list[:10], 1):
-                        logger.console.print(f"  {i:2d}. {weapon}")
-
-                    if len(weapon_list) > 10:
-                        logger.console.print(f"  ... and {len(weapon_list) - 10} more")
+    return weapon_list
 
 
 def _update_keys(config: WOGConfig, weapon_list: list[str]) -> dict[str, str] | None:
@@ -119,7 +116,7 @@ def download_assets(
     weapons: str | None,
     batch_size: int,
     continue_on_error: bool,
-) -> None:
+) -> tuple[list[str], list[str], int]:
     """Download weapon assets from game servers with batch processing.
 
     Downloads Unity asset files containing 3D models and textures for weapons.
@@ -130,6 +127,7 @@ def download_assets(
 
     with error_handler("Asset download"):
         print_banner_if_standalone(ctx)
+        nested = bool(ctx.obj.get("pipeline_nested"))
 
         weapon_list = _load_weapon_list(config, weapons)
 
@@ -140,6 +138,7 @@ def download_assets(
                 sys.exit(1)
 
         # Process downloads
+        results: tuple[list[str], list[str], int] = ([], [], 0)
         with logger.operation_context("asset_download", "asset download"):
             with DownloadManager(config) as downloader:
                 if check_only:
@@ -157,18 +156,20 @@ def download_assets(
                             logger.console.print(
                                 f"  ... and {len(to_download) - display_count} more"
                             )
+                    results = (to_download, [], 0)
                 else:
-                    successful, failed = downloader.download_assets_batched(
+                    successful, failed, missing = downloader.download_assets_batched(
                         weapon_list,
                         batch_size=batch_size,
                         continue_on_error=continue_on_error,
                     )
+                    results = (successful, failed, missing)
 
-                    if successful:
-                        logger.print_status(
-                            f"Downloaded {len(successful)} assets successfully",
-                            "success",
-                        )
+                    if successful and not nested:
+                        detail = f"Downloaded {len(successful)} assets"
+                        if missing:
+                            detail += f", {missing} not on server"
+                        logger.print_status(detail, "success")
 
                     if failed:
                         logger.print_status(
@@ -176,3 +177,5 @@ def download_assets(
                         )
                         if not continue_on_error and config.strict_mode:
                             sys.exit(1)
+
+    return results

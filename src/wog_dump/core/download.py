@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from rich.progress import Progress, TaskID
 
 from ..utils.logging import get_logger
 from .config import WOGConfig, get_config
@@ -248,7 +249,7 @@ class DownloadManager:
     def _download_with_status(self, asset_name: str, validate: bool = True) -> str:
         """Download one asset; returns "ok", "not_found" or "failed"."""
         try:
-            with self.logger.time_operation(f"download_{asset_name}"):
+            with self.logger.time_operation(f"download:{asset_name}"):
                 self._fetch_asset(asset_name, validate=validate)
             with self._stats_lock:
                 self._download_stats["files_downloaded"] += 1
@@ -281,61 +282,93 @@ class DownloadManager:
             self.logger.debug(f"Weapon list asset is up to date: {asset_path}")
             return asset_path
 
-        with self.logger.time_operation(f"download_{asset_name}"):
+        with self.logger.time_operation(f"download:{asset_name}"):
             asset_path = self._fetch_asset(asset_name, validate=True)
         self.logger.info(f"Downloaded weapon list asset: {asset_path}")
         return asset_path
 
-    def check_for_updates(self, weapon_list: list[str]) -> list[str]:
-        """Check which weapons need updates using parallel processing."""
+    def check_for_updates(
+        self, weapon_list: list[str], quiet: bool = False
+    ) -> list[str]:
+        """Check which weapons need updates using parallel processing.
+
+        ``quiet`` skips the progress bar (used when the caller already
+        shows one aggregate bar for the whole batch run).
+        """
         if not weapon_list:
             return []
 
-        to_download = []
+        with ThreadPoolExecutor(
+            max_workers=min(self.config.max_threads, len(weapon_list))
+        ) as executor:
+            future_to_weapon = {
+                executor.submit(self.check_asset_needs_update, weapon): weapon
+                for weapon in weapon_list
+            }
 
-        with self.logger.create_task_progress() as progress:
-            task = progress.add_task("Checking updates", total=len(weapon_list))
-
-            with ThreadPoolExecutor(
-                max_workers=min(self.config.max_threads, len(weapon_list))
-            ) as executor:
-                future_to_weapon = {
-                    executor.submit(self.check_asset_needs_update, weapon): weapon
-                    for weapon in weapon_list
-                }
-
-                for future in as_completed(future_to_weapon):
-                    weapon = future_to_weapon[future]
-                    try:
-                        if future.result():
-                            to_download.append(weapon)
-                    except Exception as e:
-                        self.logger.debug(f"Failed to check update for {weapon}: {e}")
-                        # If we can't check, assume it needs update
-                        to_download.append(weapon)
-                    progress.update(task, advance=1)
+            if quiet:
+                to_download = self._collect_update_checks(future_to_weapon)
+            else:
+                with self.logger.create_task_progress() as progress:
+                    task = progress.add_task("Checking updates", total=len(weapon_list))
+                    to_download = self._collect_update_checks(
+                        future_to_weapon, progress, task
+                    )
 
         self.logger.info(
             f"Update check: {len(to_download)} of {len(weapon_list)} assets need updates"
         )
         return to_download
 
-    def download_assets(
-        self, weapon_list: list[str], check_updates: bool = True
-    ) -> tuple[list[str], list[str]]:
-        """Download multiple assets in parallel and return (successful, failed).
+    def _collect_update_checks(
+        self,
+        future_to_weapon: dict[Any, str],
+        progress: Progress | None = None,
+        task: TaskID | None = None,
+    ) -> list[str]:
+        """Gather update-check results, advancing the bar when present."""
+        to_download = []
 
-        Assets missing on the server (HTTP 404) are skipped with a warning
-        and do not count as failures.
+        for future in as_completed(future_to_weapon):
+            weapon = future_to_weapon[future]
+            try:
+                if future.result():
+                    to_download.append(weapon)
+            except Exception as e:
+                self.logger.debug(f"Failed to check update for {weapon}: {e}")
+                # If we can't check, assume it needs update
+                to_download.append(weapon)
+            if progress is not None and task is not None:
+                progress.update(task, advance=1)
+
+        return to_download
+
+    def download_assets(
+        self,
+        weapon_list: list[str],
+        check_updates: bool = True,
+        progress: Progress | None = None,
+        task: TaskID | None = None,
+    ) -> tuple[list[str], list[str], int]:
+        """Download multiple assets in parallel.
+
+        Returns ``(successful, failed, missing)``; missing means the
+        asset is not on the server (HTTP 404, skipped with a warning)
+        and does not count as a failure. ``progress``/``task`` let a
+        batch caller drive one aggregate bar across several calls.
         """
         if not weapon_list:
-            return [], []
+            return [], [], 0
 
         if check_updates:
-            to_download = self.check_for_updates(weapon_list)
+            to_download = self.check_for_updates(
+                weapon_list, quiet=progress is not None
+            )
             if not to_download:
                 self.logger.info("No assets need updates")
-                return [], []
+                if progress is not None and task is not None:
+                    progress.update(task, advance=len(weapon_list))
+                return [], [], 0
         else:
             to_download = weapon_list
 
@@ -344,9 +377,23 @@ class DownloadManager:
         skipped = 0
         max_workers = min(self.config.max_threads, len(to_download))
 
-        with self.logger.create_task_progress() as progress:
-            task = progress.add_task("Downloading assets", total=len(to_download))
+        bar: Progress
+        bar_task: TaskID
+        owns_bar: bool
+        if progress is None or task is None:
+            bar = self.logger.create_task_progress()
+            bar_task = bar.add_task("Downloading assets", total=len(to_download))
+            bar.start()
+            owns_bar = True
+        else:
+            bar = progress
+            bar_task = task
+            owns_bar = False
+            # Up-to-date assets complete their share of the bar at once
+            if check_updates:
+                bar.update(bar_task, advance=len(weapon_list) - len(to_download))
 
+        try:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_weapon = {
                     executor.submit(self._download_with_status, weapon): weapon
@@ -367,15 +414,18 @@ class DownloadManager:
                         self.logger.error(f"Failed to download {weapon}: {e}")
                         failed.append(weapon)
 
-                    if failed or skipped:
-                        progress.update(
-                            task,
+                    if owns_bar and (failed or skipped):
+                        bar.update(
+                            bar_task,
                             description=(
                                 f"Downloading assets ({len(failed)} failed, "
                                 f"{skipped} missing)"
                             ),
                         )
-                    progress.update(task, advance=1)
+                    bar.update(bar_task, advance=1)
+        finally:
+            if owns_bar:
+                bar.stop()
 
         summary = f"Download completed: {len(successful)} successful"
         if skipped:
@@ -383,50 +433,73 @@ class DownloadManager:
         if failed:
             summary += f", {len(failed)} failed"
         self.logger.info(summary)
-        return successful, failed
+        return successful, failed, skipped
 
     def download_assets_batched(
         self,
         weapon_list: list[str],
         batch_size: int = 50,
         continue_on_error: bool = True,
-    ) -> tuple[list[str], list[str]]:
-        """Download assets in batches with error handling."""
+    ) -> tuple[list[str], list[str], int]:
+        """Download assets in batches under one aggregate progress bar.
+
+        Returns ``(successful, failed, missing)``.
+        """
         if not weapon_list:
-            return [], []
+            return [], [], 0
 
-        all_successful = []
-        all_failed = []
+        all_successful: list[str] = []
+        all_failed: list[str] = []
+        total_missing = 0
 
-        for i in range(0, len(weapon_list), batch_size):
-            batch = weapon_list[i : i + batch_size]
-            batch_num = (i // batch_size) + 1
-            total_batches = (len(weapon_list) + batch_size - 1) // batch_size
+        with self.logger.create_task_progress() as progress:
+            task = progress.add_task("Downloading assets", total=len(weapon_list))
 
-            self.logger.info(
-                f"Processing batch {batch_num}/{total_batches} ({len(batch)} assets)"
-            )
+            for i in range(0, len(weapon_list), batch_size):
+                batch = weapon_list[i : i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(weapon_list) + batch_size - 1) // batch_size
 
-            try:
-                successful, failed = self.download_assets(batch, check_updates=True)
-                all_successful.extend(successful)
-                all_failed.extend(failed)
+                self.logger.info(
+                    f"Processing batch {batch_num}/{total_batches} "
+                    f"({len(batch)} assets)"
+                )
 
-                if failed and not continue_on_error:
-                    self.logger.error(f"Batch {batch_num} had failures, stopping")
-                    break
+                try:
+                    successful, failed, missing = self.download_assets(
+                        batch, check_updates=True, progress=progress, task=task
+                    )
+                    all_successful.extend(successful)
+                    all_failed.extend(failed)
+                    total_missing += missing
 
-            except Exception as e:
-                self.logger.error(f"Batch {batch_num} failed: {e}")
-                all_failed.extend(batch)
+                    if all_failed or total_missing:
+                        progress.update(
+                            task,
+                            description=(
+                                f"Downloading assets ({len(all_failed)} failed, "
+                                f"{total_missing} missing)"
+                            ),
+                        )
 
-                if not continue_on_error:
-                    break
+                    if failed and not continue_on_error:
+                        self.logger.error(f"Batch {batch_num} had failures, stopping")
+                        break
 
-        self.logger.info(
-            f"Batch download completed: {len(all_successful)} successful, {len(all_failed)} failed"
-        )
-        return all_successful, all_failed
+                except Exception as e:
+                    self.logger.error(f"Batch {batch_num} failed: {e}")
+                    all_failed.extend(batch)
+
+                    if not continue_on_error:
+                        break
+
+        summary = f"Batch download completed: {len(all_successful)} successful"
+        if total_missing:
+            summary += f", {total_missing} missing on server"
+        if all_failed:
+            summary += f", {len(all_failed)} failed"
+        self.logger.info(summary)
+        return all_successful, all_failed, total_missing
 
     def validate_cached_assets(
         self, weapon_list: list[str]

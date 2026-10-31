@@ -213,3 +213,93 @@ class TestWOGLogger:
 
         assert logger.logger.name == "wog_test_direct"
         assert logger.console_level == logging.WARNING
+
+
+class TestConsolePresentation:
+    """Tests for the redesigned console output."""
+
+    def test_format_duration(self) -> None:
+        from wog_dump.utils.logging import format_duration
+
+        assert format_duration(4.16) == "4.2s"
+        assert format_duration(57.3) == "57s"
+        assert format_duration(62.4) == "1m02s"
+        assert format_duration(384.0) == "6m24s"
+        assert format_duration(4320.0) == "1h12m"
+
+    def test_step_prints_result_line(self, capsys: pytest.CaptureFixture[str]) -> None:
+        logger = get_logger()
+
+        with logger.step("Weapon list") as step:
+            step.result("288 weapons")
+        output = capsys.readouterr().out
+
+        assert "Weapon list" in output
+        assert "288 weapons" in output
+
+    def test_step_failure_prints_error_line(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        logger = get_logger()
+
+        with pytest.raises(RuntimeError), logger.step("Broken step"):
+            raise RuntimeError("boom")
+        output = capsys.readouterr().out
+
+        assert "Broken step" in output
+
+    def test_step_history_lands_in_log_file(self) -> None:
+        logger = WOGLogger(name="wog_test_step_file", console_level=logging.WARNING)
+
+        with logger.step("Weapon list") as step:
+            step.result("288 weapons")
+        logger.logger.handlers[0].flush()
+
+        content = logger.log_file.read_text(encoding="utf-8")  # type: ignore[union-attr]
+        assert "[step] Weapon list" in content
+
+    def test_warning_is_one_compact_line(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Console warnings carry no timestamp or level-name padding."""
+        logger = get_logger()
+
+        logger.warning("something is off")
+        output = capsys.readouterr().out
+
+        assert "something is off" in output
+        assert "WARNING" not in output
+        assert "wog_dump" not in output
+
+    def test_performance_summary_aggregates_item_metrics(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """download:ak47 / download:m4 collapse into one row per verb."""
+        logger = get_logger()
+        monitor = logger.performance_monitor
+        monitor.metrics.clear()
+
+        for name, durations in {
+            "download:ak47": [1.0],
+            "download:m4": [2.0],
+            "key_fetch:ak47": [0.5],
+            "asset_download": [60.0],
+        }.items():
+            monitor.metrics[name] = list(durations)
+
+        logger.print_performance_summary()
+        output = capsys.readouterr().out
+
+        assert "download (2 items)" in output
+        assert "key_fetch" in output
+        assert "asset_download" in output
+        assert "download:ak47" not in output
+
+    def test_performance_summary_empty_prints_nothing(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        logger = get_logger()
+        logger.performance_monitor.metrics.clear()
+
+        logger.print_performance_summary()
+        assert capsys.readouterr().out == ""

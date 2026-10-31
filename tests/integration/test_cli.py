@@ -110,6 +110,7 @@ class TestCLIIntegration:
         mock_downloader.return_value.__enter__.return_value.download_assets.return_value = (
             ["ak74"],
             [],
+            0,
         )
 
         mock_processor.return_value.process_weapon_list_asset.return_value = ["ak74"]

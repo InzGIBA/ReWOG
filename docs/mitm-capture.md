@@ -1,12 +1,13 @@
 # Capturing Decryption Keys via MITM
 
 The key API (`eu1.ultimate-disassembly.com/v/query2018.php`) only serves
-requests that come from the real game client - queries made by this tool
-are rejected with `result=1000` ("Server error"). The keys bundled in
-[`runtime/keys.txt`](../runtime/keys.txt) keep working for older models,
-but keys for newly released models have to be **captured from your own
-game traffic** with a TLS-intercepting (MITM) proxy, then imported with
-the extraction script.
+authenticated clients. The primary way to fetch keys is logging in with
+your own game account (`wog-dump login`) - the tool then gets a fresh
+session on every run.
+
+If you cannot use your account (or want keys the account flow cannot
+fetch), capture them from your own game traffic with a TLS-intercepting
+(MITM) proxy and import them with the extraction script.
 
 > ⚠️ You are intercepting **your own** traffic from **your own** game
 > account. The capture contains your auth session - the extraction script

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -9,7 +10,21 @@ from pathlib import Path
 import pytest
 
 from wog_dump.core.config import WOGConfig, reset_config
-from wog_dump.core.storage import DataStorageManager
+from wog_dump.core.database import WOGDatabase
+
+
+@pytest.fixture(autouse=True)
+def isolated_database(tmp_path: Path) -> Generator[Path, None, None]:
+    """Keep every test (including CLI invocations) away from the real user
+    database, with a fresh database per test."""
+    db_path = tmp_path / "test_wog_dump.db"
+    old_value = os.environ.get("WOG_DB_PATH")
+    os.environ["WOG_DB_PATH"] = str(db_path)
+    yield db_path
+    if old_value is None:
+        os.environ.pop("WOG_DB_PATH", None)
+    else:
+        os.environ["WOG_DB_PATH"] = old_value
 
 
 @pytest.fixture
@@ -21,7 +36,7 @@ def temp_dir() -> Generator[Path, None, None]:
 
 @pytest.fixture
 def test_config(temp_dir: Path) -> WOGConfig:
-    """Create a test configuration with JSON storage."""
+    """Create a test configuration with an isolated database."""
     reset_config()  # Reset global config
 
     config = WOGConfig(
@@ -32,6 +47,7 @@ def test_config(temp_dir: Path) -> WOGConfig:
         data_file=temp_dir / "data.json",
         weapons_file=temp_dir / "weapons.txt",  # Legacy support
         keys_file=temp_dir / "keys.txt",  # Legacy support
+        db_path=temp_dir / "test.db",
         max_threads=2,  # Reduce for testing
     )
 
@@ -44,28 +60,28 @@ def test_config(temp_dir: Path) -> WOGConfig:
 
 
 @pytest.fixture
-def test_storage(test_config: WOGConfig) -> DataStorageManager:
-    """Create a test storage manager."""
-    return DataStorageManager(test_config)
+def test_db(test_config: WOGConfig) -> WOGDatabase:
+    """Create a test database."""
+    return WOGDatabase(test_config)
 
 
 @pytest.fixture
-def populated_storage(
-    test_storage: DataStorageManager,
+def populated_db(
+    test_db: WOGDatabase,
     sample_weapon_list: list[str],
     sample_keys: dict[str, str],
-) -> DataStorageManager:
-    """Create a storage manager with sample data."""
-    test_storage.save_weapons(sample_weapon_list)
-    test_storage.save_keys(sample_keys)
-    return test_storage
+) -> WOGDatabase:
+    """Create a database with sample data."""
+    test_db.save_weapons(sample_weapon_list)
+    test_db.save_keys(sample_keys)
+    return test_db
 
 
 @pytest.fixture
 def sample_weapon_list() -> list[str]:
     """Sample weapon list for testing."""
     return [
-        "ak74",
+        "ak74n",
         "m4a1",
         "glock17",
         "desert_eagle",
@@ -77,11 +93,11 @@ def sample_weapon_list() -> list[str]:
 def sample_keys() -> dict[str, str]:
     """Sample decryption keys for testing."""
     return {
-        "ak74": "sample_key_1",
-        "m4a1": "sample_key_2",
-        "glock17": "sample_key_3",
-        "desert_eagle": "sample_key_4",
-        "mp5": "sample_key_5",
+        "ak74n": "a" * 32,
+        "m4a1": "b" * 32,
+        "glock17": "c" * 32,
+        "desert_eagle": "d" * 32,
+        "mp5": "e" * 32,
     }
 
 

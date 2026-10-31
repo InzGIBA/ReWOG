@@ -10,7 +10,7 @@ from typing import Any
 import UnityPy
 
 from ..core.config import WOGConfig, get_config
-from ..core.storage import DataStorageManager, StorageError
+from ..core.database import WOGDatabase
 from ..utils.logging import get_logger
 
 
@@ -27,12 +27,12 @@ class AssetProcessingError(UnpackError):
 
 
 class WeaponListProcessor:
-    """Enhanced processor for weapon list extraction and management with JSON storage."""
+    """Processor for weapon list extraction and storage in the local database."""
 
     def __init__(self, config: WOGConfig | None = None) -> None:
         self.config = config or get_config()
         self.logger = get_logger()
-        self.storage = DataStorageManager(self.config)
+        self.db = WOGDatabase(self.config)
 
     def extract_weapon_list(self, asset_path: Path) -> list[str]:
         """Extract weapon list from spider_gen.unity3d with enhanced error handling."""
@@ -131,83 +131,47 @@ class WeaponListProcessor:
         include_metadata: bool = True,
         source_asset: str | None = None,
     ) -> None:
-        """Save weapon list using modern JSON storage."""
+        """Save weapon list to the local database."""
         if not weapon_list:
             raise ValueError("Cannot save empty weapon list")
 
         try:
-            # Filter weapons using blacklist
             filtered_weapons = self._filter_weapons(weapon_list)
-
-            # Save to JSON storage
-            self.storage.save_weapons(
-                weapons=filtered_weapons, source_asset=source_asset, filtered=True
-            )
-
-            self.logger.info(f"Saved {len(filtered_weapons)} weapons to JSON storage")
-
-            # Optionally maintain legacy txt format for backward compatibility
-            if include_metadata and self.config.weapons_file:
-                self._save_legacy_format(filtered_weapons)
-
+            self.db.save_weapons(filtered_weapons)
+            self.logger.info(f"Saved {len(filtered_weapons)} weapons to the database")
         except Exception as e:
             raise UnpackError(f"Failed to save weapon list: {e}") from e
-
-    def _save_legacy_format(self, weapon_list: list[str]) -> None:
-        """Save weapon list in legacy txt format for backward compatibility."""
-        try:
-            # Create parent directory if needed
-            self.config.weapons_file.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(self.config.weapons_file, "w", encoding="utf-8") as f:
-                f.write("# WOG Dump Weapon List (Legacy Format)\n")
-                f.write("# This file is deprecated, use data.json instead\n")
-                f.write(f"# Total weapons: {len(weapon_list)}\n")
-                f.write("# Blacklisted items filtered\n\n")
-
-                for weapon in sorted(weapon_list):
-                    f.write(f"{weapon}\n")
-
-            self.logger.debug(f"Saved legacy format to {self.config.weapons_file}")
-
-        except Exception as e:
-            self.logger.warning(f"Failed to save legacy format: {e}")
 
     def load_weapon_list(
         self, validate: bool = True, try_migration: bool = True
     ) -> list[str]:
-        """Load weapon list from JSON storage, migrating from legacy files if needed."""
+        """Load weapon list from the database, importing legacy files once."""
         try:
-            weapons = self.storage.get_weapons()
+            weapons = self.db.get_weapons()
 
             if weapons:
-                self.logger.info(f"Loaded {len(weapons)} weapons from JSON storage")
+                self.logger.info(f"Loaded {len(weapons)} weapons from the database")
                 return weapons
 
             if try_migration:
-                self.logger.info(
-                    "No weapons found in JSON storage, attempting migration"
-                )
-                self.storage.migrate_from_txt_files(
+                self.logger.info("No weapons in the database, trying legacy import")
+                if self.db.import_legacy_txt(
                     weapons_file=self.config.weapons_file,
                     keys_file=self.config.keys_file,
-                )
-                weapons = self.storage.get_weapons()
-                if weapons:
-                    self.logger.info(f"Successfully migrated {len(weapons)} weapons")
-                    return weapons
+                ):
+                    weapons = self.db.get_weapons()
+                    if weapons:
+                        return weapons
 
-            raise UnpackError("No weapon list found in JSON storage or legacy files")
+            raise UnpackError("No weapon list found in the database or legacy files")
 
-        except StorageError as e:
-            raise UnpackError(f"Failed to load weapon list from storage: {e}") from e
         except UnpackError:
             raise
         except Exception as e:
             raise UnpackError(f"Failed to load weapon list: {e}") from e
 
     def process_weapon_list_asset(self, asset_path: Path) -> list[str]:
-        """Complete weapon list processing pipeline with JSON storage."""
+        """Complete weapon list processing pipeline."""
         with self.logger.operation_context(
             "weapon_list_processing", "weapon list processing"
         ):

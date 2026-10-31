@@ -12,10 +12,11 @@ import click
 import UnityPy
 
 from .. import __version__
+from ..core.auth import AuthError, AuthManager
 from ..core.config import WOGConfig, get_config, set_config
+from ..core.database import WOGDatabase
 from ..core.decrypt import AssetDecryptor, DecryptionError, KeyManager
 from ..core.download import DownloadError, DownloadManager
-from ..core.storage import DataStorageManager
 from ..core.unpack import AssetUnpacker, UnpackError, WeaponListProcessor
 from ..utils.logging import WOGLogger, get_logger, set_log_level
 from ..utils.normal_map import NormalMapConverter, NormalMapError
@@ -42,7 +43,13 @@ def error_handler(operation_name: str) -> Iterator[None]:
     except KeyboardInterrupt:
         logger.print_status(f"{operation_name} cancelled by user", "warning")
         raise OperationCancelled() from None
-    except (DecryptionError, DownloadError, UnpackError, NormalMapError) as e:
+    except (
+        AuthError,
+        DecryptionError,
+        DownloadError,
+        UnpackError,
+        NormalMapError,
+    ) as e:
         logger.print_status(f"{operation_name} failed: {str(e)}", "error")
         sys.exit(1)
     except Exception as e:
@@ -620,9 +627,63 @@ def full_pipeline(
 
 
 @cli.command()
-@click.option("--clear", is_flag=True, help="Clear all cached data")
-@click.option("--migrate", is_flag=True, help="Migrate data from legacy txt files")
-@click.option("--show-cache", is_flag=True, help="Show detailed cache statistics")
+@click.option(
+    "--email", type=str, default=None, help="Game account email (prompted when omitted)"
+)
+@click.option(
+    "--password",
+    type=str,
+    default=None,
+    help="Game account password (prompted when omitted)",
+)
+@click.pass_context
+def login(ctx: click.Context, email: str | None, password: str | None) -> None:
+    """Log into your World of Guns game account.
+
+    The key API only serves authenticated clients. Enter the email and
+    password of your game account (create one in-game first if you don't
+    have it yet). A fresh session is obtained automatically on every run,
+    so no sensitive data ever ships with the repository.
+    """
+    logger = ctx.obj["logger"]
+    config = ctx.obj["config"]
+
+    with error_handler("Login"):
+        if email is None:
+            email = click.prompt("Game account email")
+        if password is None:
+            password = click.prompt("Game account password", hide_input=True)
+
+        auth = AuthManager(config)
+        identity = auth.login(email, password)
+
+        logger.print_status(f"Logged in as {email} (id={identity.auth_id})", "success")
+        logger.console.print(
+            "Credentials and session are stored in the local database:\n"
+            f"  {config.db_path}"
+        )
+
+
+@cli.command()
+@click.pass_context
+def logout(ctx: click.Context) -> None:
+    """Remove the stored game account credentials."""
+    logger = ctx.obj["logger"]
+    config = ctx.obj["config"]
+
+    with error_handler("Logout"):
+        AuthManager(config).logout()
+        logger.print_status(
+            f"Removed account credentials from {config.db_path}", "success"
+        )
+
+
+@cli.command()
+@click.option("--clear", is_flag=True, help="Clear cached weapons and keys")
+@click.option(
+    "--migrate", is_flag=True, help="Import legacy runtime txt files into the database"
+)
+@click.option("--show-cache", is_flag=True, help="Show detailed database statistics")
 @click.option(
     "--validate-assets",
     is_flag=True,
@@ -636,10 +697,10 @@ def cache(
     show_cache: bool,
     validate_assets: bool,
 ) -> None:
-    """Manage the JSON data cache and legacy file migration.
+    """Manage the local database (weapons, keys, account).
 
-    Weapons and decryption keys are stored in runtime/data.json. Use --migrate
-    to import existing weapons.txt and keys.txt files.
+    Data lives in a per-user SQLite database outside the repository. Use
+    --migrate to import weapons.txt/keys.txt from an older installation.
     """
     logger = ctx.obj["logger"]
     config = ctx.obj["config"]
@@ -647,29 +708,29 @@ def cache(
     with error_handler("Cache management"):
         logger.print_banner()
 
-        storage = DataStorageManager(config)
+        db = WOGDatabase(config)
 
         if clear:
             with logger.operation_context("cache_clear", "cache clear"):
-                storage.clear_cache()
-                logger.print_status("Cache cleared successfully", "success")
+                db.clear_cached_data()
+                logger.print_status("Cached weapons and keys cleared", "success")
 
         elif migrate:
-            with logger.operation_context("migration", "data migration"):
-                success = storage.migrate_from_txt_files(
+            with logger.operation_context("migration", "legacy import"):
+                success = db.import_legacy_txt(
                     weapons_file=config.weapons_file,
                     keys_file=config.keys_file,
                 )
                 if success:
-                    logger.print_status("Migration completed successfully", "success")
-                else:
                     logger.print_status(
-                        "No data to migrate or migration failed", "warning"
+                        "Legacy import completed successfully", "success"
                     )
+                else:
+                    logger.print_status("No legacy files found to import", "warning")
 
         elif validate_assets:
             with logger.operation_context("asset_validation", "asset validation"):
-                weapons = storage.get_weapons()
+                weapons = db.get_weapons()
                 if not weapons:
                     logger.error("No weapons found. Run 'download-weapons' first.")
                     return
@@ -691,39 +752,31 @@ def cache(
                     "success" if len(invalid) == 0 else "warning",
                 )
 
-        elif show_cache:
-            cache_stats = storage.get_cache_stats()
+        else:
+            # Default and --show-cache: database statistics
+            stats = db.get_stats()
+            account = (
+                stats["account"]["email"] or "not logged in (run 'wog-dump login')"
+            )
 
             cache_data = [
-                ["Data File", str(storage.data_file)],
-                ["Weapons Count", str(cache_stats["weapons"]["count"])],
-                ["Keys Count", str(cache_stats["keys"]["count"])],
-                ["Cache Created", cache_stats["cache"]["created_at"]],
-                ["Cache Updated", cache_stats["cache"]["updated_at"]],
-                ["Cache Version", cache_stats["cache"]["version"]],
-                ["Cache Expired", "Yes" if cache_stats["cache"]["expired"] else "No"],
+                ["Database", stats["database"]],
+                ["Account", account],
+                ["Weapons Count", str(stats["weapons"]["count"])],
+                ["Keys Count", str(stats["keys"]["count"])],
+                ["Session Updated", stats["identity"]["updated_at"] or "never"],
             ]
 
-            logger.print_table("Cache Statistics", ["Property", "Value"], cache_data)
+            logger.print_table("Database Statistics", ["Property", "Value"], cache_data)
 
-            weapons = storage.get_weapons()
-            if weapons:
+            weapons = db.get_weapons()
+            if show_cache and weapons:
                 logger.console.print("\n[bold]Sample weapons (first 10):[/bold]")
                 for weapon in weapons[:10]:
-                    logger.console.print(f"  • {weapon}")
+                    has_key = "✓" if db.get_key(weapon) else "✗"
+                    logger.console.print(f"  {has_key} {weapon}")
                 if len(weapons) > 10:
                     logger.console.print(f"  ... and {len(weapons) - 10} more")
-
-        else:
-            # Default: show basic cache status
-            cache_stats = storage.get_cache_stats()
-            logger.console.print("\n[bold]Cache Status:[/bold]")
-            logger.console.print(f"  Weapons: {cache_stats['weapons']['count']}")
-            logger.console.print(f"  Keys: {cache_stats['keys']['count']}")
-            logger.console.print(
-                f"  Expired: {'Yes' if cache_stats['cache']['expired'] else 'No'}"
-            )
-            logger.console.print("\nUse --help for cache management options.")
 
 
 @cli.command()
@@ -744,6 +797,8 @@ def info(ctx: click.Context, show_performance: bool, validate_files: bool) -> No
     # Configuration info
     config_data = [
         ["Base Directory", str(config.base_dir)],
+        ["Database", str(config.db_path)],
+        ["Account", AuthManager(config).get_account_email() or "not logged in"],
         ["Assets Directory", str(config.assets_dir)],
         ["Encrypted Directory", str(config.encrypted_dir)],
         ["Decrypted Directory", str(config.decrypted_dir)],
@@ -771,33 +826,23 @@ def _collect_status_info(config: WOGConfig) -> list[list[str]]:
     """Collect system status information."""
     status_data = []
 
-    storage = DataStorageManager(config)
-    cache_stats = storage.get_cache_stats()
+    db = WOGDatabase(config)
+    stats = db.get_stats()
 
-    weapons_count = cache_stats["weapons"]["count"]
-    keys_count = cache_stats["keys"]["count"]
+    weapons_count = stats["weapons"]["count"]
+    keys_count = stats["keys"]["count"]
 
     if weapons_count > 0:
-        weapons_status = f"{weapons_count} weapons (JSON)"
+        weapons_status = f"{weapons_count} weapons"
     elif config.weapons_file and config.weapons_file.exists():
         weapons_status = "Legacy weapons.txt found (run 'wog-dump cache --migrate')"
     else:
         weapons_status = "Not found"
 
     status_data.append(["Weapon List", weapons_status])
-
-    if keys_count > 0:
-        keys_status = f"{keys_count} keys (JSON)"
-    elif config.keys_file and config.keys_file.exists():
-        keys_status = "Legacy keys.txt found (run 'wog-dump cache --migrate')"
-    else:
-        keys_status = "Not found"
-
-    status_data.append(["Decryption Keys", keys_status])
-
-    cache_expired = "Yes" if cache_stats["cache"]["expired"] else "No"
-    status_data.append(["Cache Expired", cache_expired])
-    status_data.append(["Data File", str(storage.data_file)])
+    status_data.append(["Decryption Keys", f"{keys_count} keys"])
+    status_data.append(["Account", stats["account"]["email"] or "not logged in"])
+    status_data.append(["Database", stats["database"]])
 
     assets = list(config.assets_dir.glob("*.unity3d"))
     status_data.append(["Downloaded Assets", f"{len(assets)} files"])

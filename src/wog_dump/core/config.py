@@ -3,10 +3,36 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+DB_FILE_NAME = "wog_dump.db"
+
+
+def default_db_path() -> Path:
+    """Per-user database location (honors WOG_DB_PATH).
+
+    Secrets (keys, account credentials) live outside the repository in a
+    user data directory.
+    """
+    override = os.environ.get("WOG_DB_PATH")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home())) / "wog_dump"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support" / "wog_dump"
+    else:
+        base = (
+            Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+            / "wog_dump"
+        )
+    return base / DB_FILE_NAME
+
 
 # (field name, file name) pairs resolved relative to base_dir/runtime
 RUNTIME_PATH_DEFAULTS = {
@@ -68,22 +94,10 @@ class WOGConfig(BaseModel):
     weapons_file: Path = Field(description="Path to legacy weapons list file")
     keys_file: Path = Field(description="Path to legacy decryption keys file")
 
-    # Authentication Configuration
-    auth_id: int = Field(
-        default=5684358,
-        ge=1,
-        description="Authentication ID for API queries",
-    )
-    auth_session: int = Field(
-        default=15,
-        ge=1,
-        description="Authentication session for API queries",
-    )
-    device_id: str = Field(
-        default="c8c52c9b992c6980ca6e15bf5006dff7488ce100",
-        min_length=32,
-        max_length=64,
-        description="Device ID for API queries",
+    # Local database (keys, weapons, auth - never committed to the repo)
+    db_path: Path = Field(
+        default_factory=lambda: default_db_path(),
+        description="Path to the local SQLite database",
     )
 
     # Game Configuration
@@ -179,6 +193,7 @@ class WOGConfig(BaseModel):
         "data_file",
         "weapons_file",
         "keys_file",
+        "db_path",
     )
     @classmethod
     def validate_paths(cls, v: Path) -> Path:
@@ -243,9 +258,6 @@ class WOGConfig(BaseModel):
         env_mapping = {
             "WOG_BASE_DIR": "base_dir",
             "WOG_MAX_THREADS": "max_threads",
-            "WOG_AUTH_ID": "auth_id",
-            "WOG_AUTH_SESSION": "auth_session",
-            "WOG_DEVICE_ID": "device_id",
             "WOG_GAME_VERSION": "game_version",
             "WOG_UNITY_VERSION": "unity_version",
             "WOG_STRICT_MODE": "strict_mode",
@@ -253,7 +265,7 @@ class WOGConfig(BaseModel):
             "WOG_ENABLE_VALIDATION": "enable_validation",
         }
         bool_fields = {"strict_mode", "enable_backup", "enable_validation"}
-        int_fields = {"max_threads", "auth_id", "auth_session"}
+        int_fields = {"max_threads"}
 
         kwargs: dict[str, Any] = {}
         for env_key, config_key in env_mapping.items():

@@ -9,8 +9,13 @@ from unittest.mock import Mock, patch
 import pytest
 
 from wog_dump.core.config import WOGConfig
-from wog_dump.core.decrypt import AssetDecryptor, DecryptionError, KeyManager
-from wog_dump.core.storage import DataStorageManager
+from wog_dump.core.database import WOGDatabase
+from wog_dump.core.decrypt import (
+    AssetDecryptor,
+    AuthenticationError,
+    DecryptionError,
+    KeyManager,
+)
 
 
 class TestKeyManager:
@@ -20,26 +25,26 @@ class TestKeyManager:
         """Test KeyManager initialization."""
         manager = KeyManager(test_config)
         assert manager.config == test_config
-        assert manager.session is not None
+        assert manager.client.session is not None
 
     def test_save_and_load_keys(
         self, test_config: WOGConfig, sample_keys: dict[str, str]
     ) -> None:
-        """Test saving and loading keys with JSON storage."""
+        """Test saving and loading keys through the local database."""
         manager = KeyManager(test_config)
 
-        # Save keys
         manager.save_keys(sample_keys)
-
-        # Load keys
         loaded_keys = manager.load_keys()
 
         assert loaded_keys == sample_keys
+        assert WOGDatabase(test_config).get_keys() == sample_keys
 
-        # Verify JSON storage
-        storage = DataStorageManager(test_config)
-        storage_keys = storage.get_keys()
-        assert storage_keys == sample_keys
+    def test_fetch_keys_parallel_requires_login(self, test_config: WOGConfig) -> None:
+        """Without a configured account the whole fetch fails with one clear error."""
+        manager = KeyManager(test_config)
+
+        with pytest.raises(AuthenticationError, match="wog-dump login"):
+            manager.fetch_keys_parallel(["ak74n", "m4a1"])
 
     def test_load_keys_missing_file(self, test_config: WOGConfig) -> None:
         """Test loading keys when no data exists."""
@@ -47,14 +52,18 @@ class TestKeyManager:
         keys = manager.load_keys()
         assert keys == {}
 
-    def test_save_keys_invalid_path(self, test_config: WOGConfig) -> None:
-        """Test saving keys with invalid path."""
-        # Set base_dir to a directory that doesn't exist to force storage error
-        test_config.base_dir = Path("/nonexistent/path")
-        manager = KeyManager(test_config)
+    def test_unusable_database_path_raises(self, test_config: WOGConfig) -> None:
+        """An unusable database path fails loudly at startup."""
+        test_config.db_path = Path("/nonexistent/dir/wog_dump.db")
+        with pytest.raises(OSError):
+            KeyManager(test_config)
 
-        with pytest.raises(DecryptionError):
-            manager.save_keys({"test": "key"})
+    def test_save_keys_wraps_database_errors(self, test_config: WOGConfig) -> None:
+        """Database failures surface as DecryptionError."""
+        manager = KeyManager(test_config)
+        with patch.object(manager.db, "save_keys", side_effect=OSError("disk full")):
+            with pytest.raises(DecryptionError):
+                manager.save_keys({"test": "key"})
 
 
 class TestAssetDecryptor:

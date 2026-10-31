@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import bz2
 import hashlib
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-import requests
 import UnityPy
 
+from ..core.api import ApiNetworkError, WOGApiClient, parse_response_fields
+from ..core.auth import AuthError, AuthManager, Identity
 from ..core.config import WOGConfig, get_config
-from ..core.http import create_session
-from ..core.storage import DataStorageManager, StorageError, write_legacy_keys_file
+from ..core.database import WOGDatabase
 from ..utils.logging import get_logger
 
 # Appended to every server-provided key before hashing
@@ -27,7 +25,7 @@ class DecryptionError(Exception):
 
 
 class AuthenticationError(DecryptionError):
-    """Raised when the key API rejects authentication."""
+    """Raised when the API rejects authentication."""
 
 
 class NetworkError(DecryptionError):
@@ -35,121 +33,108 @@ class NetworkError(DecryptionError):
 
 
 class KeyManager:
-    """Decryption key manager with caching and retry support."""
+    """Decryption key manager backed by the local database."""
 
     # API response codes mapping
     RESPONSE_CODES = {
-        0: "Success",
-        100: "Authentication error",
-        1000: "Server error",
-        404: "Asset not found",
-        429: "Rate limited",
+        "0": "Success",
+        "100": "Authentication error",
+        "1000": "Server error",
+        "404": "Asset not found",
+        "429": "Rate limited",
     }
 
     def __init__(self, config: WOGConfig | None = None) -> None:
         self.config = config or get_config()
         self.logger = get_logger()
-        self.storage = DataStorageManager(self.config)
-        self.session = create_session(self.config)
+        self.db = WOGDatabase(self.config)
+        self.client = WOGApiClient(self.config)
+        self.auth = AuthManager(self.config, db=self.db, client=self.client)
         self._key_cache: dict[str, str] = {}
 
-    def _build_api_request_data(self, asset_name: str) -> str:
-        """Build API request data string."""
+    def _build_api_request_data(self, asset_name: str, identity: Identity) -> str:
+        """Build the sync-key query for an asset."""
         return (
-            f"query=3&"
-            f"model={asset_name}&"
-            f"need_details=1&"
-            f"session={self.config.auth_session}&"
-            f"id={self.config.auth_id}&"
-            f"dev={self.config.device_id}&"
-            f"mode={self.config.game_mode}&"
-            f"ver={self.config.game_version}&"
-            f"uver={self.config.unity_version}&"
-            f"time={int(time.time())}"
+            "query=3"
+            f"&model={asset_name}"
+            "&need_details=1"
+            f"&session={identity.session}"
+            f"&id={identity.auth_id}"
+            f"&dev={identity.device_id}"
+            f"&mode={self.config.game_mode}"
+            f"&{self.client.build_common_params()}"
         )
 
-    def _compress_request_data(self, data: str) -> bytes:
-        """Compress request data using BZ2 with a 4-byte length prefix."""
-        compressed = bz2.compress(data.encode())
-        return len(compressed).to_bytes(4, "little") + compressed
-
-    def _decompress_response(self, response_data: bytes) -> str:
-        """Decompress API response data (4-byte length prefix + BZ2)."""
-        if len(response_data) < 4:
-            raise NetworkError("Invalid response length")
-
-        try:
-            return bz2.decompress(response_data[4:]).decode("utf-8")
-        except (OSError, EOFError, UnicodeDecodeError) as e:
-            raise NetworkError(f"Failed to decompress response: {e}") from e
-
     def _parse_api_response(self, response_text: str, asset_name: str) -> str | None:
-        """Parse API response and extract the sync key."""
-        result_match = re.search(r"result=(\d+)", response_text)
-        result_code = int(result_match.group(1)) if result_match else -1
+        """Parse a sync-key response; returns the key or None."""
+        fields = parse_response_fields(response_text)
+        result = fields.get("result", "")
 
-        if result_code == 0:
-            if "sync=" not in response_text:
+        if result == "0":
+            key = fields.get("sync")
+            if not key:
                 self.logger.warning(
                     f"Success response but no sync key found for {asset_name}"
                 )
                 return None
-            key = response_text.split("sync=")[1].split("&")[0]
             self.logger.debug(f"Successfully retrieved key for {asset_name}")
             return key
 
         error_msg = self.RESPONSE_CODES.get(
-            result_code, f"Unknown error (code: {result_code})"
+            result, fields.get("errmsg", f"Unknown error (code: {result})")
         )
 
-        if result_code == 100:
+        if result == "100":
             raise AuthenticationError(
                 f"Authentication failed for {asset_name}: {error_msg}"
             )
-        if result_code in (429, 500, 502, 503, 504):
+        if result in ("429", "500", "502", "503", "504"):
             raise NetworkError(f"Server error for {asset_name}: {error_msg}")
 
         self.logger.warning(f"API error for {asset_name}: {error_msg}")
         return None
 
     def get_key_for_asset(self, asset_name: str, use_cache: bool = True) -> str | None:
-        """Get decryption key for a specific asset with caching."""
+        """Get decryption key for a specific asset with caching.
+
+        Logs into the game account automatically when no session is
+        stored, and re-logins once when the stored session is rejected.
+        """
         if use_cache and asset_name in self._key_cache:
             self.logger.debug(f"Using cached key for {asset_name}")
             return self._key_cache[asset_name]
 
         try:
-            request_data = self._build_api_request_data(asset_name)
-            payload = self._compress_request_data(request_data)
+            identity = self.auth.ensure_session()
+        except AuthError as e:
+            raise AuthenticationError(str(e)) from e
 
-            headers = self.config.get_api_headers()
-            headers["Content-Length"] = str(len(payload))
+        for attempt in (0, 1):
+            params = self._build_api_request_data(asset_name, identity)
+            try:
+                with self.logger.time_operation(f"key_fetch_{asset_name}"):
+                    response_text = self.client.call(params)
+                key = self._parse_api_response(response_text, asset_name)
+                if key and use_cache:
+                    self._key_cache[asset_name] = key
+                return key
+            except ApiNetworkError as e:
+                raise NetworkError(f"Network error for {asset_name}: {e}") from e
+            except AuthenticationError:
+                if attempt == 1:
+                    raise
+                # Session rejected: refresh it and retry once
+                self.logger.debug(f"Session rejected for {asset_name}, re-logging in")
+                try:
+                    identity = self.auth.ensure_session(force_relogin=True)
+                except AuthError as e:
+                    raise AuthenticationError(str(e)) from e
+            except Exception as e:
+                raise DecryptionError(
+                    f"Unexpected error getting key for {asset_name}: {e}"
+                ) from e
 
-            with self.logger.time_operation(f"key_fetch_{asset_name}"):
-                response = self.session.put(
-                    f"{self.config.api_base_url}?soc=steam",
-                    data=payload,
-                    headers=headers,
-                    timeout=self.config.request_timeout,
-                )
-                response.raise_for_status()
-
-            response_text = self._decompress_response(response.content)
-            key = self._parse_api_response(response_text, asset_name)
-
-            if key and use_cache:
-                self._key_cache[asset_name] = key
-
-            return key
-
-        except (AuthenticationError, NetworkError):
-            raise
-        except requests.RequestException as e:
-            raise NetworkError(f"Network error for {asset_name}: {e}") from e
-        except Exception as e:
-            raise DecryptionError(
-                f"Unexpected error getting key for {asset_name}: {e}"
-            ) from e
+        return None  # unreachable; kept for type checkers
 
     def fetch_key(self, weapon: str, max_retries: int = 3) -> str | None:
         """Fetch decryption key for a weapon with retry logic."""
@@ -160,11 +145,11 @@ class KeyManager:
                 key = self.get_key_for_asset(weapon, use_cache=True)
                 if key:
                     return key
-                # No key returned without an exception means the asset has no key
+                # No key without an exception means the asset has no key
                 return None
 
             except AuthenticationError:
-                # Retrying will not help with authentication errors
+                # Missing/invalid account - retrying will not help
                 self.logger.error(f"Authentication error for {weapon} - not retrying")
                 return None
 
@@ -194,6 +179,12 @@ class KeyManager:
         """Fetch keys for multiple weapons in parallel with retry logic."""
         if not weapons:
             return {}
+
+        # Fail fast with one clear message instead of one error per weapon
+        try:
+            self.auth.ensure_session()
+        except AuthError as e:
+            raise AuthenticationError(str(e)) from e
 
         keys: dict[str, str] = {}
         failed_weapons: list[str] = []
@@ -227,71 +218,40 @@ class KeyManager:
 
         return keys
 
-    def save_keys(self, keys: dict[str, str], backup: bool = True) -> None:
-        """Save keys to JSON storage with optional legacy txt backup."""
+    def save_keys(self, keys: dict[str, str]) -> None:
+        """Save keys to the local database."""
         if not keys:
             raise ValueError("No keys to save")
 
         try:
-            self.storage.save_keys(keys)
-
-            # Maintain the legacy txt format for backward compatibility
-            if backup and self.config.keys_file:
-                self._save_legacy_format(keys)
-
+            self.db.save_keys(keys)
             self._key_cache.update(keys)
-            self.logger.info(f"Saved {len(keys)} keys to JSON storage")
-
         except Exception as e:
             raise DecryptionError(f"Failed to save keys: {e}") from e
 
-    def _save_legacy_format(self, keys: dict[str, str]) -> None:
-        """Save keys in the legacy txt format for backward compatibility."""
-        try:
-            keys_file = self.config.keys_file
-
-            # Keep the previous version as .bak
-            if keys_file.exists():
-                backup_path = keys_file.with_suffix(".bak")
-                backup_path.write_bytes(keys_file.read_bytes())
-                self.logger.debug(f"Created legacy backup: {backup_path}")
-
-            write_legacy_keys_file(keys_file, keys)
-            self.logger.debug(f"Saved legacy format to {keys_file}")
-
-        except OSError as e:
-            self.logger.warning(f"Failed to save legacy format: {e}")
-
     def load_keys(self, try_migration: bool = True) -> dict[str, str]:
-        """Load keys from JSON storage, migrating from legacy files if needed."""
+        """Load keys from the database, importing legacy txt files once."""
         try:
-            keys = self.storage.get_keys()
+            keys = self.db.get_keys()
 
             if keys:
-                self.logger.info(f"Loaded {len(keys)} keys from JSON storage")
                 self._key_cache.update(keys)
                 return keys
 
             if try_migration:
-                self.logger.info("No keys found in JSON storage, attempting migration")
-                self.storage.migrate_from_txt_files(
+                self.logger.info("No keys in the database, trying legacy import")
+                if self.db.import_legacy_txt(
                     weapons_file=self.config.weapons_file,
                     keys_file=self.config.keys_file,
-                )
-                keys = self.storage.get_keys()
-                if keys:
-                    self.logger.info(f"Successfully migrated {len(keys)} keys")
-                    self._key_cache.update(keys)
-                    return keys
+                ):
+                    keys = self.db.get_keys()
+                    if keys:
+                        self._key_cache.update(keys)
+                        return keys
 
-            self.logger.warning(
-                "No decryption keys found in JSON storage or legacy files"
-            )
+            self.logger.warning("No decryption keys found")
             return {}
 
-        except StorageError as e:
-            self.logger.error(f"Failed to load keys from storage: {e}")
-            return {}
         except Exception as e:
             self.logger.error(f"Failed to load keys: {e}")
             return {}
@@ -517,9 +477,9 @@ class AssetDecryptor:
         return successful, failed
 
     def _get_available_weapons(self) -> list[str]:
-        """Get list of available weapons from storage or the assets directory."""
-        storage = DataStorageManager(self.config)
-        weapons = storage.get_weapons()
+        """Get list of available weapons from the database or the assets directory."""
+        db = WOGDatabase(self.config)
+        weapons = db.get_weapons()
         if weapons:
             return weapons
 

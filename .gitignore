@@ -162,3 +162,6 @@ runtime/encrypted/
 runtime/*.json
 runtime/*.txt
 runtime/*.bak
+# local databases
+*.db
+*.db-journal

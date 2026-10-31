@@ -149,6 +149,38 @@ class TestCLIIntegration:
         assert result.exit_code == 0
         # Debug mode should enable more verbose output
 
+    @patch("wog_dump.cli.main.AuthManager")
+    def test_login_command(self, mock_auth: Mock) -> None:
+        """Test the login command stores credentials via AuthManager."""
+        from wog_dump.core.auth import Identity
+
+        mock_auth.return_value.login.return_value = Identity("123", "456", "d" * 40)
+
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            result = runner.invoke(
+                cli, ["login", "--email", "user@example.com", "--password", "secret"]
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_auth.return_value.login.assert_called_once_with(
+            "user@example.com", "secret"
+        )
+        assert "Logged in as user@example.com" in result.output
+
+    def test_decrypt_assets_requires_account_for_key_update(self) -> None:
+        """Updating keys without a configured account fails with a clear message."""
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            runtime_dir = Path("runtime")
+            runtime_dir.mkdir(exist_ok=True)
+            (runtime_dir / "weapons.txt").write_text("ak74n\nm4a1\n")
+
+            result = runner.invoke(cli, ["decrypt-assets", "--update-keys"])
+
+        assert result.exit_code == 1
+        assert "wog-dump login" in result.output
+
     def test_download_assets_check_only(self) -> None:
         """Test download-assets command with check-only flag."""
         runner = CliRunner()

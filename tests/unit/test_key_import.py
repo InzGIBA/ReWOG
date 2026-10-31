@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from wog_dump.core.config import WOGConfig
+from wog_dump.core.database import WOGDatabase
 from wog_dump.core.key_import import (
     KeyImportError,
     decode_api_body,
@@ -20,7 +21,6 @@ from wog_dump.core.key_import import (
     extract_keys_from_saz,
     merge_keys,
 )
-from wog_dump.core.storage import DataStorageManager
 
 KEY_AK47 = "46f6a1894df9c632350121ef941bbac9"
 KEY_HUDSON = "a" * 32
@@ -226,22 +226,16 @@ class TestDedupeAndMerge:
         assert keys == {"ak47": KEY_AK47, "uru": KEY_HUDSON}
 
     def test_merge_preserves_existing_keys(self, test_config: WOGConfig) -> None:
-        storage = DataStorageManager(test_config)
-        storage.save_keys({"ak74n": "old_key"})
+        WOGDatabase(test_config).save_keys({"ak74n": "0" * 32})
 
         result = merge_keys(
-            {"ak74n": "new_key", "hudson_h9": KEY_HUDSON}, config=test_config
+            {"ak74n": "1" * 32, "hudson_h9": KEY_HUDSON}, config=test_config
         )
 
         assert (result.added, result.updated, result.total) == (1, 1, 2)
 
-        stored = DataStorageManager(test_config).get_keys()
-        assert stored == {"ak74n": "new_key", "hudson_h9": KEY_HUDSON}
-
-        # The legacy txt file is refreshed with the full merged set
-        legacy = test_config.keys_file.read_text().splitlines()
-        assert "ak74n new_key" in legacy
-        assert f"hudson_h9 {KEY_HUDSON}" in legacy
+        stored = WOGDatabase(test_config).get_keys()
+        assert stored == {"ak74n": "1" * 32, "hudson_h9": KEY_HUDSON}
 
 
 class TestExtractScript:

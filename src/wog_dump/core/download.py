@@ -11,7 +11,6 @@ import requests
 from ..utils.logging import get_logger
 from .config import WOGConfig, get_config
 from .http import create_session
-from .storage import DataStorageManager
 
 # Assets served from a subdirectory of the data server
 SUBDIRECTORY_ASSETS = {"spider_gen": "spider"}
@@ -37,7 +36,6 @@ class DownloadManager:
     def __init__(self, config: WOGConfig | None = None) -> None:
         self.config = config or get_config()
         self.logger = get_logger()
-        self.storage = DataStorageManager(self.config)
         self.session = create_session(self.config)
         self._download_stats = {
             "total_bytes": 0,

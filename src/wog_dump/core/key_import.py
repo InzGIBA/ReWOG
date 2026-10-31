@@ -17,7 +17,7 @@ from pathlib import Path
 
 from ..utils.logging import get_logger
 from .config import WOGConfig, get_config
-from .storage import DataStorageManager, write_legacy_keys_file
+from .database import WOGDatabase
 
 GAME_API_HOST = "ultimate-disassembly.com"
 
@@ -45,6 +45,18 @@ class MergeResult:
     total: int
     added: int
     updated: int
+
+
+def write_keys_file(path: Path, keys: dict[str, str]) -> None:
+    """Write keys as a shareable ``model key`` text file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("# WOG Dump Decryption Keys\n")
+        f.write("# Format: weapon_name decryption_key\n\n")
+
+        for model, key in sorted(keys.items()):
+            f.write(f"{model} {key}\n")
 
 
 def decode_api_body(data: bytes) -> str | None:
@@ -308,24 +320,12 @@ def dedupe_keys(captured: list[CapturedKey]) -> dict[str, str]:
 def merge_keys(
     new_keys: dict[str, str], config: WOGConfig | None = None
 ) -> MergeResult:
-    """Merge captured keys into the JSON store and the legacy keys file.
+    """Merge captured keys into the local database.
 
     Existing keys are never dropped; captured values win on conflict.
     """
     config = config or get_config()
-    storage = DataStorageManager(config)
-    existing = storage.get_keys()
-
-    added = sum(1 for model in new_keys if model not in existing)
-    updated = sum(
-        1
-        for model, key in new_keys.items()
-        if model in existing and existing[model] != key
-    )
-
-    merged = {**existing, **new_keys}
-    if merged:
-        storage.save_keys(merged)
-        write_legacy_keys_file(config.keys_file, merged)
-
-    return MergeResult(total=len(merged), added=added, updated=updated)
+    db = WOGDatabase(config)
+    added, updated = db.merge_keys(new_keys, source="mitm_import")
+    total = len(db.get_keys())
+    return MergeResult(total=total, added=added, updated=updated)

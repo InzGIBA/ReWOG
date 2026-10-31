@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Breaking Changes
+
+- **No secrets in the repository**: the 275 bundled decryption keys (`runtime/keys.txt`), the bundled weapon list (`runtime/weapons.txt`) and the captured auth constants (`auth_id`/`auth_session`/`device_id`) were removed from the repo. Existing installations can import their old files with `wog-dump cache --migrate`
+- **Local SQLite database** replaces `runtime/data.json`: weapons, keys, account credentials and sessions now live in a per-user database (`~/.local/share/wog_dump/wog_dump.db`, `%APPDATA%\wog_dump\` on Windows; owner-only permissions; override with `WOG_DB_PATH`)
+- `DataStorageManager` (JSON storage) was replaced by `WOGDatabase`
+
 ### 🗝️ Added
+
+- **`wog-dump login` / `wog-dump logout`**: log in with your own World of Guns game account (email + password, same as the game client). A fresh session is obtained automatically whenever needed - verified live: the login endpoint accepts the request format, invalid accounts return `result=100` with a readable message
+- **Generated device identity**: a random 40-hex device id is generated per installation and stored in the local database (no captured device id in the code)
+- `core/api.py` (shared BZ2-over-HTTP API client), `core/auth.py` (login/session management), `core/database.py` (SQLite storage)
+- Key fetching now fails fast with one clear message when no account is configured, and re-logins automatically once when a stored session is rejected
 
 - **MITM key capture workflow** ([#1](https://github.com/InzGIBA/ReWOG/issues/1)): the key API rejects requests that do not come from the real game client, so fresh keys now have to be captured from your own game traffic
   - `scripts/extract_keys.py` extracts `model`/`sync` pairs from mitmproxy `.flows` dumps, Fiddler `.saz` archives, or loose request/response dumps, and can merge them into the local key store (`--merge`) or export a shareable bundle (`-o`)

@@ -112,12 +112,13 @@ pytest
 5. **Unpack Assets** - Extracts models, textures, and materials
 6. **Convert Normal Maps** - Converts Unity normal maps to standard format
 
-> 🗝️ **Note on decryption keys**: the key API only serves the real game client, so
-> key fetching may fail with `API error: Server error`. The keys bundled in
-> `runtime/keys.txt` cover the classic weapon set. For newly released models,
-> capture the keys from your own game traffic — see
-> [Capturing Decryption Keys via MITM](docs/mitm-capture.md) and
-> `scripts/extract_keys.py`.
+> 🗝️ **Authentication**: the key API only serves authenticated clients.
+> Log in once with your World of Guns game account (`wog-dump login`) — the tool
+> then obtains a fresh session automatically on every run. Credentials, sessions,
+> keys and the weapon list live in a local SQLite database outside the
+> repository, so no sensitive data ships with the code. As an alternative,
+> keys can be captured from your own game traffic — see
+> [Capturing Decryption Keys via MITM](docs/mitm-capture.md).
 
 ## 🧑‍💻 Usage
 
@@ -134,17 +135,20 @@ wog-dump full-pipeline --update-keys --convert-normals
 # 1. Check configuration and status
 wog-dump info
 
-# 2. Download weapon catalog
+# 2. Log in with your game account (once; creates a local database)
+wog-dump login
+
+# 3. Download weapon catalog
 wog-dump download-weapons
 
-# 3. Download and decrypt assets
+# 4. Download and decrypt assets
 wog-dump download-assets --update-keys
 wog-dump decrypt-assets
 
-# 4. Extract models and textures
+# 5. Extract models and textures
 wog-dump unpack-assets
 
-# 5. Convert normal maps (optional)
+# 6. Convert normal maps (optional)
 wog-dump convert-normals ./unpacked --recursive
 ```
 
@@ -294,7 +298,9 @@ ReWOG/
 │   │   ├── config.py                # Pydantic configuration management
 │   │   ├── download.py              # Multi-threaded asset downloading
 │   │   ├── decrypt.py               # XOR decryption (pure Python)
-│   │   ├── storage.py               # JSON data storage (weapons/keys)
+│   │   ├── api.py                  # BZ2-over-HTTP query API client
+│   │   ├── auth.py                  # Game-account login and identity
+│   │   ├── database.py              # Local SQLite storage (weapons/keys/auth)
 │   │   └── unpack.py                # Unity asset extraction
 │   ├── utils/                       # Utility modules
 │   │   ├── __init__.py             
@@ -489,13 +495,16 @@ wog-dump download-assets --weapons "ak74,m4a1,glock17"
 A: The tool supports resuming interrupted downloads. Simply run the same command again and it will continue where it left off.
 
 **Q: Key fetching logs `API error for X: Server error` / `No key available` — what's wrong?**
-A: The game's key API rejects requests that don't come from the real game client. Keys bundled in `runtime/keys.txt` still work for the classic weapon set; for newly released models you can capture keys from your own game traffic with a MITM proxy and import them:
+A: The game's key API only serves authenticated clients. Run `wog-dump login` with your World of Guns account (create one in-game if needed) — sessions are then obtained automatically. Alternatively, capture keys from your own game traffic and import them:
 
 ```bash
 uv run python scripts/extract_keys.py wog-keys.flows --merge
 ```
 
-See the step-by-step guide: [Capturing Decryption Keys via MITM](docs/mitm-capture.md).
+See [Capturing Decryption Keys via MITM](docs/mitm-capture.md).
+
+**Q: Where are my credentials and keys stored?**
+A: In a per-user SQLite database (`~/.local/share/wog_dump/wog_dump.db` on Linux, `%APPDATA%\wog_dump\` on Windows), with owner-only permissions. Nothing sensitive is stored in the repository. Set `WOG_DB_PATH` to use a different location; `wog-dump logout` removes the stored credentials.
 
 ### Troubleshooting
 

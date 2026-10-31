@@ -34,6 +34,7 @@ from wog_dump.core.key_import import (  # noqa: E402
     dedupe_keys,
     extract_keys,
     merge_keys,
+    write_keys_file,
 )
 
 
@@ -85,9 +86,7 @@ def main() -> int:
         )
 
     if args.out and keys:
-        from wog_dump.core.storage import write_legacy_keys_file
-
-        write_legacy_keys_file(args.out, keys)
+        write_keys_file(args.out, keys)
         print(f"\nWrote {len(keys)} key(s) to {args.out}")
 
     if args.merge and keys:

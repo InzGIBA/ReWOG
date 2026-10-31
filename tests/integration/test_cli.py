@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 from click.testing import CliRunner
 
+import wog_dump
 from wog_dump.cli.main import cli
 
 
@@ -29,7 +30,7 @@ class TestCLIIntegration:
         result = runner.invoke(cli, ["--version"])
 
         assert result.exit_code == 0
-        assert "2.3.2" in result.output
+        assert wog_dump.__version__ in result.output
 
     def test_info_command(self) -> None:
         """Test info command."""

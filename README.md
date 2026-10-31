@@ -1,4 +1,4 @@
-# 🔫 ReWOG / v2.3
+# 🔫 ReWOG / v2.4
 
 ![World of Guns](https://cdn.cloudflare.steamstatic.com/steam/apps/262410/library_hero.jpg)
 
@@ -20,7 +20,7 @@
 ## 📋 Table of Contents
 
 - [📙 Description](#-description)
-- [✨ What's New in v2.3](#-whats-new-in-v23)
+- [✨ What's New in v2.4](#-whats-new-in-v24)
 - [🔗 Requirements](#-requirements)
 - [🚀 Installation](#-installation)
 - [🪄 How it Works](#-how-it-works)
@@ -37,23 +37,18 @@
 
 ## 📙 Description
 
-WOG Dump is a modern, completely refactored Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). This v2.3 release features a complete rewrite with modern Python 3.12+ features, improved error handling, comprehensive testing, and a beautiful CLI interface.
+WOG Dump is a modern, completely refactored Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). This v2.4 release features the updated `query2026` game protocol, per-user credential storage, and login with your own game account.
 
 > 🎆 **Educational Tool**: Designed for 3D model enthusiasts, modders, and researchers interested in studying game assets and 3D modeling techniques.
 
-### ✨ What's New in v2.3
+### ✨ What's New in v2.4
 
-- 🚀 **Pure Python** - Removed C dependencies for 100% Python implementation
-- 📦 **uv Integration** - Lightning-fast package management and installation
-- 🐍 **Modern Python 3.12+** - Native type annotations and latest features
-- 🏗️ **Professional Structure** - Clean `src/` layout with modular architecture
-- 🎨 **Beautiful CLI** - Rich console interface with progress bars and colors
-- ⚡ **Optimized Performance** - Chunked processing and parallel operations
-- 🔧 **Type Safety** - Complete type hints and Pydantic configuration
-- 🧪 **Comprehensive Tests** - 95%+ test coverage with pytest
-- 📦 **Modern Packaging** - pyproject.toml with hatchling backend
-- 🛡️ **Better Error Handling** - Graceful error recovery and detailed logging
-- 🔄 **Modular Design** - Clean separation of concerns and dependency injection
+- 🔬 **query2026 protocol** - targets the current game API (game `2.2.3u9`, Unity 6); automatic re-login on session rejection
+- 🔐 **No secrets in the repo** - bundled keys and captured credentials removed; data lives in a per-user SQLite database
+- 🧑‍💻 **`wog-dump login` / `logout`** - use your own game account (email + password) to fetch keys
+- 🗝️ **MITM key capture workflow** - import keys/identity from mitmproxy or Fiddler captures (`scripts/extract_keys.py`)
+- ⚙️ **`.env` configuration** - credentials and endpoint overrides without touching the shell profile
+- 🧪 **Live tests** - `pytest -m live` verifies fetch/download/decrypt against the real servers
 
 ## 🔗 Requirements
 
@@ -156,7 +151,7 @@ wog-dump convert-normals ./unpacked --recursive
 
 ### Command Line Interface
 
-WOG Dump v2.3 provides a comprehensive CLI with multiple commands:
+WOG Dump v2.4 provides a comprehensive CLI with multiple commands:
 
 ```bash
 # Get help for any command

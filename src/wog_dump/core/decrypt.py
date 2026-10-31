@@ -15,7 +15,7 @@ import UnityPy
 
 from ..core.config import WOGConfig, get_config
 from ..core.http import create_session
-from ..core.storage import DataStorageManager, StorageError
+from ..core.storage import DataStorageManager, StorageError, write_legacy_keys_file
 from ..utils.logging import get_logger
 
 # Appended to every server-provided key before hashing
@@ -256,14 +256,7 @@ class KeyManager:
                 backup_path.write_bytes(keys_file.read_bytes())
                 self.logger.debug(f"Created legacy backup: {backup_path}")
 
-            with open(keys_file, "w", encoding="utf-8") as f:
-                f.write("# WOG Dump Decryption Keys (Legacy Format)\n")
-                f.write("# This file is deprecated, use data.json instead\n")
-                f.write("# Format: weapon_name decryption_key\n\n")
-
-                for weapon, key in sorted(keys.items()):
-                    f.write(f"{weapon} {key}\n")
-
+            write_legacy_keys_file(keys_file, keys)
             self.logger.debug(f"Saved legacy format to {keys_file}")
 
         except OSError as e:

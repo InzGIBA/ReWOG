@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🗝️ Added
+
+- **MITM key capture workflow** ([#1](https://github.com/InzGIBA/ReWOG/issues/1)): the key API rejects requests that do not come from the real game client, so fresh keys now have to be captured from your own game traffic
+  - `scripts/extract_keys.py` extracts `model`/`sync` pairs from mitmproxy `.flows` dumps, Fiddler `.saz` archives, or loose request/response dumps, and can merge them into the local key store (`--merge`) or export a shareable bundle (`-o`)
+  - `docs/mitm-capture.md` — step-by-step instructions for capturing keys with mitmproxy or Fiddler
+  - new `[mitm]` extra installs `mitmproxy` for reading `.flows` captures
+- `wog_dump.core.key_import` module with the capture parsers (unit-tested, including mitmproxy/SAZ/flat-file formats)
+
+### 🔧 Fixed
+
+- **`--update-keys` no longer drops existing keys**: a partial key fetch used to overwrite the whole key store, losing the bundled keys; fetched keys are now merged into the existing set (`download-assets` and `decrypt-assets`)
+
 ### 🧹 Refactoring
 
 - **Fixed broken CLI paths**: `cache --show-cache` no longer crashes with `KeyError`; `convert-normals` on a directory no longer crashes with `TypeError` (it passed a `batch_size` the converter never accepted); `decrypt-assets --validate` no longer crashes on a missing `UnityPy` import

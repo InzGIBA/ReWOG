@@ -256,9 +256,10 @@ def download_assets(
         if update_keys:
             with logger.operation_context("key_update", "decryption key update"):
                 key_manager = KeyManager(config)
-                keys = key_manager.fetch_keys_parallel(weapon_list)
-                if keys:
-                    key_manager.save_keys(keys)
+                fetched = key_manager.fetch_keys_parallel(weapon_list)
+                if fetched:
+                    # Merge: a partial fetch must never drop existing keys
+                    key_manager.save_keys({**key_manager.load_keys(), **fetched})
                 elif config.strict_mode:
                     logger.error("Failed to fetch keys in strict mode")
                     sys.exit(1)
@@ -342,9 +343,13 @@ def decrypt_assets(
         key_manager = KeyManager(config)
         if update_keys:
             with logger.operation_context("key_update", "decryption key update"):
-                keys = key_manager.fetch_keys_parallel(weapon_list)
-                if keys:
+                fetched = key_manager.fetch_keys_parallel(weapon_list)
+                if fetched:
+                    # Merge: a partial fetch must never drop existing keys
+                    keys = {**key_manager.load_keys(), **fetched}
                     key_manager.save_keys(keys)
+                else:
+                    keys = key_manager.load_keys()
         else:
             keys = key_manager.load_keys()
 

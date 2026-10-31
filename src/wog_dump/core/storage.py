@@ -300,3 +300,20 @@ class DataStorageManager:
                 self.logger.error(f"Failed to migrate keys: {e}")
 
         return migrated
+
+
+def write_legacy_keys_file(keys_file: Path, keys: dict[str, str]) -> None:
+    """Write keys in the legacy txt format (``model key`` per line).
+
+    The JSON data store is the source of truth; this file is kept for
+    backward compatibility and for sharing key bundles.
+    """
+    keys_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(keys_file, "w", encoding="utf-8") as f:
+        f.write("# WOG Dump Decryption Keys (Legacy Format)\n")
+        f.write("# This file is deprecated, use data.json instead\n")
+        f.write("# Format: weapon_name decryption_key\n\n")
+
+        for model, key in sorted(keys.items()):
+            f.write(f"{model} {key}\n")

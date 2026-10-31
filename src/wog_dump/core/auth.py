@@ -10,6 +10,7 @@ obtained automatically whenever the stored one is missing or rejected.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import secrets
 import threading
@@ -125,7 +126,7 @@ class AuthManager:
         return response_text.replace("\n", " ")[:200]
 
     def get_stored_identity(self) -> Identity | None:
-        """The stored identity, if a login happened before."""
+        """The stored identity, if a login or import happened before."""
         stored = self.db.get_identity()
         if stored is None:
             return None
@@ -134,24 +135,64 @@ class AuthManager:
             return None
         return Identity(auth_id=stored[0], session=stored[1], device_id=device_id)
 
+    @staticmethod
+    def _env_session() -> tuple[str, str] | None:
+        """Session pair provided via environment / .env.
+
+        WOG_AUTH_ID + WOG_AUTH_SESSION from your own capture work; the
+        device id (WOG_DEVICE_ID) is optional - the API accepts any
+        value with a valid session.
+        """
+        auth_id = os.environ.get("WOG_AUTH_ID", "").strip()
+        session = os.environ.get("WOG_AUTH_SESSION", "").strip()
+        if not auth_id or not session:
+            return None
+        return auth_id, session
+
+    def _env_device_id(self) -> str:
+        """Optional WOG_DEVICE_ID from the environment, or the stored/generated one."""
+        env_device = os.environ.get("WOG_DEVICE_ID", "").strip()
+        if env_device:
+            self.db.set_setting(SETTINGS_DEVICE_ID, env_device)
+            return env_device
+        return self.get_device_id()
+
     def ensure_session(self, force_relogin: bool = False) -> Identity:
         """Return a usable identity, logging in when necessary.
 
-        Uses the stored session; re-logins with the saved account
-        credentials when there is none, or when force_relogin is set
-        (the previous session was rejected).
+        Resolution order: stored session, then WOG_AUTH_ID/WOG_AUTH_SESSION
+        from the environment (imported into the database), then a fresh
+        email login with the configured account.
         """
         if not force_relogin:
             identity = self.get_stored_identity()
             if identity is not None:
                 return identity
 
-        email = self.db.get_setting(SETTINGS_EMAIL)
-        password = self.db.get_setting(SETTINGS_PASSWORD)
+            env_session = self._env_session()
+            if env_session is not None:
+                auth_id, session = env_session
+                device_id = self._env_device_id()
+                self.db.save_identity(auth_id, session)
+                self.logger.info(f"Using identity from environment (id={auth_id})")
+                return Identity(auth_id=auth_id, session=session, device_id=device_id)
+
+        email = (
+            self.db.get_setting(SETTINGS_EMAIL)
+            or os.environ.get("WOG_ACCOUNT_EMAIL", "").strip()
+            or None
+        )
+        password = (
+            self.db.get_setting(SETTINGS_PASSWORD)
+            or os.environ.get("WOG_ACCOUNT_PASSWORD", "").strip()
+            or None
+        )
         if not email or not password:
             raise AuthError(
-                "No game account configured. Run 'wog-dump login' and enter "
-                "your World of Guns account email and password."
+                "No game account configured. Either log in ('wog-dump login'), "
+                "set WOG_AUTH_ID/WOG_AUTH_SESSION from your own capture in .env "
+                "(see docs/mitm-capture.md), or set WOG_ACCOUNT_EMAIL/"
+                "WOG_ACCOUNT_PASSWORD."
             )
 
         with self._login_lock:

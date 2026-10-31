@@ -116,6 +116,27 @@ class TestEnsureSession:
         assert (identity.auth_id, identity.session) == ("42", "77")
         client.call.assert_not_called()
 
+    def test_identity_from_env(
+        self, test_config: WOGConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("WOG_AUTH_ID", "111")
+        monkeypatch.setenv("WOG_AUTH_SESSION", "222")
+        monkeypatch.setenv("WOG_DEVICE_ID", "e" * 40)
+
+        client = Mock(spec=WOGApiClient)
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+
+        identity = auth.ensure_session()
+
+        assert (identity.auth_id, identity.session, identity.device_id) == (
+            "111",
+            "222",
+            "e" * 40,
+        )
+        client.call.assert_not_called()
+        # Imported into the database for later runs
+        assert auth.db.get_identity() == ("111", "222")
+
     def test_force_relogin_logs_in_again(self, test_config: WOGConfig) -> None:
         db = WOGDatabase(test_config)
         db.set_setting("device_id", "d" * 40)

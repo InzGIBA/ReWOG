@@ -10,6 +10,7 @@ from typing import Any
 
 import click
 import UnityPy
+from dotenv import load_dotenv
 
 from .. import __version__
 from ..core.auth import AuthError, AuthManager
@@ -117,6 +118,11 @@ def cli(
         wog-dump info                            # Show configuration status
     """
     ctx.ensure_object(dict)
+
+    # Honor a .env from the working directory (WOG_AUTH_*, WOG_ACCOUNT_*,
+    # WOG_DB_PATH, ...) without overriding variables already in the environment.
+    # Explicit cwd lookup: the default walks up from this file's location.
+    load_dotenv(Path.cwd() / ".env", override=False)
 
     # Set up logging first
     logger = get_logger()
@@ -644,6 +650,9 @@ def login(ctx: click.Context, email: str | None, password: str | None) -> None:
     password of your game account (create one in-game first if you don't
     have it yet). A fresh session is obtained automatically on every run,
     so no sensitive data ever ships with the repository.
+
+    Alternatively, skip the account entirely and put a captured session
+    (WOG_AUTH_ID / WOG_AUTH_SESSION) into .env - see docs/mitm-capture.md.
     """
     logger = ctx.obj["logger"]
     config = ctx.obj["config"]

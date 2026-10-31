@@ -113,6 +113,30 @@ def mock_unity_asset(temp_dir: Path) -> Path:
     return asset_path
 
 
+AUTH_ENV_VARS = (
+    "WOG_AUTH_ID",
+    "WOG_AUTH_SESSION",
+    "WOG_DEVICE_ID",
+    "WOG_ACCOUNT_EMAIL",
+    "WOG_ACCOUNT_PASSWORD",
+)
+
+
+@pytest.fixture(autouse=True)
+def scrub_auth_env(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep credentials from a developer's .env out of regular tests.
+
+    Live tests (marked with @pytest.mark.live) opt out and read .env
+    themselves.
+    """
+    if request.node.get_closest_marker("live"):
+        return
+    for name in AUTH_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def cleanup_config():
     """Auto-cleanup configuration after each test."""

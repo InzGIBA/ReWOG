@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🔬 Protocol update (verified against the live client capture, Nov 2026)
+
+- **The key API moved to `query2026.php`** - the old `query2018.php` endpoint answers every request with `result=1000`. Default `api_base_url`, `game_version` (`2.2.3u9`) and `unity_version` (`6000.0.84f1`, Unity 6) now match the current `disasm64.exe` client
+- **`result=1000` reinterpreted**: it means "session rejected", not a generic server error - key fetching now re-logins automatically on it
+- Verified live: the `hash=` request parameter the client sends is not enforced by the server; the `dev` device id is not validated (generated per installation); email login (`query=1`) still exists on the new endpoint
+
+### 🗝️ Added
+
+- **`extract_keys.py --identity`**: imports the captured client identity (id/session/dev) from a mitmproxy dump into the local database and prints ready-to-copy `.env` lines
+- **Capture parsing handles IP-connected traffic**: the game client connects to the API by raw IP address, so captures are now matched by query-endpoint path/payload instead of hostname
+- **`.env` support** (python-dotenv): `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_DEVICE_ID` (captured session) or `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (email login), plus `WOG_API_BASE_URL`/`WOG_DATA_BASE_URL` overrides; `.env.example` documents everything and `.env` is gitignored
+- **Live tests** (`pytest -m live`): fetch a real key, download an asset, decrypt it and load it in UnityPy - auto-skipped without credentials in `.env`; both live tests pass against the real servers
+
 ### ⚠️ Breaking Changes
 
 - **No secrets in the repository**: the 275 bundled decryption keys (`runtime/keys.txt`), the bundled weapon list (`runtime/weapons.txt`) and the captured auth constants (`auth_id`/`auth_session`/`device_id`) were removed from the repo. Existing installations can import their old files with `wog-dump cache --migrate`

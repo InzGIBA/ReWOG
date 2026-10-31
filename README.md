@@ -113,12 +113,14 @@ pytest
 6. **Convert Normal Maps** - Converts Unity normal maps to standard format
 
 > 🗝️ **Authentication**: the key API only serves authenticated clients.
-> Log in once with your World of Guns game account (`wog-dump login`) — the tool
-> then obtains a fresh session automatically on every run. Credentials, sessions,
-> keys and the weapon list live in a local SQLite database outside the
-> repository, so no sensitive data ships with the code. As an alternative,
-> keys can be captured from your own game traffic — see
-> [Capturing Decryption Keys via MITM](docs/mitm-capture.md).
+> Capture your own client once with a MITM proxy and run
+> `uv run python scripts/extract_keys.py wog-keys.flows --identity --merge` —
+> keys and the client identity land in the local database, and the identity
+> values go into your `.env` (see `.env.example`). Alternatively log in with a
+> game-account email/password (`wog-dump login`). Credentials, sessions, keys
+> and the weapon list live in a local SQLite database outside the repository —
+> no sensitive data ships with the code. Details:
+> [Capturing Keys and Identity via MITM](docs/mitm-capture.md).
 
 ## 🧑‍💻 Usage
 
@@ -495,16 +497,13 @@ wog-dump download-assets --weapons "ak74,m4a1,glock17"
 A: The tool supports resuming interrupted downloads. Simply run the same command again and it will continue where it left off.
 
 **Q: Key fetching logs `API error for X: Server error` / `No key available` — what's wrong?**
-A: The game's key API only serves authenticated clients. Run `wog-dump login` with your World of Guns account (create one in-game if needed) — sessions are then obtained automatically. Alternatively, capture keys from your own game traffic and import them:
-
-```bash
-uv run python scripts/extract_keys.py wog-keys.flows --merge
-```
-
-See [Capturing Decryption Keys via MITM](docs/mitm-capture.md).
+A: Two common causes. (1) No valid session — capture your client once ([MITM guide](docs/mitm-capture.md)) and put `WOG_AUTH_ID`/`WOG_AUTH_SESSION` into `.env`, or run `wog-dump login` with a game-account email/password. (2) An outdated endpoint/protocol — this tool now targets `query2026.php` with the current client versions (`2.2.3u9` / `6000.0.84f1`), verified against the live servers in November 2026.
 
 **Q: Where are my credentials and keys stored?**
-A: In a per-user SQLite database (`~/.local/share/wog_dump/wog_dump.db` on Linux, `%APPDATA%\wog_dump\` on Windows), with owner-only permissions. Nothing sensitive is stored in the repository. Set `WOG_DB_PATH` to use a different location; `wog-dump logout` removes the stored credentials.
+A: In a per-user SQLite database (`~/.local/share/wog_dump/wog_dump.db` on Linux, `%APPDATA%\wog_dump\` on Windows), with owner-only permissions. Nothing sensitive is stored in the repository. Set `WOG_DB_PATH` to use a different location; `wog-dump logout` removes the stored credentials. A repo-local `.env` (gitignored, see `.env.example`) can provide `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_ACCOUNT_*` instead.
+
+**Q: Can I test against the real game servers?**
+A: Yes — configure auth in `.env` and run `pytest -m live`. These live tests fetch a real key, download an asset, decrypt it and load it in UnityPy; they are skipped automatically when no credentials are configured.
 
 ### Troubleshooting
 

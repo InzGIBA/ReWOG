@@ -38,6 +38,7 @@ dependencies = [
     "pydantic>=2.4.0",
     "pillow>=10.0.0",
     "rich>=13.0.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -124,6 +125,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "live: hits the real game servers; runs only with credentials in .env",
 ]
 filterwarnings = [
     "ignore:open_binary is deprecated:DeprecationWarning",

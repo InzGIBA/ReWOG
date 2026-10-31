@@ -1,10 +1,16 @@
-"""Import decryption keys from captured game-client traffic.
+"""Import decryption keys and identity from captured game-client traffic.
 
-The key API rejects requests that do not come from the real game client,
-so fresh keys have to be captured from your own game traffic with a
+Keys can be harvested from your own game traffic captured with a
 TLS-intercepting proxy (see docs/mitm-capture.md). This module parses
-those captures and extracts the ``model=NAME`` / ``sync=KEY`` pairs the
-client exchanges with the key API.
+those captures and extracts:
+
+- the ``model=NAME`` / ``sync=KEY`` pairs exchanged with the key API
+- the ``id``/``session``/``dev`` identity the client used, so a capture
+  can seed the local database without a manual login
+
+The game client connects to the API servers by raw IP address (the Host
+header carries the domain), so traffic is matched by request shape
+(query endpoint path + decodable BZ2 body), not by hostname.
 """
 
 from __future__ import annotations
@@ -16,10 +22,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..utils.logging import get_logger
+from .auth import AuthManager
 from .config import WOGConfig, get_config
 from .database import WOGDatabase
 
 GAME_API_HOST = "ultimate-disassembly.com"
+
+# The client reaches the API at /v/query<year>.php over raw IPs
+QUERY_PATH_RE = re.compile(r"/v/query\d+\.php")
 
 MODEL_RE = re.compile(r"model=([\w.\-]+)")
 SYNC_RE = re.compile(r"sync=([0-9a-fA-F]{32})")
@@ -35,6 +45,16 @@ class CapturedKey:
 
     model: str
     key: str
+    source: str
+
+
+@dataclass(frozen=True)
+class CapturedIdentity:
+    """Client identity (id/session/dev) recovered from a capture."""
+
+    auth_id: str
+    session: str
+    device_id: str | None
     source: str
 
 
@@ -168,6 +188,21 @@ def _parse_request_response(
     )
 
 
+def _is_api_request(path: str, host: str, request_body: bytes) -> bool:
+    """Match a captured request against the WOG query API.
+
+    The client connects by raw IP (Host header carries the domain), so a
+    request counts when its path looks like the query endpoint, its host
+    is a known game domain, or its body decodes to a query payload.
+    """
+    if QUERY_PATH_RE.search(path):
+        return True
+    if GAME_API_HOST in host:
+        return True
+    text = decode_api_body(request_body) or ""
+    return "query=" in text and "&ver=" in text
+
+
 def extract_keys_from_flows(path: Path) -> list[CapturedKey]:
     """Extract keys from a mitmproxy flow dump (``*.flows``)."""
     try:
@@ -184,11 +219,12 @@ def extract_keys_from_flows(path: Path) -> list[CapturedKey]:
         for flow in mitm_io.FlowReader(f).stream():
             if not isinstance(flow, mitm_http.HTTPFlow) or flow.response is None:
                 continue
-            if GAME_API_HOST not in flow.request.host:
+            request_body = flow.request.content or b""
+            if not _is_api_request(flow.request.path, flow.request.host, request_body):
                 continue
 
             captured = _parse_request_response(
-                flow.request.content or b"",
+                request_body,
                 flow.response.content or b"",
                 source=flow.request.pretty_url,
             )
@@ -196,6 +232,51 @@ def extract_keys_from_flows(path: Path) -> list[CapturedKey]:
                 keys.append(captured)
 
     return keys
+
+
+def extract_identity_from_flows(path: Path) -> CapturedIdentity:
+    """Recover the client identity (id/session/dev) from a mitmproxy dump.
+
+    The first request that carries all three fields wins; Steam-login
+    requests (query=2, no id yet) are skipped automatically.
+    """
+    try:
+        from mitmproxy import http as mitm_http
+        from mitmproxy import io as mitm_io
+    except ImportError as e:
+        raise KeyImportError(
+            "Reading mitmproxy captures requires the mitmproxy package. "
+            "Install it with: uv sync --extra mitm (or: pip install mitmproxy)"
+        ) from e
+
+    with open(path, "rb") as f:
+        for flow in mitm_io.FlowReader(f).stream():
+            if not isinstance(flow, mitm_http.HTTPFlow):
+                continue
+            request_body = flow.request.content or b""
+            if not _is_api_request(flow.request.path, flow.request.host, request_body):
+                continue
+
+            text = decode_api_body(request_body) or ""
+            fields = {}
+            for segment in text.split("&"):
+                if "=" in segment:
+                    key, _, value = segment.partition("=")
+                    fields[key] = value
+
+            auth_id = fields.get("id")
+            session = fields.get("session")
+            if not auth_id or not session or auth_id == "0" or session == "0":
+                continue
+
+            return CapturedIdentity(
+                auth_id=auth_id,
+                session=session,
+                device_id=fields.get("dev"),
+                source=flow.request.pretty_url,
+            )
+
+    raise KeyImportError(f"No authenticated API request (id/session) found in {path}")
 
 
 def extract_keys_from_saz(path: Path) -> list[CapturedKey]:
@@ -222,8 +303,21 @@ def extract_keys_from_saz(path: Path) -> list[CapturedKey]:
                 if response_name is None:
                     continue
 
+                request_raw = archive.read(request_name)
+                request_body = _split_http_body(request_raw)
+                # The request line (e.g. "PUT /v/query2026.php?soc=steam HTTP/1.1")
+                request_line = request_raw.split(b"\r\n", 1)[0].decode(
+                    "utf-8", errors="replace"
+                )
+                host = ""
+                for header_line in request_raw.split(b"\r\n\r\n", 1)[0].split(b"\r\n"):
+                    if header_line.lower().startswith(b"host:"):
+                        host = header_line.split(b":", 1)[1].strip().decode()
+                if not _is_api_request(request_line, host, request_body):
+                    continue
+
                 captured = _parse_request_response(
-                    _split_http_body(archive.read(request_name)),
+                    request_body,
                     _split_http_body(archive.read(response_name)),
                     source=prefix,
                 )
@@ -329,3 +423,26 @@ def merge_keys(
     added, updated = db.merge_keys(new_keys, source="mitm_import")
     total = len(db.get_keys())
     return MergeResult(total=total, added=added, updated=updated)
+
+
+def import_identity(
+    identity: CapturedIdentity, config: WOGConfig | None = None
+) -> None:
+    """Store a captured client identity (id/session/dev) in the database.
+
+    A missing device id is generated, since the API accepts any device
+    value with a valid session.
+    """
+    config = config or get_config()
+    db = WOGDatabase(config)
+
+    device_id = identity.device_id
+    if device_id:
+        db.set_setting("device_id", device_id)
+    elif db.get_setting("device_id") is None:
+        db.set_setting("device_id", AuthManager.generate_device_id())
+
+    db.save_identity(identity.auth_id, identity.session)
+    get_logger().info(
+        f"Imported captured identity (id={identity.auth_id}) from {identity.source}"
+    )

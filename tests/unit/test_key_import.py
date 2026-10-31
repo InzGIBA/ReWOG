@@ -189,11 +189,11 @@ class TestFlowsFile:
                     make_request("hudson_h9"),
                     make_response(result="1000"),
                 ),
-                # Unrelated host with matching-looking bodies is skipped
+                # Unrelated host without a query API path/body is skipped
                 (
                     "example.com",
-                    "/v/query2018.php",
-                    make_request("uru"),
+                    "/api/v1/telemetry",
+                    b"metrics=1",
                     make_response(KEY_HUDSON),
                 ),
             ],

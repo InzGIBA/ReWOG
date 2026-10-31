@@ -24,8 +24,8 @@ class TestWOGConfig:
         assert config.weapons_file == temp_dir / "runtime" / "weapons.txt"
         assert config.keys_file == temp_dir / "runtime" / "keys.txt"
         assert config.max_threads == 4
-        assert config.game_version == "2.2.1z5"
-        assert config.unity_version == "2019.2.18f1"
+        assert config.game_version == "2.2.3u9"
+        assert config.unity_version == "6000.0.84f1"
 
     def test_directory_creation(self, temp_dir: Path) -> None:
         """Test that directories are created automatically."""
@@ -48,7 +48,7 @@ class TestWOGConfig:
         assert headers["Content-Type"] == "application/octet-stream"
         assert (
             headers["User-Agent"]
-            == f"UnityPlayer/{config.unity_version} (UnityWebRequest/1.0, libcurl/8.5.0-DEV)"
+            == f"UnityPlayer/{config.unity_version} (UnityWebRequest/1.0, libcurl/8.10.1-DEV)"
         )
         assert headers["X-Unity-Version"] == config.unity_version
 

@@ -35,11 +35,11 @@ class NetworkError(DecryptionError):
 class KeyManager:
     """Decryption key manager backed by the local database."""
 
-    # API response codes mapping
+    # API response codes mapping (verified against the live query2026 API)
     RESPONSE_CODES = {
         "0": "Success",
         "100": "Authentication error",
-        "1000": "Server error",
+        "1000": "Session rejected",
         "404": "Asset not found",
         "429": "Rate limited",
     }

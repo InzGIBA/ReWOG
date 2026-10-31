@@ -55,7 +55,7 @@ class WOGConfig(BaseModel):
         pattern=r"^https?://[\w\-\.]+",
     )
     api_base_url: str = Field(
-        default="https://eu1.ultimate-disassembly.com/v/query2018.php",
+        default="https://eu1.ultimate-disassembly.com/v/query2026.php",
         description="Base URL for API queries",
         pattern=r"^https?://[\w\-\.]+",
     )
@@ -106,12 +106,12 @@ class WOGConfig(BaseModel):
         description="Game mode for API queries",
     )
     game_version: str = Field(
-        default="2.2.1z5",
+        default="2.2.3u9",
         pattern=r"^\d+\.\d+\.\d+[a-z]\d+$",
         description="Game version for API queries",
     )
     unity_version: str = Field(
-        default="2019.2.18f1",
+        default="6000.0.84f1",
         pattern=r"^\d+\.\d+\.\d+f\d+$",
         description="Unity version for API queries",
     )
@@ -226,7 +226,7 @@ class WOGConfig(BaseModel):
         """Generate HTTP headers for API requests."""
         return {
             "Content-Type": "application/octet-stream",
-            "User-Agent": f"UnityPlayer/{self.unity_version} (UnityWebRequest/1.0, libcurl/8.5.0-DEV)",
+            "User-Agent": f"UnityPlayer/{self.unity_version} (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
             "Accept-Encoding": "deflate, gzip",
             "Accept": "*/*",
             "X-Unity-Version": self.unity_version,
@@ -258,6 +258,8 @@ class WOGConfig(BaseModel):
         env_mapping = {
             "WOG_BASE_DIR": "base_dir",
             "WOG_MAX_THREADS": "max_threads",
+            "WOG_API_BASE_URL": "api_base_url",
+            "WOG_DATA_BASE_URL": "data_base_url",
             "WOG_GAME_VERSION": "game_version",
             "WOG_UNITY_VERSION": "unity_version",
             "WOG_STRICT_MODE": "strict_mode",

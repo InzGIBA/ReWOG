@@ -32,7 +32,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from wog_dump.core.key_import import (  # noqa: E402
     KeyImportError,
     dedupe_keys,
+    extract_identity_from_flows,
     extract_keys,
+    import_identity,
     merge_keys,
     write_keys_file,
 )
@@ -53,6 +55,12 @@ def main() -> int:
         "--out",
         type=Path,
         help="write the extracted keys to a shareable keys.txt-format file",
+    )
+    parser.add_argument(
+        "--identity",
+        action="store_true",
+        help="also import the captured client identity (id/session/dev) "
+        "into the local database (mitmproxy .flows captures only)",
     )
     parser.add_argument(
         "--merge",
@@ -88,6 +96,22 @@ def main() -> int:
     if args.out and keys:
         write_keys_file(args.out, keys)
         print(f"\nWrote {len(keys)} key(s) to {args.out}")
+
+    if args.identity:
+        try:
+            identity = extract_identity_from_flows(args.capture)
+            import_identity(identity)
+            device = identity.device_id or "<generated>"
+            print(
+                f"\nImported client identity (id={identity.auth_id}):\n"
+                f"  WOG_AUTH_ID={identity.auth_id}\n"
+                f"  WOG_AUTH_SESSION={identity.session}\n"
+                f"  WOG_DEVICE_ID={device}\n"
+                "Add these lines to your .env to use them directly."
+            )
+        except KeyImportError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
 
     if args.merge and keys:
         result = merge_keys(keys)

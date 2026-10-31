@@ -254,8 +254,8 @@ class DownloadManager:
             with self._stats_lock:
                 self._download_stats["files_downloaded"] += 1
             return "ok"
-        except AssetNotFoundError as e:
-            self.logger.warning(f"Skipping {e}")
+        except AssetNotFoundError:
+            self.logger.warning(f"{asset_name}: not found on server, skipped")
             with self._stats_lock:
                 self._download_stats["files_skipped"] += 1
             return "not_found"

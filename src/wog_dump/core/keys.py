@@ -72,15 +72,13 @@ class KeyManager:
         if result == "0":
             key = fields.get("sync")
             if not key:
-                self.logger.warning(
-                    f"Success response but no sync key found for {asset_name}"
-                )
+                self.logger.warning(f"{asset_name}: server response had no key")
                 return None
             self.logger.debug(f"Successfully retrieved key for {asset_name}")
             return key
 
         error_msg = self.RESPONSE_CODES.get(
-            result, fields.get("errmsg", f"Unknown error (code: {result})")
+            result, fields.get("errmsg", f"code {result}")
         )
 
         if result == "100":
@@ -90,7 +88,7 @@ class KeyManager:
         if result in ("429", "500", "502", "503", "504"):
             raise NetworkError(f"Server error for {asset_name}: {error_msg}")
 
-        self.logger.warning(f"API error for {asset_name}: {error_msg}")
+        self.logger.warning(f"{asset_name}: key API error ({error_msg})")
         return None
 
     def get_key_for_asset(self, asset_name: str, use_cache: bool = True) -> str | None:
@@ -220,10 +218,12 @@ class KeyManager:
         self.logger.info(f"Fetched {len(keys)} keys out of {len(weapons)} weapons")
 
         if failed_weapons:
-            self.logger.warning(
-                f"Failed to fetch keys for {len(failed_weapons)} weapons"
+            # Per-weapon failures already surfaced as warnings; the
+            # summary (with names) is file-only history
+            self.logger.info(
+                f"Key fetch failed for {len(failed_weapons)} weapons: "
+                f"{', '.join(failed_weapons[:10])}"
             )
-            self.logger.debug(f"Failed weapons: {', '.join(failed_weapons[:10])}")
 
         return keys
 

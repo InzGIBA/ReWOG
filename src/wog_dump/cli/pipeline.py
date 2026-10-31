@@ -90,7 +90,9 @@ def full_pipeline(
                 with logger.step("Decrypt") as step:
                     decrypted, failed_assets = ctx.invoke(
                         decrypt_assets,
-                        update_keys=update_keys,
+                        # Keys were just updated by the download step;
+                        # fetch them again only when that step was skipped
+                        update_keys=update_keys and skip_download,
                         weapons=None,
                         validate=config.enable_validation,
                     )

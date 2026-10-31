@@ -159,6 +159,8 @@ db.sqlite3-wal
 runtime/assets/
 runtime/decrypted/
 runtime/encrypted/
+runtime/unpacked/
+runtime/scenes/
 runtime/*.json
 runtime/*.txt
 runtime/*.bak

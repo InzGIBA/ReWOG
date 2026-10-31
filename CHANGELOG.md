@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🎬 Blender scene export
+
+- **New `wog-dump build-scene <weapons>` command**: rebuilds the in-game assembled weapon as a glTF 2.0 scene ready for Blender - the full GameObject/Transform hierarchy with the exact local positions/rotations the game uses, every part covered with its game materials (atlas textures + flat colors), a fitted camera and a three-point studio light rig, all in one `runtime/scenes/<weapon>/<weapon>.glb`
+- **Only real weapon geometry by default**: the game bundle's UI objects - red/green assembly arrows (`arrow_in`/`arrow_out`), cutaway (`*_cut`) meshes, muzzle-flash/gas effects and 246 empty `transformN` dummies - are classified by material and skipped; `--extras arrows|cut|vfx|all` exports them alongside for anyone who wants them
+- **Correct handedness, units and UVs**: Unity's left-handed Y-up coordinates are mirrored to glTF's right-handed system (positions `(x, y, -z)`, quaternions `(-x, -y, z, w)`, triangle winding flipped, UV V inverted), and centimeters are baked to meters so the weapon imports at true size (assembled AK-47 with bayonet spans 1.36 m)
+- **Generated `blender_setup.py` next to every scene**: one click inside Blender (or `blender -b -P blender_setup.py`) imports the GLB, sorts objects into `Gun`/`Arrows`/`Cutaway`/`VFX`/`Studio` collections, hides the extras exactly like the game's default view, sets the active camera and saves a `.blend`
+- **`scene.json` manifest** records mesh/material/texture counts, what was skipped, and the game's own removable-parts (`ak47_parts`) and field-strip (`ak47_field_strip`) lists extracted from the bundle's TextAssets
+- **Zero new dependencies**: the GLB writer (buffer views, accessors, PBR materials, embedded PNGs, KHR_lights_punctual) is implemented in-package; geometry comes from UnityPy's `MeshHandler`
+- Verified on real bundles: AK-47 (173 meshes, 22 materials, 8 textures; world bounds match a real AK-47, vertex data matches the reference OBJ exports bit-for-bit on extents) and Colt 1911 (79 meshes); 35 new unit/integration tests cover the GLB writer, coordinate conversion and the end-to-end export
+
+### 🐛 Fixed
+
+- **`build-scene` GLB now imports into Blender**: light nodes referenced the KHR_lights_punctual extension as a bare index (`"KHR_lights_punctual": 0`), which Blender's strict `gltf_from_dict` rejects with "Couldn't parse glTF. Check that the file is valid" - the spec (and Blender's own exporter) requires an extension object (`"KHR_lights_punctual": {"light": 0}`). Both exported scenes now parse cleanly through Blender's actual converter code (fetched and run locally as the acceptance test), and regression tests pin the extension object shape
+
 ### 🖥️ Console redesign
 
 - **One aligned line per pipeline step**: `✓ Download — 237 assets, 2 not on server (1m08s)` replaces the nested "Starting…/Completed…" pairs that printed up to six lines per logical step; a failed step prints a red `✗` line

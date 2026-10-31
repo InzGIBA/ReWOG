@@ -105,7 +105,8 @@ pytest
 3. **Download Assets** - Downloads encrypted Unity3D files
 4. **Decrypt Assets** - Uses XOR decryption to unlock files
 5. **Unpack Assets** - Extracts models, textures, and materials
-6. **Convert Normal Maps** - Converts Unity normal maps to standard format
+6. **Build Scene** - Rebuilds the assembled weapon as a Blender-ready glTF scene
+7. **Convert Normal Maps** - Converts Unity normal maps to standard format
 
 > 🗝️ **Authentication**: the key API only serves authenticated clients.
 > Capture your own client once with a MITM proxy and run
@@ -145,7 +146,10 @@ wog-dump decrypt-assets
 # 5. Extract models and textures
 wog-dump unpack-assets
 
-# 6. Convert normal maps (optional)
+# 6. Build a Blender-ready scene (assembled exactly like in game)
+wog-dump build-scene ak47
+
+# 7. Convert normal maps (optional)
 wog-dump convert-normals ./unpacked --recursive
 ```
 
@@ -195,8 +199,29 @@ wog-dump decrypt-assets --weapons "ak74,m4a1"
 # Unpack Unity assets to models/textures
 wog-dump unpack-assets
 
+# Build a Blender-ready scene from decrypted bundles
+wog-dump build-scene ak47               # assembled weapon, game materials
+wog-dump build-scene ak47 colt_1911     # several weapons at once
+wog-dump build-scene ak47 --extras all  # include UI arrows/cutaway/VFX
+
 # Convert normal maps with backup
 wog-dump convert-normals ./textures --recursive --backup
+```
+
+**Blender scene output** (`runtime/scenes/<weapon>/`):
+```
+<weapon>.glb        # full scene: hierarchy, materials, camera, studio lights
+blender_setup.py    # one-click Blender import + collections + .blend save
+scene.json          # manifest: counts, skipped objects, parts/field-strip lists
+textures/           # source PNG textures (also embedded in the GLB)
+```
+
+Open the GLB in Blender directly (`File > Import > glTF 2.0`), or run the
+generated script for a configured scene (collections, hidden extras, active
+camera, saved `.blend`):
+
+```bash
+blender --background --python runtime/scenes/ak47/blender_setup.py
 ```
 
 **Configuration and Monitoring:**
@@ -301,6 +326,8 @@ ReWOG/
 │   │   ├── download.py              # Resumable parallel asset downloading
 │   │   ├── decrypt.py               # XOR decryption (pure Python)
 │   │   ├── unpack.py                # Unity asset extraction (per-type extractors)
+│   │   ├── scene.py                 # Blender scene export (game hierarchy → glTF)
+│   │   ├── glb.py                   # In-package glTF 2.0 / GLB writer
 │   │   └── key_import.py            # MITM capture parsing (keys import)
 │   ├── utils/                       # Utility modules
 │   │   ├── __init__.py             
@@ -314,6 +341,7 @@ ReWOG/
 │       ├── decrypt.py               # decrypt-assets
 │       ├── unpack.py                # unpack-assets
 │       ├── convert.py               # convert-normals
+│       ├── scene.py                 # build-scene
 │       ├── pipeline.py              # full-pipeline
 │       ├── auth.py                  # login / logout
 │       ├── cache.py                 # cache
@@ -466,7 +494,8 @@ A: The tool downloads public asset files from the game's servers. While game own
 
 **Q: What file formats does it extract?**
 A: The tool extracts Unity3D assets including:
-- 3D Models (FBX format via AssetStudio)
+- Blender-ready scenes (glTF 2.0 via `build-scene` - game hierarchy, materials and textures)
+- 3D Models (OBJ format)
 - Textures (PNG, TGA formats)
 - Materials and shaders
 - Normal maps (converted to standard format)

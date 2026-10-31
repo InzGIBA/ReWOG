@@ -24,6 +24,7 @@ from .download import download_assets, download_weapons
 from .errors import OperationCancelled
 from .info import info
 from .pipeline import full_pipeline
+from .scene import build_scene
 from .unpack import unpack_assets
 
 
@@ -139,6 +140,7 @@ cli.add_command(download_assets)
 cli.add_command(decrypt_assets)
 cli.add_command(unpack_assets)
 cli.add_command(convert_normals)
+cli.add_command(build_scene)
 cli.add_command(full_pipeline)
 cli.add_command(login)
 cli.add_command(logout)

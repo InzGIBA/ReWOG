@@ -1,0 +1,791 @@
+"""Blender-ready scene export from decrypted weapon bundles.
+
+Reads a decrypted ``<weapon>.unity3d`` bundle, rebuilds the game object
+hierarchy (the same transforms the game uses - parts are positioned
+exactly as in the assembled weapon), strips UI-only objects and writes
+a glTF 2.0 scene consumable by Blender:
+
+* ``runtime/scenes/<weapon>/<weapon>.glb``  - full scene with camera
+  and studio lights
+* ``runtime/scenes/<weapon>/textures/``     - source PNG textures
+* ``runtime/scenes/<weapon>/scene.json``    - scene manifest
+* ``runtime/scenes/<weapon>/blender_setup.py`` - one-click Blender setup
+
+Coordinate conversion (Unity is left-handed Y-up, glTF right-handed
+Y-up) mirrors the Z axis: positions ``(x, y, -z)``, quaternions
+``(-x, -y, z, w)``, triangle winding flipped, UV V inverted.  Unity
+centimeters are baked to meters by ``unit_scale``.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import math
+from dataclasses import dataclass, field
+from importlib import resources
+from pathlib import Path
+from typing import Any
+
+import UnityPy
+from UnityPy.helpers import MeshHelper
+
+from ..utils.logging import get_logger
+from ..utils.normal_map import is_unity_swizzled_normal, unswizzle_normal_map
+from .config import WOGConfig, get_config
+from .glb import GLBWriter, MeshPrimitive, SceneError
+
+__all__ = [
+    "SceneBuilder",
+    "SceneStats",
+    "SceneError",
+    "SceneExportError",
+    "classify_game_object",
+    "convert_position",
+    "convert_rotation",
+]
+
+# Unity material names that mark UI/visual-effect objects rather than
+# real weapon geometry
+ARROW_MATERIALS = frozenset({"arrow_in", "arrow_out"})
+CUT_MATERIALS = frozenset({"lambert4"})
+VFX_MATERIALS = frozenset({"gas", "muzzle_1", "muzzle_big"})
+
+# Look direction of the scene camera (glTF space, Y up)
+_CAMERA_DIRECTION = (0.25, 0.35, 1.0)
+
+
+class SceneExportError(SceneError):
+    """Raised when a scene cannot be built from a bundle."""
+
+
+@dataclass
+class SceneStats:
+    """Summary counters for one exported scene."""
+
+    weapon: str = ""
+    meshes: int = 0
+    materials: int = 0
+    textures: int = 0
+    nodes: int = 0
+    parts: list[str] = field(default_factory=list)
+    field_strip: list[str] = field(default_factory=list)
+    skipped: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class _GameObjectInfo:
+    name: str
+    mesh: Any | None = None  # UnityPy Mesh data
+    material_pids: list[int] = field(default_factory=list)
+    translation: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rotation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    children: list[_GameObjectInfo] = field(default_factory=list)
+
+
+@dataclass
+class _MeshData:
+    """Extracted Unity mesh geometry plus its local AABB."""
+
+    name: str
+    vertices: list[Any]
+    normals: list[Any]
+    uvs: list[Any]
+    submeshes: list[list[tuple[int, ...]]]
+    local_min: list[float]
+    local_max: list[float]
+
+
+def classify_game_object(name: str, materials: list[str]) -> str:
+    """Categorize a game object: ``gun``, ``arrows``, ``cut`` or ``vfx``.
+
+    Classification is driven by the materials the game itself uses for
+    its UI overlays; the mesh name is a fallback for cutaway meshes.
+    """
+    if any(m in ARROW_MATERIALS for m in materials):
+        return "arrows"
+    if name.endswith("_cut") or any(m in CUT_MATERIALS for m in materials):
+        return "cut"
+    if any(m in VFX_MATERIALS for m in materials):
+        return "vfx"
+    return "gun"
+
+
+def convert_position(
+    v: tuple[float, float, float], unit_scale: float = 1.0
+) -> tuple[float, float, float]:
+    """Unity position to glTF: mirror Z, apply unit scale."""
+    return (v[0] * unit_scale, v[1] * unit_scale, -v[2] * unit_scale)
+
+
+def convert_rotation(
+    q: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """Unity quaternion (x, y, z, w) to glTF under Z mirroring."""
+    return (-q[0], -q[1], q[2], q[3])
+
+
+class SceneBuilder:
+    """Builds glTF scenes from decrypted weapon bundles."""
+
+    def __init__(self, config: WOGConfig | None = None) -> None:
+        self.config = config or get_config()
+        self.logger = get_logger()
+        self._mesh_cache: dict[int, _MeshData | None] = {}
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def build_scene(
+        self,
+        weapon: str,
+        include_extras: frozenset[str] = frozenset(),
+        unit_scale: float = 0.01,
+        input_dir: Path | None = None,
+        output_dir: Path | None = None,
+    ) -> Path:
+        """Export one weapon to ``<output_dir>/<weapon>.glb``.
+
+        ``include_extras`` may contain ``"arrows"``, ``"cut"`` and/or
+        ``"vfx"`` to also export UI arrows, cutaway meshes and visual
+        effects (hidden in the game's default assembled view).
+        """
+        bundle = (input_dir or self.config.decrypted_dir) / f"{weapon}.unity3d"
+        if not bundle.exists():
+            raise SceneExportError(
+                f"Decrypted bundle not found: {bundle} (run decrypt-assets first)"
+            )
+
+        if output_dir is None:
+            output_dir = self.config.base_dir / "runtime" / "scenes" / weapon
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        with self.logger.time_operation(f"scene:{weapon}"):
+            env = UnityPy.load(str(bundle))
+
+            materials_by_pid = {
+                obj.path_id: obj.read()
+                for obj in env.objects
+                if obj.type.name == "Material"
+            }
+            textures_by_pid = {
+                obj.path_id: obj.read()
+                for obj in env.objects
+                if obj.type.name == "Texture2D"
+            }
+
+            stats = SceneStats(weapon=weapon)
+            root = self._build_game_object_tree(env)
+            if root is None:
+                raise SceneExportError(f"No transform hierarchy found in {bundle}")
+
+            writer = GLBWriter(generator="WOG Dump scene exporter")
+
+            gltf_materials = self._convert_materials(
+                writer, materials_by_pid, textures_by_pid, output_dir, stats
+            )
+
+            world_bounds = [[math.inf] * 3, [-math.inf] * 3]
+            self._emit_nodes(
+                root,
+                parent=None,
+                matrix=_identity_matrix(),
+                include_extras=include_extras,
+                unit_scale=unit_scale,
+                gltf_materials=gltf_materials,
+                materials_by_pid=materials_by_pid,
+                writer=writer,
+                stats=stats,
+                world_bounds=world_bounds,
+            )
+            stats.nodes = len(writer._nodes)
+            self._add_studio_rig(writer, world_bounds)
+
+            glb_path = output_dir / f"{weapon}.glb"
+            writer.write(glb_path)
+
+            self._read_part_lists(env, weapon, stats)
+            self._write_manifest(output_dir, weapon, include_extras, unit_scale, stats)
+            self._write_blender_setup(output_dir)
+
+        self.logger.info(
+            f"Scene {weapon}: {stats.meshes} meshes, {stats.materials} materials, "
+            f"{stats.textures} textures -> {glb_path}"
+        )
+        return glb_path
+
+    # ------------------------------------------------------------------
+    # Bundle indexing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _deref(pointer: Any) -> Any | None:
+        try:
+            return pointer.deref()
+        except Exception:
+            return None
+
+    def _build_game_object_tree(self, env: Any) -> _GameObjectInfo | None:
+        """Resolve the GameObject hierarchy starting at the root Transform."""
+        transforms: dict[int, Any] = {}
+        root_transform = None
+        for obj in env.objects:
+            if obj.type.name == "Transform":
+                data = obj.read()
+                transforms[obj.path_id] = data
+                if data.m_Father.path_id == 0:
+                    root_transform = data
+
+        if root_transform is None:
+            return None
+
+        meshes_by_pid = {
+            obj.path_id: obj for obj in env.objects if obj.type.name == "Mesh"
+        }
+
+        def build(transform: Any) -> _GameObjectInfo:
+            go_object = self._deref(transform.m_GameObject)
+            if go_object is None:
+                return _GameObjectInfo(name="object")
+            go = go_object.read()
+            mesh = None
+            material_pids: list[int] = []
+            for component_ref in go.m_Components:
+                component = self._deref(
+                    component_ref[1]
+                    if isinstance(component_ref, (list, tuple))
+                    else component_ref
+                )
+                if component is None:
+                    continue
+                if component.type.name == "MeshFilter":
+                    mesh_pointer = component.read().m_Mesh
+                    mesh_obj = meshes_by_pid.get(mesh_pointer.path_id)
+                    if mesh_obj is not None:
+                        mesh = mesh_obj.read()
+                elif component.type.name == "MeshRenderer":
+                    for material_pointer in component.read().m_Materials:
+                        material_pids.append(material_pointer.path_id)
+
+            info = _GameObjectInfo(
+                name=go.m_Name or "object",
+                mesh=mesh,
+                material_pids=material_pids,
+                translation=_vector3(transform.m_LocalPosition),
+                rotation=_quaternion(transform.m_LocalRotation),
+                scale=_vector3(transform.m_LocalScale),
+            )
+            for child in transform.m_Children:
+                child_data = transforms.get(child.path_id)
+                if child_data is not None:
+                    info.children.append(build(child_data))
+            return info
+
+        return build(root_transform)
+
+    # ------------------------------------------------------------------
+    # Materials and textures
+    # ------------------------------------------------------------------
+
+    def _convert_materials(
+        self,
+        writer: GLBWriter,
+        materials_by_pid: dict[int, Any],
+        textures_by_pid: dict[int, Any],
+        output_dir: Path,
+        stats: SceneStats,
+    ) -> dict[int, int]:
+        """Create glTF materials; returns Unity material pid -> glTF index."""
+        textures_dir = output_dir / "textures"
+        textures_dir.mkdir(parents=True, exist_ok=True)
+
+        gltf_texture_by_pid: dict[int, int] = {}
+        gltf_materials: dict[int, int] = {}
+
+        for pid, material in materials_by_pid.items():
+            props = material.m_SavedProperties
+            color = (1.0, 1.0, 1.0, 1.0)
+            shininess = 0.078125
+            main_texture_pid = 0
+
+            for name, value in props.m_Colors:
+                if name == "_Color":
+                    color = (value.r, value.g, value.b, value.a)
+            for name, value in props.m_Floats:
+                if name == "_Shininess":
+                    shininess = float(value)
+            for name, tex_env in props.m_TexEnvs:
+                if name == "_MainTex" and tex_env.m_Texture.path_id:
+                    main_texture_pid = tex_env.m_Texture.path_id
+
+            base_color_texture = None
+            if main_texture_pid and main_texture_pid in textures_by_pid:
+                if main_texture_pid not in gltf_texture_by_pid:
+                    texture_data = textures_by_pid[main_texture_pid]
+                    image_bytes = self._texture_png(texture_data)
+                    (textures_dir / f"{texture_data.m_Name}.png").write_bytes(
+                        image_bytes
+                    )
+                    image = writer.add_image(image_bytes)
+                    gltf_texture_by_pid[main_texture_pid] = writer.add_texture(image)
+                    stats.textures += 1
+                base_color_texture = gltf_texture_by_pid[main_texture_pid]
+
+            alpha_mode = "OPAQUE"
+            double_sided = False
+            if material.m_Name in VFX_MATERIALS:
+                alpha_mode = "BLEND"
+                double_sided = True
+
+            gltf_materials[pid] = writer.add_material(
+                name=material.m_Name,
+                base_color_factor=color if base_color_texture is None else None,
+                base_color_texture=base_color_texture,
+                metallic=0.0,
+                roughness=_shininess_to_roughness(shininess),
+                alpha_mode=alpha_mode,
+                double_sided=double_sided,
+            )
+            stats.materials += 1
+
+        return gltf_materials
+
+    @staticmethod
+    def _texture_png(texture: Any) -> bytes:
+        """Texture2D to PNG bytes (UnityPy decodes; normal maps unswizzled)."""
+        image = texture.image
+        if image is None:
+            raise SceneExportError(f"Cannot decode texture {texture.m_Name}")
+        if is_unity_swizzled_normal(image):
+            image = unswizzle_normal_map(image)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    # ------------------------------------------------------------------
+    # Mesh extraction
+    # ------------------------------------------------------------------
+
+    def _mesh_data(self, mesh: Any) -> _MeshData | None:
+        """Extract and cache a Unity mesh's geometry (returns None on failure)."""
+        cache_key = id(mesh)
+        if cache_key in self._mesh_cache:
+            return self._mesh_cache[cache_key]
+
+        data: _MeshData | None = None
+        try:
+            handler = MeshHelper.MeshHandler(mesh)
+            handler.process()
+            vertices = handler.m_Vertices or []
+            if vertices:
+                local_min = [math.inf] * 3
+                local_max = [-math.inf] * 3
+                for v in vertices:
+                    for axis in range(3):
+                        if v[axis] < local_min[axis]:
+                            local_min[axis] = v[axis]
+                        if v[axis] > local_max[axis]:
+                            local_max[axis] = v[axis]
+                data = _MeshData(
+                    name=mesh.m_Name,
+                    vertices=vertices,
+                    normals=handler.m_Normals or [],
+                    uvs=handler.m_UV0 or [],
+                    submeshes=handler.get_triangles(),
+                    local_min=local_min,
+                    local_max=local_max,
+                )
+        except Exception as e:
+            self.logger.debug(f"Mesh extraction failed for {mesh.m_Name}: {e}")
+
+        self._mesh_cache[cache_key] = data
+        return data
+
+    # ------------------------------------------------------------------
+    # Node emission
+    # ------------------------------------------------------------------
+
+    def _emit_nodes(
+        self,
+        node: _GameObjectInfo,
+        parent: int | None,
+        matrix: list[float],
+        include_extras: frozenset[str],
+        unit_scale: float,
+        gltf_materials: dict[int, int],
+        materials_by_pid: dict[int, Any],
+        writer: GLBWriter,
+        stats: SceneStats,
+        world_bounds: list[list[float]],
+    ) -> int | None:
+        """Recursively emit kept nodes; returns the glTF node index or None."""
+        material_names = [
+            materials_by_pid[pid].m_Name
+            for pid in node.material_pids
+            if pid in materials_by_pid
+        ]
+        category = classify_game_object(node.name, material_names)
+
+        if category != "gun" and category not in include_extras:
+            stats.skipped[category] = stats.skipped.get(category, 0) + 1
+            return None
+
+        local_matrix = _compose_matrix(node.translation, node.rotation, node.scale)
+        world_matrix = _multiply_matrix(matrix, local_matrix)
+
+        child_indices: list[int] = []
+        for child in node.children:
+            child_index = self._emit_nodes(
+                child,
+                None,
+                world_matrix,
+                include_extras,
+                unit_scale,
+                gltf_materials,
+                materials_by_pid,
+                writer,
+                stats,
+                world_bounds,
+            )
+            if child_index is not None:
+                child_indices.append(child_index)
+
+        mesh_data = self._mesh_data(node.mesh) if node.mesh is not None else None
+        if mesh_data is None and not child_indices:
+            stats.skipped["empty"] = stats.skipped.get("empty", 0) + 1
+            return None  # structural empty without kept geometry
+
+        mesh_index = None
+        if mesh_data is not None:
+            mesh_index = self._convert_mesh(
+                node, mesh_data, gltf_materials, writer, stats, unit_scale
+            )
+            _accumulate_bounds(world_bounds, world_matrix, mesh_data, unit_scale)
+
+        node_index = writer.add_node(
+            name=node.name,
+            mesh=mesh_index,
+            translation=convert_position(node.translation, unit_scale),
+            rotation=(
+                convert_rotation(node.rotation)
+                if node.rotation != (0.0, 0.0, 0.0, 1.0)
+                else None
+            ),
+            scale=node.scale if node.scale != (1.0, 1.0, 1.0) else None,
+            parent=parent,
+        )
+        for child_index in child_indices:
+            writer.attach_child(node_index, child_index)
+
+        return node_index
+
+    def _convert_mesh(
+        self,
+        node: _GameObjectInfo,
+        mesh_data: _MeshData,
+        gltf_materials: dict[int, int],
+        writer: GLBWriter,
+        stats: SceneStats,
+        unit_scale: float = 1.0,
+    ) -> int:
+        """Convert one Unity mesh to glTF primitives (one per submesh)."""
+        vertices = mesh_data.vertices
+        normals = mesh_data.normals
+        uvs = mesh_data.uvs
+
+        primitives: list[MeshPrimitive] = []
+        for submesh_index, triangles in enumerate(mesh_data.submeshes):
+            if not triangles:
+                continue
+
+            positions: list[float] = []
+            primitive_normals: list[float] = []
+            primitive_uvs: list[float] = []
+            indices: list[int] = []
+            corner_to_local: dict[int, int] = {}
+
+            def emit(corner: int) -> int:
+                if corner not in corner_to_local:
+                    corner_to_local[corner] = len(corner_to_local)
+                    v = vertices[corner]
+                    positions.extend(
+                        (v[0] * unit_scale, v[1] * unit_scale, -v[2] * unit_scale)
+                    )
+                    if normals:
+                        n = normals[corner]
+                        primitive_normals.extend((n[0], n[1], -n[2]))
+                    if uvs:
+                        uv = uvs[corner]
+                        primitive_uvs.extend((uv[0], 1.0 - uv[1]))
+                return corner_to_local[corner]
+
+            # Unity winds triangles clockwise (left-handed); glTF is
+            # counter-clockwise - flip each triangle
+            for triangle in triangles:
+                a, b, c = (int(corner) for corner in triangle)
+                indices.extend((emit(a), emit(c), emit(b)))
+
+            material_index: int | None = None
+            if submesh_index < len(node.material_pids):
+                material_index = gltf_materials.get(node.material_pids[submesh_index])
+
+            primitives.append(
+                MeshPrimitive(
+                    positions=positions,
+                    indices=indices,
+                    normals=primitive_normals or None,
+                    uvs=primitive_uvs or None,
+                    material=material_index,
+                )
+            )
+
+        stats.meshes += 1
+        return writer.add_mesh(mesh_data.name, primitives)
+
+    # ------------------------------------------------------------------
+    # Scene dressing
+    # ------------------------------------------------------------------
+
+    def _add_studio_rig(
+        self, writer: GLBWriter, world_bounds: list[list[float]]
+    ) -> None:
+        """Add a camera and three-point lighting fitted to the weapon."""
+        if world_bounds[0][0] == math.inf:
+            return
+
+        center = _vec3_combine(world_bounds[0], world_bounds[1], 0.5)
+        radius = max((world_bounds[1][i] - world_bounds[0][i]) / 2 for i in range(3))
+        if radius <= 0:
+            radius = 0.5
+
+        camera = writer.add_camera("WOG_Camera")
+        direction = _normalize3(_CAMERA_DIRECTION)
+        distance = radius / math.tan(math.radians(25.0)) * 1.35
+        eye = _vec3_combine(center, direction, distance)
+        writer.add_camera_node("WOG_Camera", camera, eye, center)
+
+        light_rig = (
+            ("Key", (1.0, 1.5, 0.9), 3.0),
+            ("Fill", (-1.4, 0.6, 0.8), 1.2),
+            ("Rim", (-0.2, 0.9, -1.6), 1.8),
+        )
+        for name, offset, intensity in light_rig:
+            light = writer.add_directional_light(
+                f"WOG_Light_{name}", (1.0, 1.0, 1.0), intensity
+            )
+            light_eye = _vec3_combine(center, offset, radius)
+            writer.add_light_node(f"WOG_Light_{name}", light, light_eye, center)
+
+    # ------------------------------------------------------------------
+    # Manifest and helper files
+    # ------------------------------------------------------------------
+
+    def _read_part_lists(self, env: Any, weapon: str, stats: SceneStats) -> None:
+        """Extract removable-parts and field-strip lists from TextAssets."""
+        for obj in env.objects:
+            if obj.type.name != "TextAsset":
+                continue
+            data = obj.read()
+            name = data.m_Name
+            if name not in (f"{weapon}_parts", f"{weapon}_field_strip"):
+                continue
+            script = data.m_Script
+            if isinstance(script, bytes):
+                text = script.decode("utf-8", errors="replace")
+            else:
+                text = str(script)
+            entries = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or line.startswith("//"):
+                    continue
+                if ":" in line:
+                    line = line.split(":", 1)[1].strip()
+                if line:
+                    entries.append(line)
+            if name.endswith("_parts"):
+                stats.parts = entries
+            else:
+                stats.field_strip = entries
+
+    def _write_manifest(
+        self,
+        output_dir: Path,
+        weapon: str,
+        include_extras: frozenset[str],
+        unit_scale: float,
+        stats: SceneStats,
+    ) -> None:
+        manifest = {
+            "weapon": weapon,
+            "source": f"decrypted/{weapon}.unity3d",
+            "unit_scale": unit_scale,
+            "units": "meters",
+            "extras_included": sorted(include_extras),
+            "camera": "WOG_Camera",
+            "meshes": stats.meshes,
+            "materials": stats.materials,
+            "textures": stats.textures,
+            "nodes": stats.nodes,
+            "parts": stats.parts,
+            "field_strip": stats.field_strip,
+            "skipped": stats.skipped,
+        }
+        (output_dir / "scene.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+
+    def _write_blender_setup(self, output_dir: Path) -> None:
+        template = (
+            resources.files("wog_dump") / "resources" / "blender_setup.py"
+        ).read_text(encoding="utf-8")
+        (output_dir / "blender_setup.py").write_text(template, encoding="utf-8")
+
+
+# ----------------------------------------------------------------------
+# Matrix helpers (column-major 4x4, pure Python)
+# ----------------------------------------------------------------------
+
+
+def _identity_matrix() -> list[float]:
+    return [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    ]
+
+
+def _compose_matrix(
+    translation: tuple[float, float, float],
+    rotation: tuple[float, float, float, float],
+    scale: tuple[float, float, float],
+) -> list[float]:
+    """TRS to a column-major 4x4 matrix."""
+    x, y, z, w = rotation
+    xx, yy, zz = x * x, y * y, z * z
+    xy, xz, yz = x * y, x * z, y * z
+    wx, wy, wz = w * x, w * y, w * z
+
+    r = [
+        1 - 2 * (yy + zz),
+        2 * (xy + wz),
+        2 * (xz - wy),
+        2 * (xy - wz),
+        1 - 2 * (xx + zz),
+        2 * (yz + wx),
+        2 * (xz + wy),
+        2 * (yz - wx),
+        1 - 2 * (xx + yy),
+    ]
+    sx, sy, sz = scale
+    return [
+        r[0] * sx,
+        r[1] * sx,
+        r[2] * sx,
+        0.0,
+        r[3] * sy,
+        r[4] * sy,
+        r[5] * sy,
+        0.0,
+        r[6] * sz,
+        r[7] * sz,
+        r[8] * sz,
+        0.0,
+        translation[0],
+        translation[1],
+        translation[2],
+        1.0,
+    ]
+
+
+def _multiply_matrix(a: list[float], b: list[float]) -> list[float]:
+    """Column-major matrix product ``a @ b``."""
+    out = [0.0] * 16
+    for i in range(4):  # column of b
+        for j in range(4):  # row of a
+            out[i * 4 + j] = sum(a[k * 4 + j] * b[i * 4 + k] for k in range(4))
+    return out
+
+
+def _accumulate_bounds(
+    world_bounds: list[list[float]],
+    world_matrix: list[float],
+    mesh_data: _MeshData,
+    unit_scale: float,
+) -> None:
+    """Grow glTF-space ``world_bounds`` with the mesh's world-space AABB."""
+    for corner_x in (mesh_data.local_min[0], mesh_data.local_max[0]):
+        for corner_y in (mesh_data.local_min[1], mesh_data.local_max[1]):
+            for corner_z in (mesh_data.local_min[2], mesh_data.local_max[2]):
+                world_x = (
+                    world_matrix[0] * corner_x
+                    + world_matrix[4] * corner_y
+                    + world_matrix[8] * corner_z
+                    + world_matrix[12]
+                )
+                world_y = (
+                    world_matrix[1] * corner_x
+                    + world_matrix[5] * corner_y
+                    + world_matrix[9] * corner_z
+                    + world_matrix[13]
+                )
+                world_z = (
+                    world_matrix[2] * corner_x
+                    + world_matrix[6] * corner_y
+                    + world_matrix[10] * corner_z
+                    + world_matrix[14]
+                )
+                mirrored = (
+                    world_x * unit_scale,
+                    world_y * unit_scale,
+                    -world_z * unit_scale,
+                )
+                for axis in range(3):
+                    if mirrored[axis] < world_bounds[0][axis]:
+                        world_bounds[0][axis] = mirrored[axis]
+                    if mirrored[axis] > world_bounds[1][axis]:
+                        world_bounds[1][axis] = mirrored[axis]
+
+
+def _normalize3(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    length = math.sqrt(sum(c * c for c in v))
+    if length < 1e-12:
+        return (0.0, 0.0, 1.0)
+    return (v[0] / length, v[1] / length, v[2] / length)
+
+
+def _vec3_combine(
+    a: tuple[float, float, float] | list[float],
+    b: tuple[float, float, float] | list[float],
+    factor: float,
+) -> tuple[float, float, float]:
+    """``a + b * factor`` for 3-vectors."""
+    return (a[0] + b[0] * factor, a[1] + b[1] * factor, a[2] + b[2] * factor)
+
+
+def _shininess_to_roughness(shininess: float) -> float:
+    """Map Unity blinn-phong shininess (0..1) to a PBR roughness."""
+    return max(0.05, min(1.0, 1.0 - 2.0 * shininess))
+
+
+def _vector3(v: Any) -> tuple[float, float, float]:
+    return (float(v.x), float(v.y), float(v.z))
+
+
+def _quaternion(q: Any) -> tuple[float, float, float, float]:
+    return (float(q.x), float(q.y), float(q.z), float(q.w))

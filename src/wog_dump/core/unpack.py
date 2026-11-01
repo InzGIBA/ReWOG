@@ -200,6 +200,55 @@ class MeshExtractor(AssetExtractor):
         return output_path
 
 
+def _pair_parts(pair: Any) -> tuple[Any, Any] | None:
+    """Normalize a Unity property pair into (key, value).
+
+    UnityPy returns ``(name, value)`` tuples for typed reads and
+    ``{"first": name, "second": value}`` dicts for typetree reads.
+    """
+    if isinstance(pair, dict) and "first" in pair:
+        return pair["first"], pair["second"]
+    if isinstance(pair, tuple) and len(pair) == 2:
+        return pair[0], pair[1]
+    return None
+
+
+def _named_value(value: Any, attrs: tuple[str, ...]) -> Any:
+    """Read an attribute-style or dict-style field from a Unity value."""
+    for attr in attrs:
+        if isinstance(value, dict):
+            if attr in value:
+                return value[attr]
+        elif hasattr(value, attr):
+            return getattr(value, attr)
+    return None
+
+
+def _pptr_name(pptr: Any) -> str | None:
+    """Best-effort object name behind a PPtr (None when unresolvable)."""
+    if pptr is None:
+        return None
+    # Values that already carry their name (resolved objects, dict mocks)
+    name = _named_value(pptr, ("m_Name", "name"))
+    if isinstance(name, str) and name:
+        return name
+    if isinstance(pptr, dict):
+        path_id = pptr.get("m_PathID", 0)
+        return f"PPtr({path_id})" if path_id else None
+    if not hasattr(pptr, "deref"):
+        return str(pptr) if pptr else None
+    try:
+        if not getattr(pptr, "m_PathID", 0):
+            return None
+        resolved = pptr.deref()
+        name = _named_value(resolved, ("m_Name", "name"))
+        if isinstance(name, str) and name:
+            return name
+        return f"PPtr({pptr.m_PathID})"
+    except Exception:
+        return None
+
+
 class MaterialExtractor(AssetExtractor):
     """Dumps Material objects as JSON."""
 
@@ -210,44 +259,51 @@ class MaterialExtractor(AssetExtractor):
 
         material_data = {
             "name": data.m_Name,
-            "shader": getattr(data, "m_Shader", {}).get("m_Name", "Unknown"),
+            "shader": _pptr_name(getattr(data, "m_Shader", None)) or "Unknown",
             "properties": {},
         }
 
         # Extract material properties if available
-        if hasattr(data, "m_SavedProperties"):
-            props = data.m_SavedProperties
+        props = getattr(data, "m_SavedProperties", None)
 
+        if props is not None:
             # Colors
-            if hasattr(props, "m_Colors"):
-                for color_prop in props.m_Colors:
-                    material_data["properties"][color_prop["first"]] = {
-                        "type": "color",
-                        "value": [
-                            color_prop["second"]["r"],
-                            color_prop["second"]["g"],
-                            color_prop["second"]["b"],
-                            color_prop["second"]["a"],
-                        ],
-                    }
+            for color_pair in _named_value(props, ("m_Colors",)) or []:
+                parts = _pair_parts(color_pair)
+                if parts is None:
+                    continue
+                name, color = parts
+                if isinstance(color, dict):
+                    rgba = [color.get(k) for k in ("r", "g", "b", "a")]
+                else:
+                    rgba = [getattr(color, k, None) for k in ("r", "g", "b", "a")]
+                material_data["properties"][str(name)] = {
+                    "type": "color",
+                    "value": rgba if all(v is not None for v in rgba) else str(color),
+                }
 
             # Floats
-            if hasattr(props, "m_Floats"):
-                for float_prop in props.m_Floats:
-                    material_data["properties"][float_prop["first"]] = {
-                        "type": "float",
-                        "value": float_prop["second"],
-                    }
+            for float_pair in _named_value(props, ("m_Floats",)) or []:
+                parts = _pair_parts(float_pair)
+                if parts is None:
+                    continue
+                name, value = parts
+                material_data["properties"][str(name)] = {
+                    "type": "float",
+                    "value": value,
+                }
 
             # Textures
-            if hasattr(props, "m_TexEnvs"):
-                for tex_prop in props.m_TexEnvs:
-                    material_data["properties"][tex_prop["first"]] = {
-                        "type": "texture",
-                        "texture_name": tex_prop["second"]["m_Texture"].get(
-                            "m_Name", "None"
-                        ),
-                    }
+            for tex_pair in _named_value(props, ("m_TexEnvs",)) or []:
+                parts = _pair_parts(tex_pair)
+                if parts is None:
+                    continue
+                name, tex_env = parts
+                texture = _named_value(tex_env, ("m_Texture",))
+                material_data["properties"][str(name)] = {
+                    "type": "texture",
+                    "texture_name": _pptr_name(texture) or "None",
+                }
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(material_data, f, indent=2)
@@ -367,6 +423,11 @@ class WeaponListProcessor:
     def _parse_weapon_names(self, text_content: str) -> list[str]:
         """Parse weapon names from text content with validation.
 
+        The banner text comes in two flavors: a plain ``<name>.png`` list
+        (one per line) and a texture-atlas index (``<name>.png<tab><tab>
+        new_bannersN.dds, ...``) - both carry the weapon name as the
+        first whitespace-separated token of each line.
+
         The banner text is server-controlled content, so every name must
         match the strict weapon-name allowlist (see ``core.paths``):
         separators, traversal segments and URL metacharacters are
@@ -378,10 +439,11 @@ class WeaponListProcessor:
             line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue
-            if line.endswith(".png"):
-                line = line[: -len(".png")]
-            if is_safe_weapon_name(line):
-                weapon_names.append(line)
+            name = line.split()[0] if line.split() else ""
+            if name.endswith(".png"):
+                name = name[: -len(".png")]
+            if name and is_safe_weapon_name(name):
+                weapon_names.append(name)
 
         return weapon_names
 

@@ -207,14 +207,17 @@ class AssetDecryptor:
         self,
         keys: dict[str, str] | None = None,
         max_workers: int | None = None,
+        weapons: list[str] | None = None,
     ) -> tuple[list[Path], list[str]]:
-        """Decrypt all downloaded assets using the provided keys.
+        """Decrypt downloaded assets using the provided keys.
 
         When keys is None, the weapon list is loaded and keys are fetched
-        from the API first.
+        from the API first. ``weapons`` restricts processing to the named
+        assets; without it everything in the assets directory (except the
+        weapon-list bundle) is decrypted.
         """
         if keys is None:
-            weapon_list = self._get_available_weapons()
+            weapon_list = weapons or self._get_available_weapons()
             if not weapon_list:
                 self.logger.warning("No weapons to decrypt")
                 return [], []
@@ -234,6 +237,14 @@ class AssetDecryptor:
             for f in self.config.assets_dir.glob("*.unity3d")
             if f.name != "spider_gen.unity3d"
         ]
+        if weapons is not None:
+            wanted = set(weapons)
+            assets = [f for f in assets if f.stem in wanted]
+            missing = wanted - {f.stem for f in assets}
+            for name in sorted(missing):
+                self.logger.warning(
+                    f"Asset for '{name}' not found in {self.config.assets_dir}"
+                )
 
         if not assets:
             self.logger.warning(f"No assets found in {self.config.assets_dir}")

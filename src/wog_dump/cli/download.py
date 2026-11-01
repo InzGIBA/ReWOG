@@ -180,6 +180,10 @@ def download_assets(
                         if missing:
                             detail += f", {missing} not on server"
                         logger.print_status(detail, "success")
+                    elif not successful and not failed and not nested:
+                        logger.print_status(
+                            f"All {len(weapon_list)} assets up to date", "success"
+                        )
 
                     if failed:
                         logger.print_status(

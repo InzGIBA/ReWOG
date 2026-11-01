@@ -315,3 +315,25 @@ class TestAssetDecryptor:
             assert len(decrypted_files) == 2
             assert len(failed_assets) == 0
             assert mock_decrypt.call_count == 2
+
+    def test_decrypt_all_assets_weapons_filter(self, test_config: WOGConfig) -> None:
+        """The weapons filter restricts processing to the named assets."""
+        for name in ("asset1", "asset2"):
+            (test_config.assets_dir / f"{name}.unity3d").touch()
+
+        decryptor = AssetDecryptor(test_config)
+
+        with patch.object(decryptor, "decrypt_asset") as mock_decrypt:
+            mock_decrypt.return_value = [Path("decrypted1.unity3d")]
+
+            keys = {"asset1": "key1", "asset2": "key2"}
+            decrypted_files, _ = decryptor.decrypt_all_assets(
+                keys, weapons=["asset1", "not_downloaded"]
+            )
+
+            assert len(decrypted_files) == 1
+            assert mock_decrypt.call_count == 1
+            assert (
+                mock_decrypt.call_args[0][0]
+                == test_config.assets_dir / "asset1.unity3d"
+            )

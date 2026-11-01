@@ -60,7 +60,9 @@ def decrypt_assets(
         results: tuple[list[Path], list[str]] = ([], [])
         with logger.operation_context("decryption", "asset decryption"):
             decryptor = AssetDecryptor(config)
-            decrypted_files, failed_assets = decryptor.decrypt_all_assets(keys)
+            decrypted_files, failed_assets = decryptor.decrypt_all_assets(
+                keys, weapons=weapon_list if weapons else None
+            )
             results = (decrypted_files, failed_assets)
 
             if validate:

@@ -254,6 +254,33 @@ class TestExtractors:
         assert payload["properties"]["_Gloss"] == {"type": "float", "value": 0.5}
         assert payload["properties"]["_MainTex"]["texture_name"] == "tex"
 
+    def test_material_typed_unitypy_objects(self, tmp_path: Path) -> None:
+        """Current UnityPy returns typed objects: (name, value) tuples,
+        ColorRGBA and PPtr - the extractor must not require dict access."""
+        tex_env = SimpleNamespace(m_Texture=SimpleNamespace(m_PathID=0))
+        tex_env.m_Texture.deref = lambda: (_ for _ in ()).throw(RuntimeError("no"))
+        props = SimpleNamespace(
+            m_Colors=[("_Color", SimpleNamespace(r=1, g=0, b=0, a=1))],
+            m_Floats=[("_Gloss", 0.5)],
+            m_TexEnvs=[("_MainTex", tex_env)],
+        )
+        shader = SimpleNamespace(m_PathID=-808, m_FileID=0)
+        shader.deref = lambda: SimpleNamespace()  # no name resolvable
+        data = SimpleNamespace(m_Name="mat2", m_Shader=shader, m_SavedProperties=props)
+
+        result = EXTRACTORS["Material"].extract(
+            make_unity_object("Material", data), tmp_path
+        )
+
+        assert result == tmp_path / "mat2.material.json"
+        payload = json.loads(result.read_text())
+        assert payload["shader"] == "PPtr(-808)"
+        assert payload["properties"]["_Color"] == {
+            "type": "color",
+            "value": [1, 0, 0, 1],
+        }
+        assert payload["properties"]["_MainTex"]["texture_name"] == "None"
+
     def test_animation_clip(self, tmp_path: Path) -> None:
         data = Mock(m_Name="reload", m_Length=2.5, m_FrameRate=30, m_Legacy=False)
         EXTRACTORS["AnimationClip"].extract(
@@ -337,6 +364,31 @@ class TestWeaponListProcessor:
 
             with pytest.raises(UnpackError, match="new_banners"):
                 processor.extract_weapon_list(mock_unity_asset)
+
+    def test_extract_weapon_list_atlas_format(
+        self, test_config: WOGConfig, mock_unity_asset: Path
+    ) -> None:
+        """The server's banner asset may be a texture-atlas index (tai):
+
+        ``<name>.png<tab><tab><atlas info>`` - the weapon name is the
+        first whitespace-separated token of each line.
+        """
+        processor = WeaponListProcessor(test_config)
+        banners = Mock(
+            m_Name="new_banners",
+            m_Script=(
+                b"# new_banners.tai\r\n"
+                b"# comment line\r\n"
+                b"ak47.png\t\tnew_banners0.dds, 0, 2D, 0.25, 0, 0, 0.25, 0.125\r\n"
+                b"m4a1.png\t\tnew_banners0.dds, 0, 2D, 0.5, 0, 0, 0.25, 0.125\r\n"
+            ),
+        )
+
+        with patch("wog_dump.core.unpack.UnityPy.load") as mock_load:
+            mock_load.return_value = make_env([make_unity_object("TextAsset", banners)])
+            weapons = processor.extract_weapon_list(mock_unity_asset)
+
+        assert weapons == ["ak47", "m4a1"]
 
     def test_extract_weapon_list_latin1_fallback(
         self, test_config: WOGConfig, mock_unity_asset: Path

@@ -96,19 +96,23 @@ def collect_status_info(config: WOGConfig) -> list[list[str]]:
 
 def perform_file_validation(config: WOGConfig, logger: WOGLogger) -> None:
     """Perform comprehensive file validation."""
+    decrypted_files = list(config.decrypted_dir.glob("*.unity3d"))
+    if not decrypted_files:
+        logger.console.print("\n[bold]File Validation Results:[/bold]")
+        logger.console.print("  No decrypted files to validate")
+        return
+
     logger.console.print("\n[bold]File Validation Results:[/bold]")
 
-    decrypted_files = list(config.decrypted_dir.glob("*.unity3d"))
-    if decrypted_files:
-        validation_failures = validate_decrypted_files(decrypted_files)
-        valid_count = len(decrypted_files) - len(validation_failures)
-        logger.console.print(
-            f"  Decrypted Assets: {valid_count}/{len(decrypted_files)} valid"
-        )
+    validation_failures = validate_decrypted_files(decrypted_files)
+    valid_count = len(decrypted_files) - len(validation_failures)
+    logger.console.print(
+        f"  Decrypted Assets: {valid_count}/{len(decrypted_files)} valid"
+    )
 
-        if validation_failures:
-            logger.console.print("  Invalid files:")
-            for file_path in validation_failures[:5]:
-                logger.console.print(f"    - {file_path.name}")
-            if len(validation_failures) > 5:
-                logger.console.print(f"    ... and {len(validation_failures) - 5} more")
+    if validation_failures:
+        logger.console.print("  Invalid files:")
+        for file_path in validation_failures[:5]:
+            logger.console.print(f"    - {file_path.name}")
+        if len(validation_failures) > 5:
+            logger.console.print(f"    ... and {len(validation_failures) - 5} more")

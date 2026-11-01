@@ -7,6 +7,146 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-11-02
+
+Security-hardening release based on a full deep-profile audit of the codebase
+(21 coverage units, 3 hunting waves, every finding independently verified with
+sandboxed reproductions). **Some changes are deliberately breaking**: stricter
+validation and safer defaults replace behavior that the audit confirmed as
+exploitable. Read the "Breaking" section before upgrading; automation or
+scripts that relied on the old permissive behavior need adjustments.
+
+### Breaking
+
+- **Working-directory `.env` files now apply only `WOG_*` keys.** Variables
+  like `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `REQUESTS_CA_BUNDLE`,
+  `CURL_CA_BUNDLE` or `NETRC` in a `.env` are ignored: a `.env` planted in an
+  unpacked shared "weapon pack" could previously redirect all credential-
+  bearing traffic through an attacker proxy or swap the TLS trust anchor.
+  Set transport variables in your real shell environment if you need them
+- **Ambient transport trust is disabled for the tool's own sessions.**
+  `create_session()` now pins `trust_env = False`, so even real environment
+  variables no longer steer proxies/CA bundles/netrc for the game API and CDN
+  traffic. If you legitimately routed `wog-dump` through a proxy, configure it
+  at the OS level (transparent proxy, VPN) instead
+- **Asset and weapon names must match the vendor alphabet**
+  (`letters, digits, _ and -`, 2-50 chars). `--weapons '../foo'`,
+  absolute paths, or names with `/`, `\`, `?`, `&`, spaces etc. are rejected
+  with an error instead of being downloaded to a path outside
+  `runtime/assets/`. The server-parsed weapon list (`spider_gen`) is filtered
+  by the same allowlist, and `runtime/weapons.txt` lines failing it are
+  skipped (with a warning)
+- **Cross-run download resume now requires a validator.** A partial
+  `runtime/assets/<name>.tmp` is resumed only when its sidecar
+  `<name>.tmp.meta` records the ETag/Last-Modified of the response that
+  produced it (replayed as `If-Range`). Partials without a validator, or
+  where the server answers 200 (representation changed), restart from
+  scratch. Partials created by versions before 2.6.0 have no sidecar and
+  will be re-downloaded once
+- **Legacy `runtime/*.txt` import is once per database.** `cache --migrate`
+  refuses to re-import after the first successful run (use the new
+  `--force` flag to override), legacy keys never overwrite keys already
+  fetched from the API, and the weapons side merges additively instead of
+  replacing the stored list. `cache --clear` is now terminal: the next
+  command run from the same directory no longer silently resurrects the
+  cleared weapons/keys from `runtime/*.txt`
+- **`extract_keys.py --identity` refuses to overwrite an existing stored
+  identity** unless the new `--force` flag is passed. Captured identity
+  extraction also prefers requests on a genuine `ultimate-disassembly.com`
+  host over shape-only matches, regardless of order in the capture
+- **Symlinked database paths are refused** (`WOG_DB_PATH` pointing through a
+  symlink now errors out instead of writing credentials through it), and
+  `logout` also clears the stored `device_id`
+- Unity bundle object names (`m_Name`) that contain `/`, `\`, NUL, leading
+  dots or traversal segments are skipped with a warning instead of being
+  written wherever they point (previously: arbitrary file write outside
+  `runtime/` at the invoking user's privilege)
+
+### Security
+
+- **Fixed: ambient environment could take over transport trust** (proxies,
+  CA bundle, netrc) for every authenticated request - the account
+  email/password, session/id/dev tokens and key responses were interceptable
+  by a planted `.env`. Both clients (`WOGApiClient`, `DownloadManager`) now
+  use a pinned session (finding `http.trustenv-proxy-ca-injection`, medium)
+- **Fixed: path traversal via bundle object names.** `m_Name` values from
+  crafted `.unity3d` bundles were joined verbatim into output paths in
+  decrypt, all seven unpack extractors and scene texture export, writing
+  attacker-chosen bytes outside `runtime/` (`bundle-object-name-path-traversal`,
+  medium). All sinks now go through the new `core/paths.py`
+  (`safe_object_name`/`contained_path`)
+- **Fixed: planted `.tmp` symlink redirected downloads** to any
+  victim-chosen file (overwrite via HTTP 200, append via 206 resume).
+  Temp files are opened with `O_NOFOLLOW` and non-regular temps are
+  discarded (`download.tmp-symlink-follow`, medium)
+- **Fixed: resumed downloads certified foreign prefixes.** A stale or
+  planted `.tmp` prefix became part of a "validated" final file, and the
+  size-only freshness check locked the chimera in forever. Resume is now
+  bound to the server representation via `If-Range`/ETag
+  (`download.resume-prefix-unbound`, medium)
+- **Fixed: unvalidated weapon names placed downloads outside
+  `runtime/assets/`** via traversal or absolute names from `--weapons`,
+  `weapons.txt` or the server-parsed list; URL building is also confined
+  (`download.asset-name-path-traversal`, medium). Note: the pinned HTTP
+  client normalizes dot segments before sending, so traversal names
+  requested CDN-root paths on the wire
+- **Fixed: planted `.env` silently poisoned the credential store** - a
+  foreign `WOG_AUTH_ID`/`WOG_AUTH_SESSION` pair was persisted as the live
+  identity, and `WOG_DB_PATH` could relocate the store (including through a
+  symlink). Besides the `.env` allowlist, applying credential-affecting keys
+  from a working-directory file now prints a prominent warning
+  (`env.cwd-dotenv-credential-store-trust`, medium)
+- **Fixed: scene export wrote through pre-existing symlinks**
+  (`blender_setup.py`, `<weapon>.glb`, `scene.json`, `textures/`) in a
+  provenance-unknown output tree, clobbering files outside `runtime/`. All
+  scene writes now use temp-file + `os.replace`, and symlinked output or
+  textures directories are refused (`scene.symlink-output-write`, low)
+- **Fixed: duplicate asset names raced on the shared temp path** and could
+  produce a size-correct corrupt final that passed validation and was cached
+  as up-to-date. Batches are de-duplicated before the thread pool
+  (`download.duplicate-name-temp-interleave`, low)
+- **Fixed: `wog.log` was world-readable (0644) while the database got 0600**,
+  leaking the account email and auth id to other local users on default
+  umask. The log directory is now 0700 and every log file (including
+  rotations) 0600 (`log.account-identity-world-readable`, low)
+- **Fixed: shape-matched capture flows could replace the live identity.**
+  The first query-shaped request in a capture won identity selection even
+  on unrelated hosts; a genuine-domain flow later in the same file now
+  takes precedence, and overwrites require `--force`
+  (`key-import.shape-match-identity-import`, low)
+- New `core/paths.py` module centralizes name validation and path
+  containment for everything that builds paths from bundle-, server- or
+  file-controlled names
+
+### Fixed
+
+- **`result=1000` (session rejected) now triggers the documented automatic
+  re-login.** Only `result=100` raised `AuthenticationError` before, so a
+  routine session expiry silently misreported every weapon as keyless until
+  a manual `wog-dump login`
+- Login and key-fetch query values are URL-encoded: an `&` or `=` inside
+  the email, password or model name can no longer rewrite the request's own
+  fields
+- A non-numeric `Content-Length` header no longer crashes the batch with an
+  uncaught `ValueError`
+- `full-pipeline --continue-on-error` no longer reports a clean finish (and
+  exit 0) after a step failed internally; the console says "finished with
+  errors" and the exit code is 1
+- Full tracebacks of unexpected errors go to the log file only; the console
+  shows the one-line error (traceback on screen with `-d`, as the comments
+  always claimed)
+
+### Changed
+
+- API response decompression is capped (64 MiB) to stop decompression-bomb
+  input from exhausting memory
+- `cache --show-cache` / `info` statistics no longer expose the raw session
+  token (`get_stats()` reports `has_session` instead), and the stored keys'
+  per-row source provenance survives `--update-keys` writes
+- `wog-dump login --password ...` prints a warning that the value is visible
+  in the process list (e.g. `/proc/<pid>/cmdline` on shared hosts); prefer
+  the interactive prompt
+
 ## [2.5.1] - 2026-11-01
 
 Documentation-only release; no functional changes.

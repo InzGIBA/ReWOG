@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote
 
 from ..utils.logging import get_logger
 from .api import ApiNetworkError, WOGApiClient, parse_response_fields
@@ -52,14 +53,18 @@ class KeyManager:
         self._key_cache: dict[str, str] = {}
 
     def _build_api_request_data(self, asset_name: str, identity: Identity) -> str:
-        """Build the sync-key query for an asset."""
+        """Build the sync-key query for an asset.
+
+        Values are URL-encoded: an & or = inside a model name or session
+        must never rewrite the query's own fields.
+        """
         return (
             "query=3"
-            f"&model={asset_name}"
+            f"&model={quote(str(asset_name), safe='')}"
             "&need_details=1"
-            f"&session={identity.session}"
-            f"&id={identity.auth_id}"
-            f"&dev={identity.device_id}"
+            f"&session={quote(str(identity.session), safe='')}"
+            f"&id={quote(str(identity.auth_id), safe='')}"
+            f"&dev={quote(str(identity.device_id), safe='')}"
             f"&mode={self.config.game_mode}"
             f"&{self.client.build_common_params()}"
         )
@@ -81,9 +86,10 @@ class KeyManager:
             result, fields.get("errmsg", f"code {result}")
         )
 
-        if result == "100":
+        if result in ("100", "1000"):
             raise AuthenticationError(
-                f"Authentication failed for {asset_name}: {error_msg}"
+                f"Authentication failed for {asset_name}: {error_msg} "
+                f"(result={result})"
             )
         if result in ("429", "500", "502", "503", "504"):
             raise NetworkError(f"Server error for {asset_name}: {error_msg}")

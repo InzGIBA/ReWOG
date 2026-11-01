@@ -61,8 +61,9 @@ class TestLogin:
         assert auth.get_account_email() == "user@example.com"
 
         # The request carried the generated device id and the credentials
+        # (URL-encoded: &/= inside a value must never rewrite the query)
         sent_params = client.call.call_args[0][0]
-        assert "email=user@example.com" in sent_params
+        assert "email=user%40example.com" in sent_params
         assert "password=secret" in sent_params
         assert f"dev={identity.device_id}" in sent_params
 

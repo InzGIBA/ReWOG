@@ -63,6 +63,12 @@ def main() -> int:
         "into the local database (mitmproxy .flows captures only)",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="with --identity: replace an already stored identity instead "
+        "of refusing",
+    )
+    parser.add_argument(
         "--merge",
         action="store_true",
         help="merge the extracted keys into the local key store "
@@ -100,10 +106,11 @@ def main() -> int:
     if args.identity:
         try:
             identity = extract_identity_from_flows(args.capture)
-            import_identity(identity)
+            import_identity(identity, force=args.force)
             device = identity.device_id or "<generated>"
             print(
-                f"\nImported client identity (id={identity.auth_id}):\n"
+                f"\nImported client identity (id={identity.auth_id}) "
+                f"from {identity.source}:\n"
                 f"  WOG_AUTH_ID={identity.auth_id}\n"
                 f"  WOG_AUTH_SESSION={identity.session}\n"
                 f"  WOG_DEVICE_ID={device}\n"

@@ -31,6 +31,12 @@ def create_session(config: WOGConfig, pool_size: int | None = None) -> requests.
     )
 
     session = requests.Session()
+    # Credential-bearing traffic must not inherit transport trust from the
+    # environment: trust_env would honor HTTPS_PROXY/ALL_PROXY,
+    # REQUESTS_CA_BUNDLE/CURL_CA_BUNDLE (replacing the TLS trust anchor)
+    # and netrc credentials from os.environ - all plantable through a
+    # working-directory .env.
+    session.trust_env = False
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     session.headers.update(config.get_api_headers())

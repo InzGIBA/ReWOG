@@ -22,6 +22,7 @@ from .keys import (
     KeyManager,
     NetworkError,
 )
+from .paths import contained_path, safe_object_name
 
 __all__ = [
     "AssetDecryptor",
@@ -133,9 +134,23 @@ class AssetDecryptor:
                         )
                         continue
 
-                    encrypted_path = self.config.encrypted_dir / f"{data.m_Name}.bytes"
-                    decrypted_path = (
-                        self.config.decrypted_dir / f"{data.m_Name}.unity3d"
+                    try:
+                        # m_Name comes straight from the untrusted bundle:
+                        # reject traversal/absolute names before any path
+                        # is built from them
+                        safe_name = safe_object_name(str(data.m_Name))
+                    except ValueError:
+                        self.logger.warning(
+                            f"Skipping TextAsset with unsafe name "
+                            f"{data.m_Name!r} in {asset_path.name}"
+                        )
+                        continue
+
+                    encrypted_path = contained_path(
+                        self.config.encrypted_dir, f"{safe_name}.bytes"
+                    )
+                    decrypted_path = contained_path(
+                        self.config.decrypted_dir, f"{safe_name}.unity3d"
                     )
 
                     if self._is_already_processed(encrypted_path, decrypted_path, data):

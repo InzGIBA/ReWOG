@@ -21,6 +21,7 @@ from typing import Any
 
 from ..utils.logging import get_logger
 from .config import WOGConfig, get_config
+from .paths import is_safe_weapon_name
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -51,6 +52,13 @@ SETTINGS_EMAIL = "account_email"
 SETTINGS_PASSWORD = "account_password"
 SETTINGS_DEVICE_ID = "device_id"
 
+# One-time marker for the legacy runtime txt import (see import_legacy_txt)
+SETTINGS_LEGACY_IMPORT_DONE = "legacy_import_done"
+
+
+class DatabaseError(Exception):
+    """Raised when the local store cannot be opened safely."""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -74,7 +82,13 @@ class WOGDatabase:
         return connection
 
     def _init_schema(self) -> None:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # A symlinked store path would redirect every credential write to
+        # the symlink target, so refuse it outright.
+        if self.db_path.is_symlink():
+            raise DatabaseError(
+                f"Refusing to open symlinked database path: {self.db_path}"
+            )
+        self.db_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self._lock, self._connect() as db:
             db.executescript(_SCHEMA)
         self._restrict_permissions()
@@ -82,9 +96,11 @@ class WOGDatabase:
     def _restrict_permissions(self) -> None:
         try:
             os.chmod(self.db_path, 0o600)
-        except OSError:
-            # Windows FAT or unusual filesystems: nothing to do
-            pass
+        except OSError as e:
+            # Windows FAT or unusual filesystems: report, do not fail
+            self.logger.warning(
+                f"Could not restrict permissions on {self.db_path}: {e}"
+            )
 
     # ------------------------------------------------------------- settings
 
@@ -140,16 +156,41 @@ class WOGDatabase:
         return [row[0] for row in rows]
 
     def save_weapons(self, weapons: list[str], source: str | None = None) -> None:
-        """Replace the stored weapon list."""
+        """Replace the stored weapon list (names must be path-safe)."""
         if not weapons:
+            return
+        safe_names = [name for name in weapons if is_safe_weapon_name(name)]
+        rejected = len(weapons) - len(safe_names)
+        if rejected:
+            self.logger.warning(
+                f"Rejected {rejected} weapon name(s) with unsafe characters"
+            )
+        if not safe_names:
             return
         with self._lock, self._connect() as db:
             db.execute("DELETE FROM weapons")
             db.executemany(
                 "INSERT INTO weapons (name) VALUES (?)",
-                [(name,) for name in weapons],
+                [(name,) for name in safe_names],
             )
-        self.logger.info(f"Saved {len(weapons)} weapons to {self.db_path}")
+        self.logger.info(f"Saved {len(safe_names)} weapons to {self.db_path}")
+
+    def merge_weapons(self, weapons: list[str]) -> int:
+        """Add weapon names that are not stored yet; returns the added count."""
+        safe_names = [name for name in weapons if is_safe_weapon_name(name)]
+        if not safe_names:
+            return 0
+        with self._lock, self._connect() as db:
+            existing = {
+                row[0] for row in db.execute("SELECT name FROM weapons").fetchall()
+            }
+            new_names = [name for name in safe_names if name not in existing]
+            if new_names:
+                db.executemany(
+                    "INSERT INTO weapons (name) VALUES (?)",
+                    [(name,) for name in new_names],
+                )
+        return len(new_names)
 
     # ----------------------------------------------------------------- keys
 
@@ -178,11 +219,28 @@ class WOGDatabase:
         self.logger.info(f"Saved {len(keys)} keys to {self.db_path}")
 
     def merge_keys(
-        self, new_keys: dict[str, str], source: str | None = None
+        self,
+        new_keys: dict[str, str],
+        source: str | None = None,
+        overwrite: bool = True,
     ) -> tuple[int, int]:
-        """Merge keys into the store; returns (added, updated). Existing keys are kept."""
+        """Merge keys into the store; returns (added, updated). Existing keys are kept.
+
+        With ``overwrite=False`` an existing row is only replaced when it
+        itself came from the same (or no) source - a legacy txt import
+        must never silently overwrite fresher server-fetched keys.
+        """
         if not new_keys:
             return (0, 0)
+
+        conflict_guard = (
+            "" if overwrite else " WHERE keys.source IS NULL OR keys.source = ?"
+        )
+        rows: list[tuple[Any, ...]] = [
+            (model, key, source) for model, key in new_keys.items()
+        ]
+        if not overwrite:
+            rows = [(model, key, source, source) for model, key in new_keys.items()]
 
         with self._lock, self._connect() as db:
             existing = dict(db.execute("SELECT model, sync_key FROM keys").fetchall())
@@ -196,8 +254,8 @@ class WOGDatabase:
                 "INSERT INTO keys (model, sync_key, source) VALUES (?, ?, ?) "
                 "ON CONFLICT(model) DO UPDATE SET "
                 "sync_key = excluded.sync_key, source = excluded.source, "
-                "updated_at = datetime('now')",
-                [(model, key, source) for model, key in new_keys.items()],
+                f"updated_at = datetime('now'){conflict_guard}",
+                rows,
             )
         self.logger.info(
             f"Merged keys into {self.db_path}: {added} new, {updated} updated"
@@ -220,7 +278,9 @@ class WOGDatabase:
             "keys": {"count": keys_count},
             "identity": {
                 "auth_id": identity_row[0] if identity_row else None,
-                "session": identity_row[1] if identity_row else None,
+                # The session token is a live credential: never hand it to
+                # presentation code, only report whether one exists.
+                "has_session": bool(identity_row[1]) if identity_row else False,
                 "updated_at": identity_row[2] if identity_row else None,
             },
             "account": {
@@ -232,19 +292,39 @@ class WOGDatabase:
     # ---------------------------------------------------------- maintenance
 
     def clear_cached_data(self) -> None:
-        """Delete weapons and keys (credentials and identity are kept)."""
+        """Delete weapons and keys (credentials and identity are kept).
+
+        The legacy-import marker is kept as well, so a cleared store
+        stays cleared instead of being silently repopulated from the
+        working directory's runtime txt files on the next load.
+        """
         with self._lock, self._connect() as db:
             db.execute("DELETE FROM weapons")
             db.execute("DELETE FROM keys")
         self.logger.info(f"Cleared cached weapons and keys in {self.db_path}")
 
     def import_legacy_txt(
-        self, weapons_file: Path | None = None, keys_file: Path | None = None
+        self,
+        weapons_file: Path | None = None,
+        keys_file: Path | None = None,
+        force: bool = False,
     ) -> bool:
         """One-time import from the legacy runtime txt files.
 
+        The import runs at most once per database (override with
+        ``force``). The files come from the working directory and are
+        treated as untrusted: weapon names must pass the strict name
+        allowlist, and keys never overwrite values from a fresher source.
+
         Returns True when at least one file was imported.
         """
+        if not force and self.get_setting(SETTINGS_LEGACY_IMPORT_DONE):
+            self.logger.info(
+                "Legacy files already imported once; skipping "
+                "(pass force=True to import again)"
+            )
+            return False
+
         weapons_file = weapons_file or (
             self.config.base_dir / "runtime" / "weapons.txt"
         )
@@ -258,8 +338,11 @@ class WOGDatabase:
                 if line.strip() and not line.startswith("#")
             ]
             if weapons:
-                self.save_weapons(weapons)
-                self.logger.info(f"Imported {len(weapons)} weapons from {weapons_file}")
+                added = self.merge_weapons(weapons)
+                self.logger.info(
+                    f"Imported {added} new weapons from {weapons_file} "
+                    f"({len(weapons) - added} already present or rejected)"
+                )
                 imported = True
 
         if keys_file.exists():
@@ -269,11 +352,14 @@ class WOGDatabase:
                 if not line or line.startswith("#"):
                     continue
                 parts = line.split(" ", 1)
-                if len(parts) == 2:
+                if len(parts) == 2 and is_safe_weapon_name(parts[0]):
                     keys[parts[0]] = parts[1]
             if keys:
-                self.merge_keys(keys, source="legacy_import")
+                self.merge_keys(keys, source="legacy_import", overwrite=False)
                 self.logger.info(f"Imported {len(keys)} keys from {keys_file}")
                 imported = True
+
+        if imported:
+            self.set_setting(SETTINGS_LEGACY_IMPORT_DONE, "1")
 
         return imported

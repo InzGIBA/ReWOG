@@ -6,12 +6,13 @@ only defines the top-level group, global options and ``main()``.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import click
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from .. import __version__
 from ..core.config import get_config, set_config
@@ -26,6 +27,42 @@ from .info import info
 from .pipeline import full_pipeline
 from .scene import build_scene
 from .unpack import unpack_assets
+
+
+def load_env_file(env_path: Path) -> list[str]:
+    """Apply ``WOG_*`` keys from a working-directory ``.env`` file.
+
+    The file is untrusted input - any unpacked or shared directory can
+    carry one - so only the tool's own ``WOG_*`` namespace is honored
+    (transport variables such as HTTPS_PROXY or REQUESTS_CA_BUNDLE can
+    never be planted this way) and variables already present in the
+    environment always win. Returns the applied key names.
+    """
+    if not env_path.is_file():
+        return []
+
+    applied: list[str] = []
+    for key, value in dotenv_values(env_path).items():
+        if not key or value is None or not key.startswith("WOG_"):
+            continue
+        if os.environ.get(key) is not None:
+            continue
+        os.environ[key] = value
+        applied.append(key)
+    return applied
+
+
+# Credential-affecting keys from a working-directory file deserve an
+# explicit announcement: a .env planted in an unpacked "weapon pack"
+# could otherwise silently take over the identity or the store location.
+_SENSITIVE_ENV_KEYS = {
+    "WOG_AUTH_ID",
+    "WOG_AUTH_SESSION",
+    "WOG_DEVICE_ID",
+    "WOG_ACCOUNT_EMAIL",
+    "WOG_ACCOUNT_PASSWORD",
+    "WOG_DB_PATH",
+}
 
 
 def validate_config(ctx: click.Context) -> None:
@@ -87,13 +124,23 @@ def cli(
     """
     ctx.ensure_object(dict)
 
-    # Honor a .env from the working directory (WOG_AUTH_*, WOG_ACCOUNT_*,
-    # WOG_DB_PATH, ...) without overriding variables already in the environment.
-    # Explicit cwd lookup: the default walks up from this file's location.
-    load_dotenv(Path.cwd() / ".env", override=False)
-
-    # Set up logging first
     logger = get_logger()
+
+    # Honor a .env from the working directory (WOG_* keys only) without
+    # overriding variables already in the environment. Explicit cwd
+    # lookup: the default walks up from this file's location.
+    applied_env = load_env_file(Path.cwd() / ".env")
+    if applied_env:
+        sensitive = sorted(set(applied_env) & _SENSITIVE_ENV_KEYS)
+        if sensitive:
+            logger.warning(
+                f"Applied credential-affecting keys from {Path.cwd() / '.env'}: "
+                f"{', '.join(sensitive)}. Make sure this .env is your own."
+            )
+        else:
+            logger.info(f"Applied {len(applied_env)} keys from working-directory .env")
+
+    # Set up logging
     if debug:
         set_log_level("DEBUG")
         logger.info("Debug logging enabled")
@@ -161,9 +208,12 @@ def main() -> None:
     except Exception as e:
         logger = get_logger()
         logger.error(f"Unexpected error: {e}")
-        # ERROR passes the INFO-level file handler: the traceback always
-        # lands in the log file, and on the console only with -d
-        logger.logger.exception("Full traceback:")
+        # The traceback belongs in the log file; keep the console to the
+        # one-line error unless -d asked for debug output
+        if logger.is_debug():
+            logger.logger.exception("Full traceback:")
+        else:
+            logger.log_file_only(f"Unexpected error traceback: {e}")
         sys.exit(1)
 
 

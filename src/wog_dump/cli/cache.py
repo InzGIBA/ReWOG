@@ -14,6 +14,11 @@ from .errors import error_handler, print_banner_if_standalone
 @click.option(
     "--migrate", is_flag=True, help="Import legacy runtime txt files into the database"
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="With --migrate: re-run the one-time legacy import",
+)
 @click.option("--show-cache", is_flag=True, help="Show detailed database statistics")
 @click.option(
     "--validate-assets",
@@ -25,6 +30,7 @@ def cache(
     ctx: click.Context,
     clear: bool,
     migrate: bool,
+    force: bool,
     show_cache: bool,
     validate_assets: bool,
 ) -> None:
@@ -51,13 +57,20 @@ def cache(
                 success = db.import_legacy_txt(
                     weapons_file=config.weapons_file,
                     keys_file=config.keys_file,
+                    force=force,
                 )
                 if success:
                     logger.print_status(
                         "Legacy import completed successfully", "success"
                     )
-                else:
+                elif force:
                     logger.print_status("No legacy files found to import", "warning")
+                else:
+                    logger.print_status(
+                        "Legacy files already imported once; use --force to "
+                        "import again",
+                        "warning",
+                    )
 
         elif validate_assets:
             with logger.operation_context("asset_validation", "asset validation"):

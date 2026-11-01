@@ -9,6 +9,7 @@ import click
 from ..core.config import WOGConfig
 from ..core.download import DownloadManager
 from ..core.keys import KeyManager
+from ..core.paths import is_safe_weapon_name
 from ..core.unpack import WeaponListProcessor
 from ..utils.logging import get_logger
 from .errors import error_handler, print_banner_if_standalone
@@ -19,8 +20,17 @@ def _load_weapon_list(config: WOGConfig, weapons: str | None) -> list[str]:
     logger = get_logger()
     if weapons:
         weapon_list = [w.strip() for w in weapons.split(",")]
-        logger.info(f"Using custom weapon list: {len(weapon_list)} weapons")
-        return weapon_list
+        invalid = [w for w in weapon_list if not is_safe_weapon_name(w)]
+        if invalid:
+            # Names become URL segments and filenames; refuse anything
+            # outside the vendor alphabet instead of downloading it
+            logger.error(
+                f"Invalid weapon name(s) in --weapons: {', '.join(repr(w) for w in invalid)}"
+            )
+            sys.exit(1)
+        deduped = list(dict.fromkeys(weapon_list))
+        logger.info(f"Using custom weapon list: {len(deduped)} weapons")
+        return deduped
 
     processor = WeaponListProcessor(config)
     try:
@@ -79,11 +89,11 @@ def _update_keys(config: WOGConfig, weapon_list: list[str]) -> dict[str, str] | 
         key_manager = KeyManager(config)
         fetched = key_manager.fetch_keys_parallel(weapon_list)
         if fetched:
-            # Merge: a partial fetch must never drop existing keys; quiet -
-            # an empty store is expected here and not worth a warning
-            merged = {**key_manager.load_keys(quiet=True), **fetched}
-            key_manager.save_keys(merged)
-            return merged
+            # Merge: a partial fetch must never drop existing keys, and
+            # per-row provenance must survive the write
+            key_manager.db.merge_keys(fetched, source="api_fetch")
+            key_manager._key_cache.update(fetched)
+            return key_manager.db.get_keys()
         return None
 
 

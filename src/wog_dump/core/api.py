@@ -17,6 +17,10 @@ from ..utils.logging import get_logger
 from .config import WOGConfig
 from .http import RateLimiter, create_session
 
+# Decompression ceiling for server/capture bodies: API responses are a
+# few KiB, so anything larger signals a decompression bomb
+MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024
+
 
 class ApiError(Exception):
     """Raised when the API returns an error response."""
@@ -28,6 +32,28 @@ class ApiError(Exception):
 
 class ApiNetworkError(Exception):
     """Raised when the API cannot be reached or returns garbage."""
+
+
+def decompress_bz2_capped(
+    data: bytes, max_bytes: int = MAX_DECOMPRESSED_BYTES
+) -> bytes:
+    """Decompress BZ2 data with an output-size ceiling."""
+    decompressor = bz2.BZ2Decompressor()
+    chunks: list[bytes] = []
+    produced = 0
+    try:
+        while decompressor.needs_input and data:
+            chunk = decompressor.decompress(data, max_length=max_bytes - produced + 1)
+            if not chunk:
+                break
+            produced += len(chunk)
+            if produced > max_bytes:
+                raise ApiNetworkError(f"Decompressed data exceeds {max_bytes} bytes")
+            chunks.append(chunk)
+            data = decompressor.unused_data
+    except (OSError, EOFError, ValueError) as e:
+        raise ApiNetworkError(f"Failed to decompress response: {e}") from e
+    return b"".join(chunks)
 
 
 def parse_response_fields(text: str) -> dict[str, str]:
@@ -64,10 +90,7 @@ class WOGApiClient:
         """Decompress an API response body."""
         if len(content) < 4:
             raise ApiNetworkError("Invalid response length")
-        try:
-            return bz2.decompress(content[4:]).decode("utf-8", errors="replace")
-        except (OSError, EOFError, ValueError) as e:
-            raise ApiNetworkError(f"Failed to decompress response: {e}") from e
+        return decompress_bz2_capped(content[4:]).decode("utf-8", errors="replace")
 
     def call(self, params: str) -> str:
         """Send a query and return the decompressed response text.

@@ -188,6 +188,11 @@ def _parse_request_response(
     )
 
 
+def _is_game_host(host: str) -> bool:
+    """Whether a host is exactly a game domain (no substring matches)."""
+    return host == GAME_API_HOST or host.endswith("." + GAME_API_HOST)
+
+
 def _is_api_request(path: str, host: str, request_body: bytes) -> bool:
     """Match a captured request against the WOG query API.
 
@@ -237,8 +242,12 @@ def extract_keys_from_flows(path: Path) -> list[CapturedKey]:
 def extract_identity_from_flows(path: Path) -> CapturedIdentity:
     """Recover the client identity (id/session/dev) from a mitmproxy dump.
 
-    The first request that carries all three fields wins; Steam-login
-    requests (query=2, no id yet) are skipped automatically.
+    Identity-bearing requests on a genuine game host always win over
+    shape-only matches regardless of order in the file - a capture is
+    file-authored content, so ``evil-ultimate-disassembly.com`` or a
+    query-shaped request on any host must never define the live
+    identity. Among equals the first request carrying all three fields
+    wins; Steam-login requests (query=2, no id yet) are skipped.
     """
     try:
         from mitmproxy import http as mitm_http
@@ -248,6 +257,8 @@ def extract_identity_from_flows(path: Path) -> CapturedIdentity:
             "Reading mitmproxy captures requires the mitmproxy package. "
             "Install it with: uv sync --extra mitm (or: pip install mitmproxy)"
         ) from e
+
+    fallback: CapturedIdentity | None = None
 
     with open(path, "rb") as f:
         for flow in mitm_io.FlowReader(f).stream():
@@ -269,13 +280,19 @@ def extract_identity_from_flows(path: Path) -> CapturedIdentity:
             if not auth_id or not session or auth_id == "0" or session == "0":
                 continue
 
-            return CapturedIdentity(
+            identity = CapturedIdentity(
                 auth_id=auth_id,
                 session=session,
                 device_id=fields.get("dev"),
                 source=flow.request.pretty_url,
             )
+            if _is_game_host(flow.request.host):
+                return identity
+            if fallback is None:
+                fallback = identity
 
+    if fallback is not None:
+        return fallback
     raise KeyImportError(f"No authenticated API request (id/session) found in {path}")
 
 
@@ -426,15 +443,31 @@ def merge_keys(
 
 
 def import_identity(
-    identity: CapturedIdentity, config: WOGConfig | None = None
+    identity: CapturedIdentity, config: WOGConfig | None = None, force: bool = False
 ) -> None:
     """Store a captured client identity (id/session/dev) in the database.
 
-    A missing device id is generated, since the API accepts any device
-    value with a valid session.
+    A capture is file-authored content: an existing live identity is
+    never silently replaced - the import refuses (``force=True``
+    overrides) unless the captured identity is byte-identical. The
+    source URL of the winning request is announced so the user can see
+    which host the credentials came from.
     """
     config = config or get_config()
     db = WOGDatabase(config)
+    logger = get_logger()
+
+    existing = db.get_identity()
+    if (
+        existing is not None
+        and existing != (identity.auth_id, identity.session)
+        and not force
+    ):
+        raise KeyImportError(
+            f"Refusing to overwrite the existing stored identity "
+            f"(id={existing[0]}) with the captured one (id={identity.auth_id}); "
+            f"re-run with --force to replace it"
+        )
 
     device_id = identity.device_id
     if device_id:
@@ -443,6 +476,6 @@ def import_identity(
         db.set_setting("device_id", AuthManager.generate_device_id())
 
     db.save_identity(identity.auth_id, identity.session)
-    get_logger().info(
+    logger.info(
         f"Imported captured identity (id={identity.auth_id}) from {identity.source}"
     )

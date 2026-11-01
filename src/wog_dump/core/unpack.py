@@ -17,6 +17,7 @@ from UnityPy.export import MeshExporter
 
 from ..core.config import WOGConfig, get_config
 from ..core.database import WOGDatabase
+from ..core.paths import contained_path, is_safe_weapon_name, safe_object_name
 from ..utils.logging import get_logger
 from ..utils.normal_map import is_unity_swizzled_normal, unswizzle_normal_map
 
@@ -53,7 +54,14 @@ class AssetExtractor:
             data = obj.read()
             if not data.m_Name:
                 return None
+            # m_Name comes straight from the untrusted bundle and is used
+            # as a filename: names with separators, traversal or absolute
+            # structure are rejected before any path is built
+            safe_object_name(str(data.m_Name))
             return self._extract_data(data, output_dir)
+        except ValueError as e:
+            self.logger.warning(f"Skipping object with unsafe name: {e}")
+            return None
         except Exception as e:
             self.logger.debug(f"{self.obj_type or 'Object'} extraction failed: {e}")
             return None
@@ -97,12 +105,12 @@ class TextAssetExtractor(AssetExtractor):
             else:
                 extension = ".txt"
 
-            output_path = output_dir / f"{data.m_Name}{extension}"
+            output_path = contained_path(output_dir, f"{data.m_Name}{extension}")
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(text_content)
         else:
             extension = ".bytes"
-            output_path = output_dir / f"{data.m_Name}{extension}"
+            output_path = contained_path(output_dir, f"{data.m_Name}{extension}")
             with open(output_path, "wb") as f:
                 f.write(content)
 
@@ -129,7 +137,7 @@ class Texture2DExtractor(AssetExtractor):
             image = unswizzle_normal_map(image)
             self.logger.debug(f"Unswizzled normal map: {data.m_Name}")
 
-        output_path = output_dir / f"{data.m_Name}.png"
+        output_path = contained_path(output_dir, f"{data.m_Name}.png")
         image.save(output_path)
         return output_path
 
@@ -146,7 +154,7 @@ class MeshExtractor(AssetExtractor):
     obj_type = "Mesh"
 
     def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
-        output_path = output_dir / f"{data.m_Name}.obj"
+        output_path = contained_path(output_dir, f"{data.m_Name}.obj")
 
         obj_text: str | None = None
         try:
@@ -198,7 +206,7 @@ class MaterialExtractor(AssetExtractor):
     obj_type = "Material"
 
     def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
-        output_path = output_dir / f"{data.m_Name}.material.json"
+        output_path = contained_path(output_dir, f"{data.m_Name}.material.json")
 
         material_data = {
             "name": data.m_Name,
@@ -253,7 +261,7 @@ class AnimationClipExtractor(AssetExtractor):
     obj_type = "AnimationClip"
 
     def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
-        output_path = output_dir / f"{data.m_Name}.anim.json"
+        output_path = contained_path(output_dir, f"{data.m_Name}.anim.json")
 
         anim_data = {
             "name": data.m_Name,
@@ -274,7 +282,7 @@ class AudioClipExtractor(AssetExtractor):
     obj_type = "AudioClip"
 
     def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
-        output_path = output_dir / f"{data.m_Name}.audio.json"
+        output_path = contained_path(output_dir, f"{data.m_Name}.audio.json")
 
         audio_data = {
             "name": data.m_Name,
@@ -357,21 +365,22 @@ class WeaponListProcessor:
         return str(text_asset.m_Script).replace("\r", "")
 
     def _parse_weapon_names(self, text_content: str) -> list[str]:
-        """Parse weapon names from text content with validation."""
-        lines = [line.strip() for line in text_content.split("\n")]
+        """Parse weapon names from text content with validation.
 
-        # Remove empty lines and comments
-        lines = [line for line in lines if line and not line.startswith("#")]
-
+        The banner text is server-controlled content, so every name must
+        match the strict weapon-name allowlist (see ``core.paths``):
+        separators, traversal segments and URL metacharacters are
+        rejected outright - names later become URL path segments and
+        local filenames.
+        """
         weapon_names = []
-        for line in lines:
-            # Extract weapon names (remove file extensions and clean up)
-            if ".png" in line:
-                weapon_name = line.split(".png")[0].strip()
-                if weapon_name and (weapon_name.isalnum() or "_" in weapon_name):
-                    weapon_names.append(weapon_name)
-            elif not any(char in line for char in ["/", "\\", "?", "*", "<", ">", "|"]):
-                # Direct weapon name without extension
+        for raw_line in text_content.split("\n"):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.endswith(".png"):
+                line = line[: -len(".png")]
+            if is_safe_weapon_name(line):
                 weapon_names.append(line)
 
         return weapon_names

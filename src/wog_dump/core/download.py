@@ -1,11 +1,16 @@
 """Asset downloading for WOG Dump.
 
 Downloads are resumable (HTTP Range), rate-limited and run in parallel;
-every file lands in place atomically via temp-file + rename.
+every file lands in place atomically via temp-file + rename. Resumes
+are only continued when the local partial can still be proven to belong
+to the server's current representation (an If-Range validator recorded
+next to the temp file); anything else restarts from scratch.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -17,6 +22,7 @@ from rich.progress import Progress, TaskID
 from ..utils.logging import get_logger
 from .config import WOGConfig, get_config
 from .http import RateLimiter, create_session
+from .paths import is_safe_weapon_name
 
 # Assets served from a subdirectory of the data server
 SUBDIRECTORY_ASSETS = {"spider_gen": "spider"}
@@ -62,6 +68,7 @@ class DownloadManager:
 
     def asset_url(self, asset_name: str) -> str:
         """Build the server URL for an asset."""
+        self._validate_asset_name(asset_name)
         subdirectory = SUBDIRECTORY_ASSETS.get(asset_name)
         base = self.config.data_base_url
         if subdirectory:
@@ -70,7 +77,20 @@ class DownloadManager:
 
     def asset_path(self, asset_name: str) -> Path:
         """Local path where an asset is stored."""
+        self._validate_asset_name(asset_name)
         return self.config.assets_dir / f"{asset_name}.unity3d"
+
+    @staticmethod
+    def _validate_asset_name(asset_name: str) -> None:
+        """Reject names that could steer paths or URLs out of bounds.
+
+        Asset names arrive from the server-parsed weapon list, legacy
+        txt imports and ``--weapons``; they become both a URL path
+        segment and a filename under assets_dir, so anything outside
+        the vendor's ``[A-Za-z0-9_-]`` alphabet is refused.
+        """
+        if not is_safe_weapon_name(asset_name):
+            raise DownloadError(f"Invalid asset name: {asset_name!r}")
 
     def validate_asset(
         self, asset_path: Path, expected_size: int | None = None
@@ -122,7 +142,7 @@ class DownloadManager:
             )
             response.raise_for_status()
             return int(response.headers.get("Content-Length", 0))
-        except requests.RequestException as e:
+        except (requests.RequestException, ValueError) as e:
             self.logger.debug(f"Failed to get size for {asset_name}: {e}")
             return 0
 
@@ -150,22 +170,39 @@ class DownloadManager:
     def _fetch_asset(self, asset_name: str, validate: bool = True) -> Path:
         """Download an asset to its final location.
 
-        Downloads to a temporary file first, optionally validates it and only
-        then moves it into place, so interrupted downloads never leave a
-        partial asset behind. When a partial temp file exists and the server
-        supports ranges, the download resumes from where it stopped.
+        Downloads to a temporary file first, optionally validates it and
+        only then moves it into place, so interrupted downloads never
+        leave a partial asset behind. A partial temp file is resumed only
+        when the server response that created it is still authoritative:
+        the response's ETag/Last-Modified validator is recorded next to
+        the temp file and replayed as If-Range, so a republished asset
+        (or a foreign temp file of unknown provenance) restarts from
+        scratch instead of producing a chimera of old and new bytes.
 
         Raises DownloadError on failure.
         """
+        self._validate_asset_name(asset_name)
         asset_path = self.asset_path(asset_name)
         temp_path = asset_path.with_suffix(".tmp")
+        meta_path = asset_path.with_suffix(".tmp.meta")
+
+        # Defense in depth: the validated name guarantees this already
+        if not asset_path.resolve().is_relative_to(self.config.assets_dir.resolve()):
+            raise DownloadError(f"Asset path escapes assets dir: {asset_path}")
 
         self._rate_limiter.wait()
 
         try:
-            resumed_bytes = temp_path.stat().st_size if temp_path.exists() else 0
+            resumed_bytes, range_validator = self._prepare_resume(
+                asset_name, temp_path, meta_path
+            )
 
-            headers = {"Range": f"bytes={resumed_bytes}-"} if resumed_bytes else None
+            headers: dict[str, str] | None = None
+            if resumed_bytes:
+                headers = {"Range": f"bytes={resumed_bytes}-"}
+                if range_validator:
+                    headers["If-Range"] = range_validator
+
             response = self.session.get(
                 self.asset_url(asset_name),
                 stream=True,
@@ -181,23 +218,51 @@ class DownloadManager:
                     ) from e
                 raise
 
-            if resumed_bytes and response.status_code == 206:
+            resume_honored = resumed_bytes and response.status_code == 206
+            if resume_honored:
                 # Server honored the range: append the remaining bytes
-                mode = "ab"
                 self.logger.debug(f"Resuming {asset_name} at byte {resumed_bytes:,}")
                 content_length = int(response.headers.get("Content-Length", 0))
                 expected_size = (
                     resumed_bytes + content_length if content_length else None
                 )
+                mode = "ab"
             else:
-                # Fresh download, or the server ignored the range request
-                mode = "wb"
+                # Fresh download, the representation changed (If-Range),
+                # or the server ignored the range request
                 resumed_bytes = 0
                 content_length = int(response.headers.get("Content-Length", 0))
                 expected_size = content_length or None
+                mode = "wb"
+
+            # Record the representation validator so a later run can
+            # prove the partial file still belongs to this response
+            new_validator = self._response_validator(response)
+            if not resume_honored:
+                meta_path.unlink(missing_ok=True)
+                if new_validator:
+                    meta_path.write_text(
+                        json.dumps({"validator": new_validator}), encoding="utf-8"
+                    )
 
             downloaded = resumed_bytes
-            with open(temp_path, mode) as f:
+            # O_NOFOLLOW: never write through a pre-planted symlink at
+            # the temp location
+            fd = os.open(
+                temp_path,
+                os.O_WRONLY
+                | os.O_CREAT
+                | (os.O_APPEND if mode == "ab" else os.O_TRUNC)
+                | os.O_NOFOLLOW,
+                0o600,
+            )
+            with os.fdopen(fd, mode) as f:
+                # fstat after open: the descriptor, not a path stat,
+                # decides where an append resumes
+                if mode == "ab" and os.fstat(f.fileno()).st_size != resumed_bytes:
+                    raise ValidationError(
+                        f"Temp file changed during download of {asset_name}"
+                    )
                 for chunk in response.iter_content(chunk_size=self.config.chunk_size):
                     if chunk:
                         f.write(chunk)
@@ -215,6 +280,7 @@ class DownloadManager:
                             f"server file, restarting"
                         )
                         temp_path.unlink(missing_ok=True)
+                        meta_path.unlink(missing_ok=True)
                         return self._fetch_asset(asset_name, validate=validate)
                     # Truncated transfer: keep the partial file so the next
                     # attempt can resume instead of starting over
@@ -226,12 +292,14 @@ class DownloadManager:
             if validate and not self.validate_asset(temp_path, expected_size):
                 # A failed validation means corrupt bytes: no point resuming
                 temp_path.unlink(missing_ok=True)
+                meta_path.unlink(missing_ok=True)
                 raise ValidationError(
                     f"Downloaded asset failed validation: {asset_name}"
                 )
 
             asset_path.unlink(missing_ok=True)
             temp_path.rename(asset_path)
+            meta_path.unlink(missing_ok=True)
 
             with self._stats_lock:
                 self._download_stats["total_bytes"] += downloaded
@@ -245,6 +313,52 @@ class DownloadManager:
             raise DownloadError(f"Network error downloading {asset_name}: {e}") from e
         except OSError as e:
             raise DownloadError(f"Failed to download {asset_name}: {e}") from e
+
+    def _prepare_resume(
+        self, asset_name: str, temp_path: Path, meta_path: Path
+    ) -> tuple[int, str | None]:
+        """Decide whether an existing temp file may be resumed.
+
+        Returns ``(resumable_bytes, validator)``. A temp file is only
+        resumable when its sidecar meta records the ETag/Last-Modified
+        of the response that produced it; a foreign or unverifiable
+        temp file is discarded so its bytes can never become part of a
+        "validated" download.
+        """
+        if temp_path.is_symlink() or (temp_path.exists() and not temp_path.is_file()):
+            self.logger.warning(
+                f"Discarding non-regular temp file for {asset_name}: {temp_path}"
+            )
+            temp_path.unlink(missing_ok=True)
+            meta_path.unlink(missing_ok=True)
+            return (0, None)
+
+        if not temp_path.exists():
+            return (0, None)
+
+        validator: str | None = None
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            validator = meta.get("validator") or None
+        except (OSError, ValueError):
+            validator = None
+
+        if validator is None:
+            self.logger.info(
+                f"Discarding unverifiable partial download of {asset_name}, "
+                f"restarting"
+            )
+            temp_path.unlink(missing_ok=True)
+            meta_path.unlink(missing_ok=True)
+            return (0, None)
+
+        return (temp_path.stat().st_size, validator)
+
+    @staticmethod
+    def _response_validator(response: Any) -> str | None:
+        """The response's If-Range-usable validator (ETag or Last-Modified)."""
+        headers = getattr(response, "headers", {}) or {}
+        return headers.get("ETag") or headers.get("Last-Modified") or None
 
     def _download_with_status(self, asset_name: str, validate: bool = True) -> str:
         """Download one asset; returns "ok", "not_found" or "failed"."""
@@ -359,6 +473,10 @@ class DownloadManager:
         """
         if not weapon_list:
             return [], [], 0
+
+        # Duplicate names in one batch would race two workers on the same
+        # deterministic temp file; de-duplicate while preserving order
+        weapon_list = list(dict.fromkeys(weapon_list))
 
         if check_updates:
             to_download = self.check_for_updates(

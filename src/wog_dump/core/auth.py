@@ -15,6 +15,7 @@ import re
 import secrets
 import threading
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from ..utils.logging import get_logger
 from .api import ApiError, WOGApiClient, parse_response_fields
@@ -74,11 +75,13 @@ class AuthManager:
         """
         device_id = self.get_device_id()
 
+        # URL-encoded: &/= inside the email or password must never
+        # rewrite the query's own fields
         params = (
             "query=1"
-            f"&email={email}"
-            f"&password={password}"
-            f"&dev={device_id}"
+            f"&email={quote(email, safe='')}"
+            f"&password={quote(password, safe='')}"
+            f"&dev={quote(device_id, safe='')}"
             f"&{self.client.build_common_params()}"
         )
 
@@ -204,9 +207,15 @@ class AuthManager:
             return self.login(email, password)
 
     def logout(self) -> None:
-        """Remove the stored account credentials and session."""
+        """Remove the stored account credentials, session and device id.
+
+        Clearing the device id too keeps logout terminal: otherwise a
+        WOG_AUTH_ID/WOG_AUTH_SESSION pair still in the environment would
+        silently re-import an identity on the next run.
+        """
         self.db.delete_setting(SETTINGS_EMAIL)
         self.db.delete_setting(SETTINGS_PASSWORD)
+        self.db.delete_setting(SETTINGS_DEVICE_ID)
         self.db.clear_identity()
         self.logger.info("Logged out: removed stored account credentials")
 

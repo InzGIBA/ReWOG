@@ -343,13 +343,16 @@ class TestWeaponListProcessor:
     ) -> None:
         """Non-UTF-8 banner content is decoded via latin-1 instead of crashing."""
         processor = WeaponListProcessor(test_config)
-        banners = Mock(m_Name="new_banners", m_Script=b"ak\xff\xfepng\n\xff")
+        banners = Mock(m_Name="new_banners", m_Script=b"ak74.png\nak\xff\xfepng\n\xff")
 
         with patch("wog_dump.core.unpack.UnityPy.load") as mock_load:
             mock_load.return_value = make_env([make_unity_object("TextAsset", banners)])
             weapons = processor.extract_weapon_list(mock_unity_asset)
 
-        assert isinstance(weapons, list)
+        # The decodable, allowlist-matching name survives; the mojibake
+        # line is decoded without crashing and then rejected by the
+        # strict weapon-name validation
+        assert weapons == ["ak74"]
 
     def test_save_and_load_weapon_list(self, test_config: WOGConfig) -> None:
         processor = WeaponListProcessor(test_config)

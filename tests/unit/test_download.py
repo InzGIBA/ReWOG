@@ -244,10 +244,13 @@ class TestDownloadManager:
     def test_download_resumes_partial_file(
         self, mock_get: Mock, test_config: WOGConfig
     ) -> None:
-        """An interrupted download resumes via a Range request."""
-        # Partial temp file from a previous interrupted run: 8 bytes of 20
+        """A verified partial download resumes via Range + If-Range."""
+        # Partial temp file from a previous interrupted run: 8 bytes of 22,
+        # plus the recorded validator of the response that produced it
         temp_path = test_config.assets_dir / "test_asset.tmp"
         temp_path.write_bytes(b"UnityFS\x00")
+        meta_path = test_config.assets_dir / "test_asset.tmp.meta"
+        meta_path.write_text('{"validator": "etag-v1"}', encoding="utf-8")
 
         remaining = b"rest of bundle"  # 14 bytes -> total 22
         mock_response = Mock()
@@ -262,14 +265,49 @@ class TestDownloadManager:
 
         assert success is True
 
-        # The Range header asked for the missing bytes
+        # The Range header asked for the missing bytes, and If-Range
+        # bound the resume to the recorded representation
         _, kwargs = mock_get.call_args
-        assert kwargs["headers"] == {"Range": "bytes=8-"}
+        assert kwargs["headers"] == {"Range": "bytes=8-", "If-Range": "etag-v1"}
 
-        # The final file is prefix + remainder, and no temp file remains
+        # The final file is prefix + remainder, and no temp/meta remains
         asset_path = test_config.assets_dir / "test_asset.unity3d"
         assert asset_path.read_bytes() == b"UnityFS\x00" + remaining
         assert not temp_path.exists()
+        assert not meta_path.exists()
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_unverifiable_partial_restarts(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        """A partial temp file with no recorded validator is never resumed.
+
+        Its bytes cannot be proven to belong to the server's current
+        representation (they may be foreign or predate a republish), so
+        the download restarts from scratch.
+        """
+        temp_path = test_config.assets_dir / "test_asset.tmp"
+        temp_path.write_bytes(b"UnityFS\x00")
+
+        full_body = b"UnityFS fresh full body"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Length": str(len(full_body))}
+        mock_response.iter_content.return_value = [full_body]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            success = manager.download_single_asset("test_asset")
+
+        assert success is True
+
+        # No Range request: the unverifiable prefix was discarded
+        _, kwargs = mock_get.call_args
+        assert kwargs["headers"] is None
+
+        asset_path = test_config.assets_dir / "test_asset.unity3d"
+        assert asset_path.read_bytes() == full_body
 
     @patch("wog_dump.core.download.requests.Session.get")
     def test_download_resume_ignored_by_server(
@@ -278,6 +316,8 @@ class TestDownloadManager:
         """A server answering 200 (no range support) triggers a full redownload."""
         temp_path = test_config.assets_dir / "test_asset.tmp"
         temp_path.write_bytes(b"stale partial")
+        meta_path = test_config.assets_dir / "test_asset.tmp.meta"
+        meta_path.write_text('{"validator": "etag-v1"}', encoding="utf-8")
 
         full_body = b"UnityFS fresh full body"
         mock_response = Mock()
@@ -301,6 +341,8 @@ class TestDownloadManager:
         """A network failure mid-download leaves the partial file resumable."""
         temp_path = test_config.assets_dir / "test_asset.tmp"
         temp_path.write_bytes(b"UnityFS\x00")
+        meta_path = test_config.assets_dir / "test_asset.tmp.meta"
+        meta_path.write_text('{"validator": "etag-v1"}', encoding="utf-8")
 
         mock_get.side_effect = requests.RequestException("connection reset")
 
@@ -308,8 +350,9 @@ class TestDownloadManager:
             success = manager.download_single_asset("test_asset")
 
         assert success is False
-        # Partial data survives for the next attempt
+        # Partial data and its validator survive for the next attempt
         assert temp_path.read_bytes() == b"UnityFS\x00"
+        assert meta_path.exists()
 
     def test_validate_asset_with_expected_size(self, test_config: WOGConfig) -> None:
         asset_path = test_config.assets_dir / "test_asset.unity3d"

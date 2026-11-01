@@ -63,6 +63,7 @@ def full_pipeline(
 
         started = time.perf_counter()
         output_dir = config.base_dir / "runtime" / "unpacked"
+        had_step_failure = False
 
         try:
             if not skip_download:
@@ -129,8 +130,15 @@ def full_pipeline(
             logger.error(f"Pipeline failed: {e}")
             if not continue_on_error:
                 sys.exit(1)
+            # Keep going, but never report a clean finish afterwards
+            had_step_failure = True
 
         logger.console.print()
+        if had_step_failure:
+            logger.print_status(
+                "Pipeline finished with errors (see wog.log for details)",
+                "warning",
+            )
         logger.console.print(
             f"[bold green]Done[/bold green]"
             f" [dim]in {format_duration(time.perf_counter() - started)}"
@@ -139,3 +147,6 @@ def full_pipeline(
 
         if performance:
             logger.print_performance_summary()
+
+        if had_step_failure:
+            sys.exit(1)

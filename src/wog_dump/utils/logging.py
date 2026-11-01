@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -189,6 +190,29 @@ class PerformanceMonitor:
             self.stop_timer(operation)
 
 
+def _restrict_owner_only(path: str | Path) -> None:
+    """Best-effort owner-only permissions on a log artifact."""
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        # Windows FAT or unusual filesystems: nothing to do
+        pass
+
+
+class _OwnerOnlyRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that keeps every rotation owner-only.
+
+    RotatingFileHandler recreates the log file with umask-default
+    permissions on every rollover, so a one-time chmod at setup does
+    not cover future files; the 0o700 log directory below covers the
+    rotated backups.
+    """
+
+    def doRollover(self) -> None:
+        super().doRollover()
+        _restrict_owner_only(self.baseFilename)
+
+
 class WOGLogger:
     """Logger for WOG Dump with Rich console formatting and file history."""
 
@@ -227,12 +251,22 @@ class WOGLogger:
             log_dir = default_log_dir()
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / LOG_FILE_NAME
-            file_handler = RotatingFileHandler(
+            # The log records the account email and auth id: keep the
+            # directory and every file in it owner-only (the directory
+            # mode also covers the rotated backups)
+            try:
+                os.chmod(log_dir, 0o700)
+                for existing in log_dir.glob(f"{LOG_FILE_NAME}*"):
+                    _restrict_owner_only(existing)
+            except OSError:
+                pass
+            file_handler = _OwnerOnlyRotatingFileHandler(
                 log_file,
                 maxBytes=LOG_MAX_BYTES,
                 backupCount=LOG_BACKUP_COUNT,
                 encoding="utf-8",
             )
+            _restrict_owner_only(log_file)
         except OSError:
             # Read-only filesystem or no permissions: console-only logging
             file_handler = None
@@ -263,6 +297,22 @@ class WOGLogger:
     def error(self, message: str) -> None:
         """Log error message."""
         self.logger.error(message)
+
+    def log_file_only(self, message: str, level: int = logging.ERROR) -> None:
+        """Log to the file handler only (e.g. tracebacks the console
+        should not drown in)."""
+        if self._file_handler is None:
+            return
+        record = self.logger.makeRecord(
+            self.logger.name,
+            level,
+            "wog_dump",
+            0,
+            message,
+            (),
+            sys.exc_info(),
+        )
+        self._file_handler.handle(record)
 
     def critical(self, message: str) -> None:
         """Log critical message."""

@@ -35,14 +35,14 @@ class TestWeapons:
         assert test_db.get_weapons() == sorted(sample_weapon_list)
 
     def test_save_replaces(self, test_db: WOGDatabase) -> None:
-        test_db.save_weapons(["a", "b"])
-        test_db.save_weapons(["c"])
-        assert test_db.get_weapons() == ["c"]
+        test_db.save_weapons(["ak", "bg"])
+        test_db.save_weapons(["cz"])
+        assert test_db.get_weapons() == ["cz"]
 
     def test_empty_save_is_noop(self, test_db: WOGDatabase) -> None:
-        test_db.save_weapons(["a"])
+        test_db.save_weapons(["ak"])
         test_db.save_weapons([])
-        assert test_db.get_weapons() == ["a"]
+        assert test_db.get_weapons() == ["ak"]
 
 
 class TestKeys:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -466,7 +467,7 @@ class GLBWriter:
         return document
 
     def write(self, path: Path) -> None:
-        """Serialize to a GLB file."""
+        """Serialize to a GLB file (temp-file + atomic rename)."""
         document = self._build_document()
         json_bytes = json.dumps(document, separators=(",", ":")).encode("utf-8")
         json_padding = (4 - len(json_bytes) % 4) % 4
@@ -477,12 +478,23 @@ class GLBWriter:
 
         total = 12 + 8 + len(json_bytes) + 8 + len(binary)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(struct.pack("<III", GLB_MAGIC, 2, total))
-            f.write(struct.pack("<II", len(json_bytes), JSON_CHUNK_TYPE))
-            f.write(json_bytes)
-            f.write(struct.pack("<II", len(binary), BIN_CHUNK_TYPE))
-            f.write(binary)
+        # os.replace swaps the directory entry: a pre-planted symlink at
+        # the destination is replaced instead of being followed
+        data = (
+            struct.pack("<III", GLB_MAGIC, 2, total)
+            + struct.pack("<II", len(json_bytes), JSON_CHUNK_TYPE)
+            + json_bytes
+            + struct.pack("<II", len(binary), BIN_CHUNK_TYPE)
+            + binary
+        )
+        tmp_path = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(data)
+            os.replace(tmp_path, path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
 
 def _look_at(

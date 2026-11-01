@@ -22,6 +22,8 @@ from __future__ import annotations
 import io
 import json
 import math
+import os
+import tempfile
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -34,6 +36,7 @@ from ..utils.logging import get_logger
 from ..utils.normal_map import is_unity_swizzled_normal, unswizzle_normal_map
 from .config import WOGConfig, get_config
 from .glb import GLBWriter, MeshPrimitive, SceneError
+from .paths import contained_path, is_safe_weapon_name, safe_object_name
 
 __all__ = [
     "SceneBuilder",
@@ -57,6 +60,24 @@ _CAMERA_DIRECTION = (0.25, 0.35, 1.0)
 
 class SceneExportError(SceneError):
     """Raised when a scene cannot be built from a bundle."""
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+    """Write bytes to path via temp-file + rename.
+
+    ``os.replace`` swaps the directory entry itself, so a pre-planted
+    symlink at the destination is replaced instead of being followed -
+    the same placement discipline the download path uses.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 @dataclass
@@ -152,6 +173,11 @@ class SceneBuilder:
         ``"vfx"`` to also export UI arrows, cutaway meshes and visual
         effects (hidden in the game's default assembled view).
         """
+        # The weapon string builds both the bundle path and the output
+        # directory: reject anything outside the name alphabet
+        if not is_safe_weapon_name(weapon):
+            raise SceneExportError(f"Invalid weapon name: {weapon!r}")
+
         bundle = (input_dir or self.config.decrypted_dir) / f"{weapon}.unity3d"
         if not bundle.exists():
             raise SceneExportError(
@@ -161,6 +187,12 @@ class SceneBuilder:
         if output_dir is None:
             output_dir = self.config.base_dir / "runtime" / "scenes" / weapon
         output_dir.mkdir(parents=True, exist_ok=True)
+        # A pre-existing output tree is provenance-unknown content: a
+        # symlinked directory would redirect every subsequent write
+        if output_dir.is_symlink():
+            raise SceneExportError(
+                f"Refusing symlinked scene output directory: {output_dir}"
+            )
 
         with self.logger.time_operation(f"scene:{weapon}"):
             env = UnityPy.load(str(bundle))
@@ -300,6 +332,10 @@ class SceneBuilder:
         """Create glTF materials; returns Unity material pid -> glTF index."""
         textures_dir = output_dir / "textures"
         textures_dir.mkdir(parents=True, exist_ok=True)
+        if textures_dir.is_symlink():
+            raise SceneExportError(
+                f"Refusing symlinked textures directory: {textures_dir}"
+            )
 
         gltf_texture_by_pid: dict[int, int] = {}
         gltf_materials: dict[int, int] = {}
@@ -325,8 +361,19 @@ class SceneBuilder:
                 if main_texture_pid not in gltf_texture_by_pid:
                     texture_data = textures_by_pid[main_texture_pid]
                     image_bytes = self._texture_png(texture_data)
-                    (textures_dir / f"{texture_data.m_Name}.png").write_bytes(
-                        image_bytes
+                    try:
+                        texture_name = safe_object_name(str(texture_data.m_Name))
+                    except ValueError:
+                        self.logger.warning(
+                            f"Skipping texture with unsafe name "
+                            f"{texture_data.m_Name!r}"
+                        )
+                        stats.skipped["unsafe_texture_name"] = (
+                            stats.skipped.get("unsafe_texture_name", 0) + 1
+                        )
+                        continue
+                    _atomic_write(
+                        contained_path(textures_dir, f"{texture_name}.png"), image_bytes
                     )
                     image = writer.add_image(image_bytes)
                     gltf_texture_by_pid[main_texture_pid] = writer.add_texture(image)
@@ -633,15 +680,16 @@ class SceneBuilder:
             "field_strip": stats.field_strip,
             "skipped": stats.skipped,
         }
-        (output_dir / "scene.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
+        _atomic_write(
+            output_dir / "scene.json",
+            json.dumps(manifest, indent=2).encode("utf-8"),
         )
 
     def _write_blender_setup(self, output_dir: Path) -> None:
         template = (
             resources.files("wog_dump") / "resources" / "blender_setup.py"
         ).read_text(encoding="utf-8")
-        (output_dir / "blender_setup.py").write_text(template, encoding="utf-8")
+        _atomic_write(output_dir / "blender_setup.py", template.encode("utf-8"))
 
 
 # ----------------------------------------------------------------------

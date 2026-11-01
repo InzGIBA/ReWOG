@@ -38,6 +38,12 @@ def login(ctx: click.Context, email: str | None, password: str | None) -> None:
             email = click.prompt("Game account email")
         if password is None:
             password = click.prompt("Game account password", hide_input=True)
+        else:
+            logger.warning(
+                "Password given on the command line is visible in the "
+                "process list (e.g. /proc/<pid>/cmdline on shared hosts); "
+                "prefer the interactive prompt"
+            )
 
         auth = AuthManager(config)
         identity = auth.login(email, password)

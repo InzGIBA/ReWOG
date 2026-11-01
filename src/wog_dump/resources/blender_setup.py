@@ -15,8 +15,9 @@ next to the GLB.
 Configuration: edit the constants below.
 """
 
-import bpy
 from pathlib import Path
+
+import bpy
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -44,7 +45,7 @@ def find_glb():
 
     argv = sys.argv
     if "--" in argv:
-        args = argv[argv.index("--") + 1:]
+        args = argv[argv.index("--") + 1 :]
         if args:
             return Path(args[0])
 

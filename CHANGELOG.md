@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-11-02
+
+Bug-fix release from a full pass over every CLI command (info, cache, login,
+logout, download-weapons, download-assets, decrypt-assets, unpack-assets,
+convert-normals, build-scene, full-pipeline and the standalone
+wog-convert-normals entry point), each exercised against real game data.
+
+### Fixed
+
+- **`download-weapons` failed with "No weapon list found in 'new_banners'"**:
+  the server now ships the `new_banners` TextAsset as a texture-atlas index
+  (`<name>.png<tab>new_bannersN.dds, ...`) instead of a plain one-name-per-line
+  list. The parser takes the first whitespace-separated token of each line and
+  supports both formats, so the weapon list imports again (288 weapons verified
+  against the live server)
+- **`unpack-assets` silently extracted zero materials** (visible only in debug
+  logs as `'PPtr' object has no attribute 'get'`): the material dumper assumed
+  dict-shaped data, while current UnityPy returns typed objects (PPtr shader
+  references, `(name, value)` tuples, ColorRGBA). Both shapes are now handled
+  and `<name>.material.json` dumps (colors, floats, texture references) are
+  written again
+- **`decrypt-assets --weapons` ignored the filter** and decrypted every asset
+  in `runtime/assets/`. The weapon list is now passed through to the decryptor:
+  only the requested assets are processed, and requested-but-not-downloaded
+  names produce a warning instead of being silently dropped
+
+### Improved
+
+- **`download-assets` reports "All N assets up to date"** when nothing needs
+  downloading; previously the command finished silently with no output at all
+- **`info --validate-files` says "No decrypted files to validate"** instead of
+  printing a bare section header when the decrypted directory is empty
+
+### Tests
+
+- New unit tests for the atlas-format weapon list parser, the typed-UnityPy
+  material extraction, and the `decrypt-assets` weapons filter; full suite
+  (308 tests) passes
+
 ## [2.6.0] - 2026-11-02
 
 Security-hardening release based on a full deep-profile audit of the codebase

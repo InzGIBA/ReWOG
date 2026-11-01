@@ -25,27 +25,33 @@ Dependency direction is strictly downwards: `cli → core → utils`. The
 
 ## The pipeline
 
-1. **Download weapon list** — `spider_gen.unity3d` from the data server
+1. **Download weapon list**: `spider_gen.unity3d` from the data server
    (`core/download.py`). `WeaponListProcessor` (`core/unpack.py`) parses
    the `new_banners` TextAsset inside it into the weapon list and stores
    it in the database.
-2. **Fetch keys** — `KeyManager` (`core/keys.py`) asks the query API for
+2. **Fetch keys**: `KeyManager` (`core/keys.py`) asks the query API for
    a per-asset `sync` key. The API speaks BZ2-compressed `key=value`
    payloads over HTTP PUT (`core/api.py`); authentication is your own
    game account (`core/auth.py`). Keys are cached in the database.
-3. **Download assets** — each weapon's `*.unity3d` bundle
+3. **Download assets**: each weapon's `*.unity3d` bundle
    (`core/download.py`): parallel, rate-limited, resumable via HTTP
    `Range` requests, validated against the server-declared size.
-4. **Decrypt** — `AssetDecryptor` (`core/decrypt.py`) expands each key
+4. **Decrypt**: `AssetDecryptor` (`core/decrypt.py`) expands each key
    to an MD5 digest (`md5(key + "World of Guns: Gun Disassembly")`) and
    XORs the encrypted bundles embedded in the asset with it as a
    repeating key stream.
-5. **Unpack** — `AssetUnpacker` (`core/unpack.py`) loads each decrypted
+5. **Unpack**: `AssetUnpacker` (`core/unpack.py`) loads each decrypted
    bundle with UnityPy and dispatches every object to a per-type
    extractor registered in `EXTRACTORS` (`TextAssetExtractor`,
    `Texture2DExtractor`, `MeshExtractor`, ...). Adding support for a new
-   Unity type means adding one subclass with an `obj_type` — no changes
+   Unity type means adding one subclass with an `obj_type`; no changes
    to the unpacker itself.
+6. **Build scene** (optional): `build-scene` (`core/scene.py`) reads the
+   decrypted bundle again, rebuilds the in-game assembled hierarchy,
+   converts Unity's left-handed Y-up coordinates to glTF's right-handed
+   system and writes a self-contained GLB through the in-package writer
+   (`core/glb.py`), plus a `blender_setup.py` generated from
+   `resources/blender_setup.py`.
 
 ## Module map
 
@@ -55,6 +61,8 @@ Dependency direction is strictly downwards: `cli → core → utils`. The
 | `cli/download.py` | `download-weapons`, `download-assets` |
 | `cli/decrypt.py` | `decrypt-assets`, decrypted-file validation |
 | `cli/unpack.py` | `unpack-assets` |
+| `cli/convert.py` | `convert-normals` |
+| `cli/scene.py` | `build-scene` |
 | `cli/pipeline.py` | `full-pipeline` (chains the commands above) |
 | `cli/auth.py` | `login`, `logout` |
 | `cli/cache.py` | `cache` (database management) |
@@ -68,7 +76,10 @@ Dependency direction is strictly downwards: `cli → core → utils`. The
 | `core/decrypt.py` | XOR stream decryption of embedded bundles |
 | `core/download.py` | Resumable parallel asset downloads |
 | `core/unpack.py` | Extractor registry and weapon-list processing |
+| `core/scene.py` | Blender scene export (game hierarchy to glTF) |
+| `core/glb.py` | In-package glTF 2.0 / GLB writer |
 | `core/key_import.py` | Parsing of MITM captures (mitmproxy/Fiddler/flat) |
+| `resources/blender_setup.py` | Template for the generated Blender setup script |
 | `utils/logging.py` | stdlib `logging` + Rich handlers, performance monitor |
 | `utils/normal_map.py` | Unity → standard normal map conversion |
 

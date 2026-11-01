@@ -2,7 +2,7 @@
 
 Since v2.4 the weapon list, decryption keys, your game-account
 credentials and the session identity live in a per-user SQLite database
-outside the repository — no secrets ship with the code, and two
+outside the repository: no secrets ship with the code, and two
 checkouts never fight over `runtime/keys.txt`.
 
 ## Location
@@ -52,7 +52,7 @@ CREATE TABLE keys (
 ```
 
 All access goes through `WOGDatabase` (`core/database.py`), which
-serializes every operation with a re-entrant lock — key fetching runs
+serializes every operation with a re-entrant lock; key fetching runs
 in a thread pool, and SQLite connections are per-call.
 
 ## What is stored where
@@ -65,7 +65,7 @@ in a thread pool, and SQLite connections are per-call.
 | Session (auth_id/session) | `identity` | automatic on login / re-login |
 | Device id | `settings` | generated once per installation |
 
-Downloaded/decrypted/unpacked files stay in `<base>/runtime/` — only
+Downloaded/decrypted/unpacked files stay in `<base>/runtime/`; only
 the small indexed data lives in the database.
 
 ## Managing the database

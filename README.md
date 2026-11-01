@@ -1,8 +1,8 @@
-# 🔫 ReWOG / v2.5
-
-![World of Guns](https://cdn.cloudflare.steamstatic.com/steam/apps/262410/library_hero.jpg)
+# ReWOG
 
 <div align="center">
+
+<img src="docs/images/banner.jpg" alt="ReWOG banner: weapon blueprint drawing with Python and Blender logos" width="720">
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -17,46 +17,56 @@
 
 </div>
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [📙 Description](#-description)
-- [✨ What's New in v2.5](#-whats-new-in-v25)
-- [🔗 Requirements](#-requirements)
-- [🚀 Installation](#-installation)
-- [🪄 How it Works](#-how-it-works)
-- [🧑‍💻 Usage](#-usage)
-- [📁 Project Structure](#-project-structure)
-- [🔧 Configuration](#-configuration)
-- [🧪 Testing](#-testing)
-- [🔨 Development](#-development)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-- [🫂 Special Thanks](#-special-thanks)
-- [📋 FAQ](#-frequently-asked-questions-faq)
-- [⚠️ Legal Disclaimer](#️-legal-disclaimer)
+- [Description](#description)
+- [What's New in v2.5](#whats-new-in-v25)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [How it Works](#how-it-works)
+- [Usage](#usage)
+- [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Support](#support)
+- [License](#license)
+- [Special Thanks](#special-thanks)
+- [FAQ](#frequently-asked-questions-faq)
+- [Legal Disclaimer](#legal-disclaimer)
 
-## 📙 Description
+## Description
 
 WOG Dump is a modern, completely refactored Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). The v2.5 release adds one-command Blender scene export on top of the v2.4 `query2026` protocol, per-user credential storage and game-account login.
 
-> 🎆 **Educational Tool**: Designed for 3D model enthusiasts, modders, and researchers interested in studying game assets and 3D modeling techniques.
+> **Educational Tool**: Designed for 3D model enthusiasts, modders, and researchers interested in studying game assets and 3D modeling techniques.
 
-### ✨ What's New in v2.5
+### Who this tool is for
 
-- 🎬 **`wog-dump build-scene`** - rebuilds the in-game assembled weapon as a Blender-ready glTF scene: exact part hierarchy and positions, game materials with textures, camera and studio lighting, real-world scale
-- 🧹 **No extra objects** - UI arrows, cutaway meshes, muzzle-flash effects and animation dummies are classified and skipped (`--extras` exports them on request)
-- 🖥️ **One-click Blender setup** - a generated `blender_setup.py` imports the scene, sorts collections and saves a `.blend`
-- 🔬 **query2026 protocol** (v2.4) - targets the current game API (game `2.2.3u9`, Unity 6); automatic re-login on session rejection
-- 🔐 **No secrets in the repo** (v2.4) - bundled keys and captured credentials removed; data lives in a per-user SQLite database
-- 🧑‍💻 **`wog-dump login` / `logout`** (v2.4) - use your own game account (email + password) to fetch keys
-- 🧪 **Live tests** - `pytest -m live` verifies fetch/download/decrypt against the real servers
+- 3D artists who want to study how a weapon is assembled from parts
+- Modders and researchers interested in Unity asset formats and pipelines
+- Educators looking for reference material on real-world weapon mechanics
+- Anyone curious about game asset extraction techniques, for personal study
 
-## 🔗 Requirements
+The project is actively maintained by [InzGIBA](https://github.com/inzgiba). If you run into trouble, see [Support](#support).
+
+### What's New in v2.5
+
+- **`wog-dump build-scene`**: rebuilds the in-game assembled weapon as a Blender-ready glTF scene: exact part hierarchy and positions, game materials with textures, camera and studio lighting, real-world scale
+- **No extra objects**: UI arrows, cutaway meshes, muzzle-flash effects and animation dummies are classified and skipped (`--extras` exports them on request)
+- **One-click Blender setup**: a generated `blender_setup.py` imports the scene, sorts collections and saves a `.blend`
+- **query2026 protocol** (v2.4): targets the current game API (game `2.2.3u9`, Unity 6); automatic re-login on session rejection
+- **No secrets in the repo** (v2.4): bundled keys and captured credentials removed; data lives in a per-user SQLite database
+- **`wog-dump login` / `logout`** (v2.4): use your own game account (email + password) to fetch keys
+- **Live tests**: `pytest -m live` verifies fetch/download/decrypt against the real servers
+
+## Requirements
 
 - **Python 3.12+** (Required)
 - [AssetStudio](https://github.com/Perfare/AssetStudio) - for final asset unpacking
 
-## 🚀 Installation
+## Installation
 
 ### Quick Install with uv (Recommended)
 
@@ -92,34 +102,31 @@ pip install -e .
 # Install with development dependencies
 uv pip install -e ".[dev]"
 
-# Install pre-commit hooks
-pre-commit install
-
 # Run tests
 pytest
 ```
 
-## 🪄 How it Works
+## How it Works
 
-1. **Download Weapon List** - Fetches and processes the weapon catalog
-2. **Fetch Decryption Keys** - Retrieves keys for each weapon asset
-3. **Download Assets** - Downloads encrypted Unity3D files
-4. **Decrypt Assets** - Uses XOR decryption to unlock files
-5. **Unpack Assets** - Extracts models, textures, and materials
-6. **Build Scene** - Rebuilds the assembled weapon as a Blender-ready glTF scene
-7. **Convert Normal Maps** - Converts Unity normal maps to standard format
+1. **Download Weapon List**: Fetches and processes the weapon catalog
+2. **Fetch Decryption Keys**: Retrieves keys for each weapon asset
+3. **Download Assets**: Downloads encrypted Unity3D files
+4. **Decrypt Assets**: Uses XOR decryption to unlock files
+5. **Unpack Assets**: Extracts models, textures, and materials
+6. **Build Scene**: Rebuilds the assembled weapon as a Blender-ready glTF scene
+7. **Convert Normal Maps**: Converts Unity normal maps to standard format
 
-> 🗝️ **Authentication**: the key API only serves authenticated clients.
+> **Authentication**: the key API only serves authenticated clients.
 > Capture your own client once with a MITM proxy and run
-> `uv run python scripts/extract_keys.py wog-keys.flows --identity --merge` —
-> keys and the client identity land in the local database, and the identity
+> `uv run python scripts/extract_keys.py wog-keys.flows --identity --merge`.
+> Keys and the client identity land in the local database, and the identity
 > values go into your `.env` (see `.env.example`). Alternatively log in with a
 > game-account email/password (`wog-dump login`). Credentials, sessions, keys
-> and the weapon list live in a local SQLite database outside the repository —
-> no sensitive data ships with the code. Details:
+> and the weapon list live in a local SQLite database outside the repository,
+> so no sensitive data ships with the code. Details:
 > [Capturing Keys and Identity via MITM](docs/mitm-capture.md).
 
-## 🧑‍💻 Usage
+## Usage
 
 ### Quick Start Guide
 
@@ -170,7 +177,7 @@ wog-dump info
 wog-dump full-pipeline --verbose --max-threads 8 --update-keys --convert-normals
 ```
 
-> 📝 **Pro Tip**: Use `wog-dump info` to check your system configuration and available storage space before starting large operations.
+> **Pro Tip**: Use `wog-dump info` to check your system configuration and available storage space before starting large operations.
 
 ### Individual Commands
 
@@ -266,7 +273,7 @@ wog-dump full-pipeline --chunk-size 4096
 
 **Cache Management:**
 ```bash
-# Import weapons.txt / keys.txt into the JSON data store
+# Import weapons.txt / keys.txt into the local database
 wog-dump cache --migrate
 
 # Show detailed cache statistics
@@ -310,14 +317,14 @@ decryptor = AssetDecryptor(config)
 decrypted_files, failed_assets = decryptor.decrypt_all_assets(keys)
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ReWOG/
 ├── src/wog_dump/                    # Main package (source layout)
-│   ├── __init__.py                  # Package initialization
+│   ├── __init__.py                  # Package initialization, single version source
 │   ├── core/                        # Core business logic
-│   │   ├── __init__.py             
+│   │   ├── __init__.py
 │   │   ├── config.py                # Pydantic configuration management
 │   │   ├── http.py                  # Shared HTTP session factory + rate limiting
 │   │   ├── api.py                   # BZ2-over-HTTP query API client
@@ -327,15 +334,17 @@ ReWOG/
 │   │   ├── download.py              # Resumable parallel asset downloading
 │   │   ├── decrypt.py               # XOR decryption (pure Python)
 │   │   ├── unpack.py                # Unity asset extraction (per-type extractors)
-│   │   ├── scene.py                 # Blender scene export (game hierarchy → glTF)
+│   │   ├── scene.py                 # Blender scene export (game hierarchy to glTF)
 │   │   ├── glb.py                   # In-package glTF 2.0 / GLB writer
 │   │   └── key_import.py            # MITM capture parsing (keys import)
+│   ├── resources/
+│   │   └── blender_setup.py         # Template for the generated Blender setup script
 │   ├── utils/                       # Utility modules
-│   │   ├── __init__.py             
+│   │   ├── __init__.py
 │   │   ├── logging.py               # Rich-formatted logging
 │   │   └── normal_map.py            # Normal map format conversion
 │   └── cli/                         # Command-line interface
-│       ├── __init__.py             
+│       ├── __init__.py
 │       ├── main.py                  # Click group, global options, main()
 │       ├── errors.py                # Shared CLI error handling
 │       ├── download.py              # download-weapons / download-assets
@@ -359,7 +368,7 @@ ReWOG/
 └── pyproject.toml                   # Modern Python packaging (PEP 621)
 ```
 
-## 🔧 Configuration
+## Configuration
 
 WOG Dump uses Pydantic for robust configuration management:
 
@@ -374,12 +383,12 @@ wog-dump info
 
 In-depth reference:
 
-- **[docs/configuration.md](docs/configuration.md)** — every environment variable, `.env` setup, rate limiting and resumable downloads
-- **[docs/architecture.md](docs/architecture.md)** — how the modules fit together, the extraction pipeline
-- **[docs/database.md](docs/database.md)** — where your keys and credentials live, schema and migration from pre-2.4 files
-- **[docs/mitm-capture.md](docs/mitm-capture.md)** — capturing keys and identity from your own game traffic
+- **[docs/configuration.md](docs/configuration.md)**: every environment variable, `.env` setup, rate limiting and resumable downloads
+- **[docs/architecture.md](docs/architecture.md)**: how the modules fit together, the extraction pipeline
+- **[docs/database.md](docs/database.md)**: where your keys and credentials live, schema and migration from pre-2.4 files
+- **[docs/mitm-capture.md](docs/mitm-capture.md)**: capturing keys and identity from your own game traffic
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run all tests
@@ -392,9 +401,10 @@ pytest --cov=wog_dump
 pytest tests/unit/          # Unit tests only
 pytest tests/integration/   # Integration tests only
 pytest -m slow              # Slow tests
+pytest -m live              # Live tests against the real servers (needs auth in .env)
 ```
 
-## 🔨 Development
+## Development
 
 ```bash
 # Install development dependencies with uv
@@ -409,35 +419,31 @@ mypy src/
 
 # Linting
 flake8 src/ tests/
-
-# Run all checks
-uv run pre-commit run --all-files
 ```
 
-
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions from the community! Whether you're fixing bugs, adding features, or improving documentation, your help makes WOG Dump better for everyone.
 
 ### Quick Links
-- 📜 [Contributing Guidelines](CONTRIBUTING.md) - Detailed contribution process
-- 🐛 [Issue Tracker](https://github.com/InzGIBA/ReWOG/issues) - Report bugs or request features
-- 💬 [Discussions](https://github.com/InzGIBA/ReWOG/discussions) - Ask questions and get help
-- 🛡️ [Code of Conduct](CODE_OF_CONDUCT.md) - Community standards
-- 🆘 [Support](SUPPORT.md) - Get help and troubleshooting
+
+- [Contributing Guidelines](CONTRIBUTING.md): detailed contribution process
+- [Issue Tracker](https://github.com/InzGIBA/ReWOG/issues): report bugs or request features
+- [Discussions](https://github.com/InzGIBA/ReWOG/discussions): ask questions and get help
+- [Support](SUPPORT.md): troubleshooting and ways to get help
+- [Code of Conduct](CODE_OF_CONDUCT.md): community standards
 
 ### Quick Start for Contributors
 
-1. **Fork & Clone**
+1. **Fork and Clone**
    ```bash
    git clone https://github.com/your-username/ReWOG
    cd ReWOG
    ```
 
-2. **Setup Development Environment**
+2. **Set up Development Environment**
    ```bash
    uv pip install -e ".[dev]"
-   pre-commit install
    ```
 
 3. **Create Feature Branch**
@@ -445,11 +451,11 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
    git checkout -b feature/amazing-feature
    ```
 
-4. **Make Changes & Test**
+4. **Make Changes and Test**
    ```bash
    # Make your changes
-   pytest  # Run tests
-   black src/ tests/  # Format code
+   pytest               # Run tests
+   black src/ tests/    # Format code
    ```
 
 5. **Submit Pull Request**
@@ -461,29 +467,40 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
 
 ### Types of Contributions Welcome
 
-- 🐛 **Bug Reports**: Help us identify and fix issues
-- ✨ **Feature Requests**: Suggest new functionality
-- 📄 **Documentation**: Improve guides, examples, and help text
-- 🧪 **Testing**: Add test coverage or improve existing tests
-- 🚀 **Performance**: Optimize code for speed or memory usage
-- 🌍 **Localization**: Add support for other languages
-- 📦 **Packaging**: Improve installation and distribution
+- **Bug Reports**: help us identify and fix issues
+- **Feature Requests**: suggest new functionality
+- **Documentation**: improve guides, examples, and help text
+- **Testing**: add test coverage or improve existing tests
+- **Performance**: optimize code for speed or memory usage
+- **Localization**: add support for other languages
+- **Packaging**: improve installation and distribution
 
 ### Recognition
 
 All contributors are recognized in our [CHANGELOG.md](CHANGELOG.md) and commit history. Significant contributors may be invited to join the core team.
 
-## 📄 License
+## Support
+
+Where to get help, in the order we recommend:
+
+1. **FAQ and Troubleshooting** in this README (see [Frequently Asked Questions](#frequently-asked-questions-faq))
+2. **[SUPPORT.md](SUPPORT.md)**: diagnostics, common solutions, and how to report issues effectively
+3. **[GitHub Issues](https://github.com/InzGIBA/ReWOG/issues)**: bug reports and feature requests (public, searchable)
+4. **[GitHub Discussions](https://github.com/InzGIBA/ReWOG/discussions)**: questions and general help
+
+Please use the public channels above so answers remain useful to others. For security-sensitive reports only, email the maintainer directly: [inzgiba@gmail.com](mailto:inzgiba@gmail.com).
+
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🫂 Special Thanks
+## Special Thanks
 
-- [DeadZoneGarry](https://github.com/DeadZoneLuna) - Original decryption research
-- [Noble Empire Corp.](https://noble-empire.com/news.php) - Game and assets
+- [DeadZoneGarry](https://github.com/DeadZoneLuna) - original decryption research
+- [Noble Empire Corp.](https://noble-empire.com/news.php) - game and assets
 - Contributors to the original WOG Dump project
 
-## 📋 Frequently Asked Questions (FAQ)
+## Frequently Asked Questions (FAQ)
 
 ### General Questions
 
@@ -495,7 +512,7 @@ A: The tool downloads public asset files from the game's servers. While game own
 
 **Q: What file formats does it extract?**
 A: The tool extracts Unity3D assets including:
-- Blender-ready scenes (glTF 2.0 via `build-scene` - game hierarchy, materials and textures)
+- Blender-ready scenes (glTF 2.0 via `build-scene`: game hierarchy, materials and textures)
 - 3D Models (OBJ format)
 - Textures (PNG, TGA formats)
 - Materials and shaders
@@ -512,7 +529,7 @@ A: Yes! The tool is pure Python and works on all major operating systems. The v2
 **Q: How much disk space do I need?**
 A: Plan for:
 - Encrypted assets: ~2-5 GB
-- Decrypted assets: ~2-5 GB  
+- Decrypted assets: ~2-5 GB
 - Extracted models/textures: ~3-8 GB
 - Total recommended: **10-20 GB free space**
 
@@ -536,14 +553,14 @@ wog-dump download-assets --weapons "ak74,m4a1,glock17"
 **Q: What if the download fails or gets interrupted?**
 A: The tool supports resuming interrupted downloads. Simply run the same command again and it will continue where it left off.
 
-**Q: Key fetching logs `API error for X: Server error` / `No key available` — what's wrong?**
-A: Two common causes. (1) No valid session — capture your client once ([MITM guide](docs/mitm-capture.md)) and put `WOG_AUTH_ID`/`WOG_AUTH_SESSION` into `.env`, or run `wog-dump login` with a game-account email/password. (2) An outdated endpoint/protocol — this tool now targets `query2026.php` with the current client versions (`2.2.3u9` / `6000.0.84f1`), verified against the live servers in November 2026.
+**Q: Key fetching logs `API error for X: Server error` / `No key available`. What is wrong?**
+A: Two common causes. (1) No valid session: capture your client once ([MITM guide](docs/mitm-capture.md)) and put `WOG_AUTH_ID`/`WOG_AUTH_SESSION` into `.env`, or run `wog-dump login` with a game-account email/password. (2) An outdated endpoint/protocol: this tool now targets `query2026.php` with the current client versions (`2.2.3u9` / `6000.0.84f1`), verified against the live servers in November 2026.
 
 **Q: Where are my credentials and keys stored?**
 A: In a per-user SQLite database (`~/.local/share/wog_dump/wog_dump.db` on Linux, `%APPDATA%\wog_dump\` on Windows), with owner-only permissions. Nothing sensitive is stored in the repository. Set `WOG_DB_PATH` to use a different location; `wog-dump logout` removes the stored credentials. A repo-local `.env` (gitignored, see `.env.example`) can provide `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_ACCOUNT_*` instead.
 
 **Q: Can I test against the real game servers?**
-A: Yes — configure auth in `.env` and run `pytest -m live`. These live tests fetch a real key, download an asset, decrypt it and load it in UnityPy; they are skipped automatically when no credentials are configured.
+A: Yes, configure auth in `.env` and run `pytest -m live`. These live tests fetch a real key, download an asset, decrypt it and load it in UnityPy; they are skipped automatically when no credentials are configured.
 
 ### Troubleshooting
 
@@ -555,10 +572,10 @@ wog-dump login
 or put `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (or a captured `WOG_AUTH_ID`/`WOG_AUTH_SESSION`, see [docs/mitm-capture.md](docs/mitm-capture.md)) into `.env`. Check what is configured with `wog-dump cache`.
 
 **Q: `Authentication failed (result=100)`**
-A: The API rejected the account credentials. Verify the email/password pair in the game client itself, then `wog-dump login` again. If you use a captured session, it expired — capture a fresh one or switch to account login.
+A: The API rejected the account credentials. Verify the email/password pair in the game client itself, then `wog-dump login` again. If you use a captured session, it expired; capture a fresh one or switch to account login.
 
 **Q: Key fetching fails with `Session rejected` (result=1000)**
-A: The stored session expired. WOG Dump re-logins automatically; if the error persists, the stored credentials are outdated — run `wog-dump logout && wog-dump login`.
+A: The stored session expired. WOG Dump re-logins automatically; if the error persists, the stored credentials are outdated. Run `wog-dump logout && wog-dump login`.
 
 **Q: `429` / rate-limit errors from the API**
 A: Requests are too frequent. Raise the throttles in `.env`:
@@ -585,7 +602,7 @@ A: Try these steps:
 1. Check your internet connection
 2. Reduce thread count: `wog-dump --max-threads 2 download-assets`
 3. Enable verbose logging: `--verbose` (or `--debug` for everything)
-4. Downloads are throttled by design — see `WOG_REQUEST_DELAY` above if you want them faster
+4. Downloads are throttled by design; see `WOG_REQUEST_DELAY` above if you want them faster
 
 **Q: Key API stopped working after a game update (`result=1000` on every request)**
 A: The client version strings are validated server-side. Update them in `.env` to match the current client (find them in the game's installation or a fresh capture):
@@ -594,7 +611,7 @@ WOG_GAME_VERSION=2.2.3u9
 WOG_UNITY_VERSION=6000.0.84f1
 ```
 
-**Q: Interrupted download — do I have to start over?**
+**Q: Interrupted download: do I have to start over?**
 A: No. Partial downloads are kept as `runtime/assets/*.tmp` and resumed via HTTP `Range` requests on the next run. If a `.tmp` file refuses to go away, delete it to force a fresh download.
 
 **Q: How do I report bugs or request features?**
@@ -604,7 +621,7 @@ A: Please create an issue on GitHub with:
 - Steps to reproduce the problem
 - Output of `wog-dump info`
 
-## ⚠️ Legal Disclaimer
+## Legal Disclaimer
 
 This tool is intended for **educational and research purposes only**. Users are responsible for:
 

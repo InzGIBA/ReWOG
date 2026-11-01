@@ -8,7 +8,7 @@ WOG Dump is configured through three layers, applied in this order
    (`python-dotenv`, never overriding variables already set in the shell)
 3. **CLI global options** (`wog-dump --max-threads 8 ...`)
 
-Copy `.env.example` to `.env` and fill in what you need — `.env` is
+Copy `.env.example` to `.env` and fill in what you need. `.env` is
 gitignored, so credentials never end up in the repository.
 
 ## Authentication
@@ -22,7 +22,7 @@ following options:
 | `WOG_AUTH_ID` / `WOG_AUTH_SESSION` | A captured session from your own traffic (see [mitm-capture.md](mitm-capture.md)). |
 | `WOG_DEVICE_ID` | Optional device id to send with a captured session. Generated per installation when unset. |
 
-The recommended flow is `wog-dump login` once — it stores the account in
+The recommended flow is `wog-dump login` once: it stores the account in
 the local database and no environment variables are needed at all.
 
 ## Endpoints and protocol
@@ -48,7 +48,7 @@ wrong values are rejected server-side. Update them when the game updates.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WOG_MAX_THREADS` | `4` | Worker threads for parallel downloads/key fetches (1–16) |
+| `WOG_MAX_THREADS` | `4` | Worker threads for parallel downloads/key fetches (1-16) |
 | `WOG_REQUEST_DELAY` | `0.1` | Minimum interval in seconds between asset-server requests |
 | `WOG_API_REQUEST_DELAY` | `0.25` | Minimum interval in seconds between key-API requests |
 | `WOG_ENABLE_VALIDATION` | `true` | Validate files after download/decryption |
@@ -61,9 +61,9 @@ The console and the log file have independent verbosity:
 
 - **Console**: quiet by default (warnings/errors only); `wog-dump -v` shows
   INFO, `wog-dump -d` shows DEBUG.
-- **Log file**: always captures INFO and above — including full tracebacks —
-  no matter how quiet the console is. Set `WOG_LOG_LEVEL=DEBUG` to include
-  debug output in the file.
+- **Log file**: always captures INFO and above (including full
+  tracebacks) no matter how quiet the console is. Set
+  `WOG_LOG_LEVEL=DEBUG` to include debug output in the file.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -71,7 +71,7 @@ The console and the log file have independent verbosity:
 | `WOG_LOG_DIR` | `<user data dir>/logs` | Directory for log files |
 
 Logs go to a single rotating file `wog.log` (5 MB × 3 backups) in the
-user data directory next to the database — for example
+user data directory next to the database, for example
 `~/.local/share/wog_dump/logs/wog.log` on Linux. `wog-dump info` shows
 the exact path in use.
 

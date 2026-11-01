@@ -6,7 +6,7 @@ your own from your own game traffic with a TLS-intercepting (MITM) proxy, then
 import both the **decryption keys** and your **client identity**
 (`id`/`session`/`dev`) in one step.
 
-> ⚠️ You are intercepting **your own** traffic from **your own** game account.
+> **Warning.** You are intercepting **your own** traffic from **your own** game account.
 > The capture contains your auth session and your Steam friends list - the
 > extraction script only reads model/key and id/session/dev pairs, but do not
 > share the raw capture publicly.

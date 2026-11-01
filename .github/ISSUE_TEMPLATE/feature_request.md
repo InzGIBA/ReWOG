@@ -20,4 +20,4 @@ Any alternative solutions or workarounds you have tried.
 
 **Additional context**
 
-Anything else that helps: screenshots, examples from other tools, links to related issues.
+Anything else to add: screenshots, examples from other tools, links to related issues.

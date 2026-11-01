@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-11-02
+
+Documentation-only release. No functional changes.
+
+### Documentation
+
+- **All markdown files reworked for a plainer style**: short active sentences, direct address ("you"), semicolons and dash punctuation removed everywhere
+- **README**: "What's New" updated from v2.5 to v2.6 (security hardening in 2.6.0, CLI fixes in 2.6.1), `core/paths.py` added to the project structure, FAQ questions moved to the "How do I ..." form
+- **docs/configuration.md**: `.env` files documented as `WOG_*`-only, resume documented as requiring the `.tmp.meta` validator sidecar (behavior from 2.6.0)
+- **docs/database.md**: symlinked `WOG_DB_PATH` refusal and the once-per-database `cache --migrate` (with `--force`) documented (behavior from 2.6.0)
+- **docs/architecture.md**: `core/paths.py` added to the module map
+- **CONTRIBUTING, SUPPORT and the GitHub templates**: wording tightened, filler words removed
+
 ## [2.6.1] - 2026-11-02
 
 Bug-fix release from a full pass over every CLI command (info, cache, login,
@@ -36,52 +49,51 @@ wog-convert-normals entry point), each exercised against real game data.
 ### Improved
 
 - **`download-assets` reports "All N assets up to date"** when nothing needs
-  downloading; previously the command finished silently with no output at all
+  downloading. Previously the command finished silently with no output at all
 - **`info --validate-files` says "No decrypted files to validate"** instead of
   printing a bare section header when the decrypted directory is empty
 
 ### Tests
 
 - New unit tests for the atlas-format weapon list parser, the typed-UnityPy
-  material extraction, and the `decrypt-assets` weapons filter; full suite
-  (308 tests) passes
+  material extraction, and the `decrypt-assets` weapons filter. The full
+  suite (308 tests) passes
 
 ## [2.6.0] - 2026-11-02
 
 Security-hardening release based on a full deep-profile audit of the codebase
 (21 coverage units, 3 hunting waves, every finding independently verified with
 sandboxed reproductions). **Some changes are deliberately breaking**: stricter
-validation and safer defaults replace behavior that the audit confirmed as
-exploitable. Read the "Breaking" section before upgrading; automation or
-scripts that relied on the old permissive behavior need adjustments.
+validation and safer defaults replace behavior the audit confirmed as
+exploitable. Read the "Breaking" section before upgrading. Automation or
+scripts which relied on the old permissive behavior need adjustments.
 
 ### Breaking
 
 - **Working-directory `.env` files now apply only `WOG_*` keys.** Variables
   like `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `REQUESTS_CA_BUNDLE`,
   `CURL_CA_BUNDLE` or `NETRC` in a `.env` are ignored: a `.env` planted in an
-  unpacked shared "weapon pack" could previously redirect all credential-
-  bearing traffic through an attacker proxy or swap the TLS trust anchor.
+  unpacked shared "weapon pack" previously redirected all credential-
+  bearing traffic through an attacker proxy or swapped the TLS trust anchor.
   Set transport variables in your real shell environment if you need them
 - **Ambient transport trust is disabled for the tool's own sessions.**
   `create_session()` now pins `trust_env = False`, so even real environment
   variables no longer steer proxies/CA bundles/netrc for the game API and CDN
-  traffic. If you legitimately routed `wog-dump` through a proxy, configure it
-  at the OS level (transparent proxy, VPN) instead
+  traffic. If you legitimately routed `wog-dump` through a proxy, configure
+  the proxy at the OS level (transparent proxy, VPN) instead
 - **Asset and weapon names must match the vendor alphabet**
   (`letters, digits, _ and -`, 2-50 chars). `--weapons '../foo'`,
   absolute paths, or names with `/`, `\`, `?`, `&`, spaces etc. are rejected
   with an error instead of being downloaded to a path outside
   `runtime/assets/`. The server-parsed weapon list (`spider_gen`) is filtered
-  by the same allowlist, and `runtime/weapons.txt` lines failing it are
-  skipped (with a warning)
+  by the same allowlist, and `runtime/weapons.txt` lines failing the allowlist
+  are skipped (with a warning)
 - **Cross-run download resume now requires a validator.** A partial
   `runtime/assets/<name>.tmp` is resumed only when its sidecar
-  `<name>.tmp.meta` records the ETag/Last-Modified of the response that
-  produced it (replayed as `If-Range`). Partials without a validator, or
-  where the server answers 200 (representation changed), restart from
-  scratch. Partials created by versions before 2.6.0 have no sidecar and
-  will be re-downloaded once
+  `<name>.tmp.meta` records the ETag/Last-Modified of the original response
+  (replayed as `If-Range`). Partials without a validator, or where the server
+  answers 200 (representation changed), restart from scratch. Partials created
+  by versions before 2.6.0 have no sidecar and will be re-downloaded once
 - **Legacy `runtime/*.txt` import is once per database.** `cache --migrate`
   refuses to re-import after the first successful run (use the new
   `--force` flag to override), legacy keys never overwrite keys already
@@ -94,17 +106,17 @@ scripts that relied on the old permissive behavior need adjustments.
   extraction also prefers requests on a genuine `ultimate-disassembly.com`
   host over shape-only matches, regardless of order in the capture
 - **Symlinked database paths are refused** (`WOG_DB_PATH` pointing through a
-  symlink now errors out instead of writing credentials through it), and
+  symlink now errors out instead of writing credentials through the link), and
   `logout` also clears the stored `device_id`
-- Unity bundle object names (`m_Name`) that contain `/`, `\`, NUL, leading
+- Unity bundle object names (`m_Name`) containing `/`, `\`, NUL, leading
   dots or traversal segments are skipped with a warning instead of being
-  written wherever they point (previously: arbitrary file write outside
+  written wherever the names point (previously: arbitrary file write outside
   `runtime/` at the invoking user's privilege)
 
 ### Security
 
-- **Fixed: ambient environment could take over transport trust** (proxies,
-  CA bundle, netrc) for every authenticated request - the account
+- **Fixed: ambient environment took control of transport trust** (proxies,
+  CA bundle, netrc) for every authenticated request. The account
   email/password, session/id/dev tokens and key responses were interceptable
   by a planted `.env`. Both clients (`WOGApiClient`, `DownloadManager`) now
   use a pinned session (finding `http.trustenv-proxy-ca-injection`, medium)
@@ -120,19 +132,19 @@ scripts that relied on the old permissive behavior need adjustments.
   discarded (`download.tmp-symlink-follow`, medium)
 - **Fixed: resumed downloads certified foreign prefixes.** A stale or
   planted `.tmp` prefix became part of a "validated" final file, and the
-  size-only freshness check locked the chimera in forever. Resume is now
-  bound to the server representation via `If-Range`/ETag
+  size-only freshness check then treated the mixed file as valid forever.
+  Resume is now bound to the server representation via `If-Range`/ETag
   (`download.resume-prefix-unbound`, medium)
 - **Fixed: unvalidated weapon names placed downloads outside
   `runtime/assets/`** via traversal or absolute names from `--weapons`,
-  `weapons.txt` or the server-parsed list; URL building is also confined
+  `weapons.txt` or the server-parsed list. URL building is also confined
   (`download.asset-name-path-traversal`, medium). Note: the pinned HTTP
   client normalizes dot segments before sending, so traversal names
   requested CDN-root paths on the wire
-- **Fixed: planted `.env` silently poisoned the credential store** - a
+- **Fixed: planted `.env` silently poisoned the credential store**: a
   foreign `WOG_AUTH_ID`/`WOG_AUTH_SESSION` pair was persisted as the live
-  identity, and `WOG_DB_PATH` could relocate the store (including through a
-  symlink). Besides the `.env` allowlist, applying credential-affecting keys
+  identity, and a planted `WOG_DB_PATH` relocated the store (including
+  through a symlink). Besides the `.env` allowlist, applying credential-affecting keys
   from a working-directory file now prints a prominent warning
   (`env.cwd-dotenv-credential-store-trust`, medium)
 - **Fixed: scene export wrote through pre-existing symlinks**
@@ -140,21 +152,21 @@ scripts that relied on the old permissive behavior need adjustments.
   provenance-unknown output tree, clobbering files outside `runtime/`. All
   scene writes now use temp-file + `os.replace`, and symlinked output or
   textures directories are refused (`scene.symlink-output-write`, low)
-- **Fixed: duplicate asset names raced on the shared temp path** and could
-  produce a size-correct corrupt final that passed validation and was cached
-  as up-to-date. Batches are de-duplicated before the thread pool
-  (`download.duplicate-name-temp-interleave`, low)
+- **Fixed: duplicate asset names raced on the shared temp path** and
+  sometimes produced a size-correct corrupt final file which passed
+  validation and was cached as up-to-date. Batches are de-duplicated before
+  the thread pool (`download.duplicate-name-temp-interleave`, low)
 - **Fixed: `wog.log` was world-readable (0644) while the database got 0600**,
   leaking the account email and auth id to other local users on default
   umask. The log directory is now 0700 and every log file (including
   rotations) 0600 (`log.account-identity-world-readable`, low)
-- **Fixed: shape-matched capture flows could replace the live identity.**
+- **Fixed: shape-matched capture flows overwrote the live identity.**
   The first query-shaped request in a capture won identity selection even
-  on unrelated hosts; a genuine-domain flow later in the same file now
+  on unrelated hosts. A genuine-domain flow later in the same file now
   takes precedence, and overwrites require `--force`
   (`key-import.shape-match-identity-import`, low)
 - New `core/paths.py` module centralizes name validation and path
-  containment for everything that builds paths from bundle-, server- or
+  containment for everything building paths from bundle-, server- or
   file-controlled names
 
 ### Fixed
@@ -164,14 +176,14 @@ scripts that relied on the old permissive behavior need adjustments.
   routine session expiry silently misreported every weapon as keyless until
   a manual `wog-dump login`
 - Login and key-fetch query values are URL-encoded: an `&` or `=` inside
-  the email, password or model name can no longer rewrite the request's own
+  the email, password or model name no longer rewrites the request's own
   fields
 - A non-numeric `Content-Length` header no longer crashes the batch with an
   uncaught `ValueError`
 - `full-pipeline --continue-on-error` no longer reports a clean finish (and
-  exit 0) after a step failed internally; the console says "finished with
+  exit 0) after a step failed internally. The console says "finished with
   errors" and the exit code is 1
-- Full tracebacks of unexpected errors go to the log file only; the console
+- Full tracebacks of unexpected errors go to the log file only. The console
   shows the one-line error (traceback on screen with `-d`, as the comments
   always claimed)
 
@@ -182,19 +194,19 @@ scripts that relied on the old permissive behavior need adjustments.
 - `cache --show-cache` / `info` statistics no longer expose the raw session
   token (`get_stats()` reports `has_session` instead), and the stored keys'
   per-row source provenance survives `--update-keys` writes
-- `wog-dump login --password ...` prints a warning that the value is visible
-  in the process list (e.g. `/proc/<pid>/cmdline` on shared hosts); prefer
-  the interactive prompt
+- `wog-dump login --password ...` prints a warning about the value being
+  visible in the process list (e.g. `/proc/<pid>/cmdline` on shared hosts).
+  Prefer the interactive prompt
 
 ## [2.5.1] - 2026-11-01
 
-Documentation-only release; no functional changes.
+Documentation-only release. No functional changes.
 
 ### Documentation rework
 
 - **All markdown files reworked**: emojis removed everywhere, em dashes replaced with plain punctuation, formatting made consistent across README, CHANGELOG, CONTRIBUTING, SUPPORT and the `docs/` pages
-- **README**: table-of-contents anchors fixed, new "Who this tool is for" and "Support" sections (recommended help channels, maintainer status), broken links to non-existent files removed, instructions that referenced non-existent tooling corrected, project structure updated with `resources/` and the single version source, new project banner
-- **CONTRIBUTING**: new "Ways to Contribute" (including non-code paths and the `good first issue` label), "Project Scope" and "What to Expect" (response times, review criteria) sections; outdated instructions fixed (release process uses the single version source, CLI commands live in per-group modules, no pre-commit/tox/docker references)
+- **README**: table-of-contents anchors fixed, new "Who this tool is for" and "Support" sections (recommended help channels, maintainer status), broken links to non-existent files removed, instructions referencing non-existent tooling corrected, project structure updated with `resources/` and the single version source, new project banner
+- **CONTRIBUTING**: new "Ways to Contribute" (including non-code paths and the `good first issue` label), "Project Scope" and "What to Expect" (response times, review criteria) sections. Outdated instructions fixed (release process uses the single version source, CLI commands live in per-group modules, no pre-commit/tox/docker references)
 - **SUPPORT**: log locations corrected to the single rotating `wog.log` next to the database, reset instructions replaced with real commands (`cache --clear`, `logout`), removed references to non-existent `requirements.txt` and `config.json`
 - **CHANGELOG**: emoji headers removed, verbose historical entries condensed while keeping all facts
 - **docs/architecture.md**: scene export step and the `scene.py`/`glb.py`/`resources` modules added to the pipeline and module map
@@ -209,13 +221,13 @@ Documentation-only release; no functional changes.
 
 ### Blender scene export
 
-- **New `wog-dump build-scene <weapons>` command**: rebuilds the in-game assembled weapon as a glTF 2.0 scene ready for Blender. It contains the full GameObject/Transform hierarchy with the exact local positions and rotations the game uses, every part covered with its game materials (atlas textures and flat colors), a fitted camera and a three-point studio light rig, all in one `runtime/scenes/<weapon>/<weapon>.glb`
-- **Only real weapon geometry by default**: the game bundle's UI objects, meaning red/green assembly arrows (`arrow_in`/`arrow_out`), cutaway (`*_cut`) meshes, muzzle-flash/gas effects and 246 empty `transformN` dummies, are classified by material and skipped; `--extras arrows|cut|vfx|all` exports them alongside for anyone who wants them
+- **New `wog-dump build-scene <weapons>` command**: rebuilds the in-game assembled weapon as a glTF 2.0 scene ready for Blender. The scene contains the full GameObject/Transform hierarchy with the exact local positions and rotations the game uses, every part covered with its game materials (atlas textures and flat colors), a fitted camera and a three-point studio light rig, all in one `runtime/scenes/<weapon>/<weapon>.glb`
+- **Only real weapon geometry by default**: the game bundle's UI objects, meaning red/green assembly arrows (`arrow_in`/`arrow_out`), cutaway (`*_cut`) meshes, muzzle-flash/gas effects and 246 empty `transformN` dummies, are classified by material and skipped. `--extras arrows|cut|vfx|all` exports them alongside for anyone who wants them
 - **Correct handedness, units and UVs**: Unity's left-handed Y-up coordinates are mirrored to glTF's right-handed system (positions `(x, y, -z)`, quaternions `(-x, -y, z, w)`, triangle winding flipped, UV V inverted), and centimeters are baked to meters so the weapon imports at true size (assembled AK-47 with bayonet spans 1.36 m)
 - **Generated `blender_setup.py` next to every scene**: one click inside Blender (or `blender -b -P blender_setup.py`) imports the GLB, sorts objects into `Gun`/`Arrows`/`Cutaway`/`VFX`/`Studio` collections, hides the extras exactly like the game's default view, sets the active camera and saves a `.blend`
 - **`scene.json` manifest** records mesh/material/texture counts, what was skipped, and the game's own removable-parts (`ak47_parts`) and field-strip (`ak47_field_strip`) lists extracted from the bundle's TextAssets
-- **Zero new dependencies**: the GLB writer (buffer views, accessors, PBR materials, embedded PNGs, KHR_lights_punctual) is implemented in-package; geometry comes from UnityPy's `MeshHandler`
-- Verified on real bundles: AK-47 (173 meshes, 22 materials, 8 textures; world bounds match a real AK-47, vertex data matches the reference OBJ exports bit-for-bit on extents) and Colt 1911 (79 meshes); 35 new unit/integration tests cover the GLB writer, coordinate conversion and the end-to-end export
+- **Zero new dependencies**: the GLB writer (buffer views, accessors, PBR materials, embedded PNGs, KHR_lights_punctual) is implemented in-package. Geometry comes from UnityPy's `MeshHandler`
+- Verified on real bundles: AK-47 (173 meshes, 22 materials, 8 textures, world bounds match a real AK-47, vertex data matches the reference OBJ exports bit-for-bit on extents) and Colt 1911 (79 meshes). 35 new unit/integration tests cover the GLB writer, coordinate conversion and the end-to-end export
 
 ### Fixed: scene export
 
@@ -223,48 +235,48 @@ Documentation-only release; no functional changes.
 
 ### Console redesign
 
-- **One aligned line per pipeline step**: a single line with a green check mark, the step name, the result summary and the duration (for example a download step reporting 237 assets and 2 missing on the server) replaces the nested "Starting/Completed" pairs that printed up to six lines per logical step; a failed step prints a red cross line
+- **One aligned line per pipeline step**: a single line with a green check mark, the step name, the result summary and the duration (for example a download step reporting 237 assets and 2 missing on the server) replaces the nested "Starting/Completed" pairs printing up to six lines per logical step. A failed step prints a red cross line
 - **Progress bars are transient**: they disappear when finished, so a completed run leaves only step lines, warnings and the final summary (total time plus the output location) instead of a wall of 100%-complete bars
 - **Batched downloads run under one aggregate bar** for the whole list instead of a "Checking updates" + "Downloading assets" bar pair per 50-asset batch
-- **Warnings are compact one-liners** without the `[11/01/26 01:57:57] WARNING` developer formatting; timestamps, logger names and locations stay in the log file; wording starts with the weapon name (`foss_mg9: key API error (code 2)`, `beretta_92x: not found on server, skipped`), and the redundant end-of-run key-fetch summary moved to the file
-- **`full-pipeline --update-keys` no longer fetches all 288 keys twice**: the download and decrypt steps each ran their own ~72s key update; decrypt now reuses the keys fetched moments earlier (and only updates them itself when `--skip-download` is set)
+- **Warnings are compact one-liners** without the `[11/01/26 01:57:57] WARNING` developer formatting. Timestamps, logger names and locations stay in the log file. Wording starts with the weapon name (`foss_mg9: key API error (code 2)`, `beretta_92x: not found on server, skipped`), and the redundant end-of-run key-fetch summary moved to the file
+- **`full-pipeline --update-keys` no longer fetches all 288 keys twice**: the download and decrypt steps each ran their own ~72s key update. Decrypt now reuses the keys fetched moments earlier (and only updates the keys itself when `--skip-download` is set)
 - **No more 900-row performance dump**: the timing table is opt-in (`full-pipeline --performance`), aggregates per-item metrics into one row per operation (`download (287 items)`) and is capped to the 12 slowest
-- Slim one-line banner instead of the full-width panel; dropped the fake "Pipeline Overview" checklist, the "Sample weapons (first 10)" listing and the duplicated final messages; the 2-minute file validation pass now shows a progress bar instead of running silently between two status lines
+- Slim one-line banner instead of the full-width panel. Dropped the fake "Pipeline Overview" checklist, the "Sample weapons (first 10)" listing and the duplicated final messages. The 2-minute file validation pass now shows a progress bar instead of running silently between two status lines
 
 ### Fixed: unpacking and textures
 
-- **Meshes export as real OBJ geometry instead of empty stubs**: Unity 6 stores vertices in packed `m_VertexData` while the legacy `m_Vertices` array is `None`, so every exported `.obj` was a 2-line header (all 175 Colt 1911 meshes). Extraction now renders OBJ text through UnityPy's mesh exporter (verified on real data: 175/175 files with vertices, UVs and faces); the old manual writer remains as a fallback for meshes with legacy arrays
+- **Meshes export as real OBJ geometry instead of empty stubs**: Unity 6 stores vertices in packed `m_VertexData` while the legacy `m_Vertices` array is `None`, so every exported `.obj` was a 2-line header (all 175 Colt 1911 meshes). Extraction now renders OBJ text through UnityPy's mesh exporter (verified on real data: 175/175 files with vertices, UVs and faces). The old manual writer remains as a fallback for meshes with legacy arrays
 - **Swizzled normal maps no longer come out semi-transparent**: Unity (DXT5nm-style) keeps the X component in the alpha channel, so a raw RGBA export looks washed-out and ~50% transparent in viewers. Extraction now detects such textures and rewrites them to standard opaque RGB (X from alpha, Y from green, Z reconstructed as `sqrt(1 - x^2 - y^2)`)
 - **Detection is strict enough to leave real game data alone**: the check requires the constant-white red signature, varying green/alpha channels and valid unit normals. The game's genuine RGBA data (the `cuts` cutaway overlay baked at ~32% opacity, atlas masks, the 1D heat ramp in `gas`) is exported unchanged (verified on Colt 1911)
-- **`convert-normals` works on the game's real file names**: the old default pattern `*_n*.png` matched none of the game's textures (`gas.png`, `cuts.png`, ...). It now scans `*.png` by content, so re-runs are idempotent; it also fixes Y being read from blue instead of green and reconstructs Z instead of hardcoding 255
+- **`convert-normals` works on the game's real file names**: the old default pattern `*_n*.png` matched none of the game's textures (`gas.png`, `cuts.png`, ...). The command now scans `*.png` by content, so re-runs are idempotent. The command also fixes Y being read from blue instead of green and reconstructs Z instead of hardcoding 255
 
 ### Logging
 
 - **The log file now always captures INFO and above**: previously the CLI's console verbosity (`WARNING` by default) also silenced the file, so most runs left an almost empty log. Console status lines are mirrored into the file as `[status] message` INFO records, so the log is a complete history of a run
-- **DEBUG in the file via `.env`**: `WOG_LOG_LEVEL=DEBUG` (default `INFO`); console verbosity stays on the `-v`/`-d` flags, and `-d` now really shows DEBUG on the console
-- **One rotating log file** `wog.log` (5 MB x 3 backups) instead of a new `wog_dump_<timestamp>.log` on every run; full tracebacks of unexpected errors always land in the file
-- **Logs moved out of the working directory**: they now live next to the per-user database (`~/.local/share/wog_dump/logs/`), overridable with `WOG_LOG_DIR`; `wog-dump info` shows the path
+- **DEBUG in the file via `.env`**: `WOG_LOG_LEVEL=DEBUG` (default `INFO`). Console verbosity stays on the `-v`/`-d` flags, and `-d` now shows DEBUG on the console
+- **One rotating log file** `wog.log` (5 MB x 3 backups) instead of a new `wog_dump_<timestamp>.log` on every run. Full tracebacks of unexpected errors always land in the file
+- **Logs moved out of the working directory**: they now live next to the per-user database (`~/.local/share/wog_dump/logs/`), overridable with `WOG_LOG_DIR`. `wog-dump info` shows the path
 
 ### Interface and feedback
 
-- **Progress bars with ETA for every long operation**: fetching keys (`query=3` per weapon) previously ran for minutes with no output at all; key fetching, update checks and bulk decryption now show a live progress bar (count, percentage, remaining time), with failed/missing counters in the bar itself
-- **A missing asset no longer aborts the batch**: an HTTP 404 is now a per-asset skip with one clear warning ("Skipping asset not found on server") instead of an ERROR that stopped all remaining batches; one bad name used to silently cut the run from 288 assets down to 49
-- **No repeated banners in `full-pipeline`**: sub-commands invoked by the pipeline no longer re-print the big banner (it appeared 4+ times)
+- **Progress bars with ETA for every long operation**: fetching keys (`query=3` per weapon) previously ran for minutes with no output at all. Key fetching, update checks and bulk decryption now show a live progress bar (count, percentage, remaining time), with failed/missing counters in the bar itself
+- **A missing asset no longer aborts the batch**: an HTTP 404 is now a per-asset skip with one clear warning ("Skipping asset not found on server") instead of an ERROR stopping all remaining batches. One bad name used to silently cut the run from 288 assets down to 49
+- **No repeated banners in `full-pipeline`**: sub-commands invoked by the pipeline no longer re-print the big banner (the banner appeared 4+ times)
 - **No misleading "No decryption keys found"** during `--update-keys` on a fresh database (the warning came from the pre-merge load of an empty store)
-- **Lower key-API throttle default**: `WOG_API_REQUEST_DELAY` 0.5s to 0.25s; 288 keys now take ~72s instead of ~144s while staying at/below the request rate the unthrottled 4-thread fetch used to produce
+- **Lower key-API throttle default**: `WOG_API_REQUEST_DELAY` 0.5s to 0.25s. 288 keys now take ~72s instead of ~144s while staying at/below the request rate the unthrottled 4-thread fetch used to produce
 
 ### Reliability
 
-- **Resumable downloads**: interrupted transfers keep their partial data (`runtime/assets/*.tmp`) and the next run continues via an HTTP `Range` request instead of starting over; if the server file changed since, the download restarts automatically
+- **Resumable downloads**: interrupted transfers keep their partial data (`runtime/assets/*.tmp`) and the next run continues via an HTTP `Range` request instead of starting over. If the server file changed since, the download restarts automatically
 - **Parallel asset downloads**: `download-assets` now downloads with a thread pool (`--max-threads`) and a live progress bar instead of a sequential loop
-- **Rate limiting**: all requests go through a thread-safe `RateLimiter`; `WOG_REQUEST_DELAY` (downloads, default 0.1s) and `WOG_API_REQUEST_DELAY` (key API, default 0.5s) enforce a minimum interval to keep the game servers happy
-- **Strict download validation**: a downloaded asset must match the server-declared `Content-Length` exactly; the old "accept anything >= 20 bytes" heuristic now only applies when the size is unknown
+- **Rate limiting**: all requests go through a thread-safe `RateLimiter`. `WOG_REQUEST_DELAY` (downloads, default 0.1s) and `WOG_API_REQUEST_DELAY` (key API, default 0.5s) enforce a minimum interval to avoid overloading the game servers
+- **Strict download validation**: a downloaded asset must match the server-declared `Content-Length` exactly. The old "accept anything >= 20 bytes" heuristic now only applies when the size is unknown
 
 ### Refactoring
 
-- **CLI split into modules**: the 935-line `cli/main.py` became one module per command group (`cli/download.py`, `cli/decrypt.py`, `cli/unpack.py`, `cli/pipeline.py`, `cli/auth.py`, `cli/cache.py`, `cli/info.py`, `cli/convert.py`, `cli/errors.py`); `cli/main.py` keeps the group, global options and `main()`
+- **CLI split into modules**: the 935-line `cli/main.py` became one module per command group (`cli/download.py`, `cli/decrypt.py`, `cli/unpack.py`, `cli/pipeline.py`, `cli/auth.py`, `cli/cache.py`, `cli/info.py`, `cli/convert.py`, `cli/errors.py`). `cli/main.py` keeps the group, global options and `main()`
 - **`core/keys.py`**: `KeyManager` and the decrypt exception hierarchy moved out of `core/decrypt.py`, which now contains only the XOR asset decryption (`decrypt.py` re-exports the old names, imports keep working)
-- **Extractor registry in `core/unpack.py`**: one `AssetExtractor` subclass per Unity object type (`EXTRACTORS`) replaces the method-name dispatch table; supporting a new Unity type is now a self-contained subclass
+- **Extractor registry in `core/unpack.py`**: one `AssetExtractor` subclass per Unity object type (`EXTRACTORS`) replaces the method-name dispatch table. Supporting a new Unity type is now a self-contained subclass
 - Removed unused `WOGLogger.create_download_progress`/`print_error_summary`
 
 ### Testing
@@ -278,54 +290,54 @@ Documentation-only release; no functional changes.
 - **`docs/configuration.md`**: every environment variable, auth options, endpoints, rate limiting and resume behavior
 - **`docs/architecture.md`**: module map, pipeline stages, conventions
 - **`docs/database.md`**: SQLite schema, storage locations, migration from pre-2.4 files
-- **README**: realistic Troubleshooting section (auth failures, `result=1000`, rate limits, stale sessions, replacing advice that referenced non-existent CLI options), updated project structure, links to the new docs
+- **README**: realistic Troubleshooting section (auth failures, `result=1000`, rate limits, stale sessions, replacing advice referencing non-existent CLI options), updated project structure, links to the new docs
 
 ## [2.4.0] - 2026-11-01
 
 ### Protocol update (verified against the live client capture, Nov 2026)
 
 - **The key API moved to `query2026.php`**: the old `query2018.php` endpoint answers every request with `result=1000`. Default `api_base_url`, `game_version` (`2.2.3u9`) and `unity_version` (`6000.0.84f1`, Unity 6) now match the current `disasm64.exe` client
-- **`result=1000` reinterpreted**: it means "session rejected", not a generic server error; key fetching now re-logins automatically on it
-- Verified live: the `hash=` request parameter the client sends is not enforced by the server; the `dev` device id is not validated (generated per installation); email login (`query=1`) still exists on the new endpoint
+- **`result=1000` reinterpreted**: the code means "session rejected", not a generic server error, and key fetching now re-logins automatically on the code
+- Verified live: the `hash=` request parameter the client sends is not enforced by the server. The `dev` device id is not validated (generated per installation). Email login (`query=1`) still exists on the new endpoint
 
 ### Breaking Changes
 
-- **No secrets in the repository**: the 275 bundled decryption keys (`runtime/keys.txt`), the bundled weapon list (`runtime/weapons.txt`) and the captured auth constants (`auth_id`/`auth_session`/`device_id`) were removed from the repo. Existing installations can import their old files with `wog-dump cache --migrate`
-- **Local SQLite database** replaces `runtime/data.json`: weapons, keys, account credentials and sessions now live in a per-user database (`~/.local/share/wog_dump/wog_dump.db`, `%APPDATA%\wog_dump\` on Windows; owner-only permissions; override with `WOG_DB_PATH`)
+- **No secrets in the repository**: the 275 bundled decryption keys (`runtime/keys.txt`), the bundled weapon list (`runtime/weapons.txt`) and the captured auth constants (`auth_id`/`auth_session`/`device_id`) were removed from the repo. Existing installations import their old files with `wog-dump cache --migrate`
+- **Local SQLite database** replaces `runtime/data.json`: weapons, keys, account credentials and sessions now live in a per-user database (`~/.local/share/wog_dump/wog_dump.db`, `%APPDATA%\wog_dump\` on Windows, owner-only permissions, override with `WOG_DB_PATH`)
 - `DataStorageManager` (JSON storage) was replaced by `WOGDatabase`
 
 ### Added
 
-- **`wog-dump login` / `wog-dump logout`**: log in with your own World of Guns game account (email + password, same as the game client). A fresh session is obtained automatically whenever needed; verified live: the login endpoint accepts the request format, invalid accounts return `result=100` with a readable message
+- **`wog-dump login` / `wog-dump logout`**: log in with your own World of Guns game account (email + password, same as the game client). A fresh session is obtained automatically whenever needed. Verified live: the login endpoint accepts the request format, invalid accounts return `result=100` with a readable message
 - **Generated device identity**: a random 40-hex device id is generated per installation and stored in the local database (no captured device id in the code)
 - `core/api.py` (shared BZ2-over-HTTP API client), `core/auth.py` (login/session management), `core/database.py` (SQLite storage)
 - Key fetching now fails fast with one clear message when no account is configured, and re-logins automatically once when a stored session is rejected
-- **MITM key capture workflow** ([#1](https://github.com/InzGIBA/ReWOG/issues/1)): the key API rejects requests that do not come from the real game client, so fresh keys now have to be captured from your own game traffic
-  - `scripts/extract_keys.py` extracts `model`/`sync` pairs from mitmproxy `.flows` dumps, Fiddler `.saz` archives, or loose request/response dumps, and can merge them into the local key store (`--merge`) or export a shareable bundle (`-o`)
+- **MITM key capture workflow** ([#1](https://github.com/InzGIBA/ReWOG/issues/1)): the key API rejects requests not coming from the real game client, so fresh keys now have to be captured from your own game traffic
+  - `scripts/extract_keys.py` extracts `model`/`sync` pairs from mitmproxy `.flows` dumps, Fiddler `.saz` archives, or loose request/response dumps, and merges them into the local key store (`--merge`) or exports a shareable bundle (`-o`)
   - `docs/mitm-capture.md`: step-by-step instructions for capturing keys with mitmproxy or Fiddler
   - new `[mitm]` extra installs `mitmproxy` for reading `.flows` captures
 - `wog_dump.core.key_import` module with the capture parsers (unit-tested, including mitmproxy/SAZ/flat-file formats)
 - **`extract_keys.py --identity`**: imports the captured client identity (id/session/dev) from a mitmproxy dump into the local database and prints ready-to-copy `.env` lines
 - **Capture parsing handles IP-connected traffic**: the game client connects to the API by raw IP address, so captures are now matched by query-endpoint path/payload instead of hostname
-- **`.env` support** (python-dotenv): `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_DEVICE_ID` (captured session) or `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (email login), plus `WOG_API_BASE_URL`/`WOG_DATA_BASE_URL` overrides; `.env.example` documents everything and `.env` is gitignored
-- **Live tests** (`pytest -m live`): fetch a real key, download an asset, decrypt it and load it in UnityPy; auto-skipped without credentials in `.env`; both live tests pass against the real servers
+- **`.env` support** (python-dotenv): `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_DEVICE_ID` (captured session) or `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (email login), plus `WOG_API_BASE_URL`/`WOG_DATA_BASE_URL` overrides. `.env.example` documents everything and `.env` is gitignored
+- **Live tests** (`pytest -m live`): fetch a real key, download an asset, decrypt the file and load the bundle in UnityPy. The tests skip automatically without credentials in `.env`. Both live tests pass against the real servers
 
 ### Fixed
 
-- **`--update-keys` no longer drops existing keys**: a partial key fetch used to overwrite the whole key store, losing the bundled keys; fetched keys are now merged into the existing set (`download-assets` and `decrypt-assets`)
+- **`--update-keys` no longer drops existing keys**: a partial key fetch used to overwrite the whole key store, losing the bundled keys. Fetched keys are now merged into the existing set (`download-assets` and `decrypt-assets`)
 
 ### Refactoring
 
-- **Fixed broken CLI paths**: `cache --show-cache` no longer crashes with `KeyError`; `convert-normals` on a directory no longer crashes with `TypeError` (it passed a `batch_size` the converter never accepted); `decrypt-assets --validate` no longer crashes on a missing `UnityPy` import
-- **Completed the 2.3.2 hash removal**: deleted the leftover `--refresh-hashes`/`--clear-hashes` options (they referenced methods that no longer exist); `--validate-hashes` renamed to `--validate-assets` to match what it actually does
-- **Single version source**: the version now lives only in `wog_dump/__init__.py`; `pyproject.toml` (hatchling dynamic version), the CLI `--version` flag and the data-store metadata all read it from there
+- **Fixed broken CLI paths**: `cache --show-cache` no longer crashes with `KeyError`. `convert-normals` on a directory no longer crashes with `TypeError` (the command passed a `batch_size` the converter never accepted). `decrypt-assets --validate` no longer crashes on a missing `UnityPy` import
+- **Completed the 2.3.2 hash removal**: deleted the leftover `--refresh-hashes`/`--clear-hashes` options (the options referenced methods which no longer exist). `--validate-hashes` renamed to `--validate-assets` to match the real behavior
+- **Single version source**: the version now lives only in `wog_dump/__init__.py`. `pyproject.toml` (hatchling dynamic version), the CLI `--version` flag and the data-store metadata all read the value from there
 - **Deduplication**: one shared download-to-temp-then-rename implementation for all downloads, one shared HTTP session factory (`core/http.py`), one XOR implementation instead of three
 - **XOR decryption is ~18x faster** thanks to big-integer XOR while staying bit-for-bit compatible with the previous output
 - **Removed test-only hacks from production code**: the special-cased `"test.unity3d"` filename, mock-object chunk handling, and the accept-any-file validation branch
 - **Fixed a latent crash**: `except bz2.BZ2Error` referenced a non-existent exception and would have raised `AttributeError` on the first decompression error
-- **Type safety**: `mypy --strict` passes with zero errors (was 87); config path fields are no longer `Optional`; fixed an operator-precedence bug in weapon-name parsing
+- **Type safety**: `mypy --strict` passes with zero errors (was 87). Config path fields are no longer `Optional`. Fixed an operator-precedence bug in weapon-name parsing
 - **Removed dead code**: unused exceptions, the no-op `--parallel` flag, duplicate legacy-file parsing, the disabled hash test file
-- **README**: removed documentation of CLI options that never existed (`--resume`, `--dry-run`, `--validate-only`, `--export-config`)
+- **README**: removed documentation of non-existent CLI options (`--resume`, `--dry-run`, `--validate-only`, `--export-config`)
 
 ---
 
@@ -333,7 +345,7 @@ Documentation-only release; no functional changes.
 
 ### Breaking Changes
 
-- **Removed Unity3D hash validation**: the `.hash` files used hash algorithms that do not match the actual file content, so all hash validation functionality was removed. Asset validation now relies on file size comparison for update detection, and the hash-related CLI options (`--refresh-hashes`, `--validate-hashes`, `--clear-hashes`) are gone.
+- **Removed Unity3D hash validation**: the `.hash` files used hash algorithms which do not match the file content, so all hash validation functionality was removed. Asset validation now relies on file size comparison for update detection, and the hash-related CLI options (`--refresh-hashes`, `--validate-hashes`, `--clear-hashes`) are gone.
 
 ### Added: JSON storage and download management
 
@@ -345,22 +357,22 @@ Documentation-only release; no functional changes.
 
 ### Changed
 
-- Atomic JSON operations with backup and rollback; better temporary-file cleanup; enhanced `cache` command with metadata operations and status reporting
+- Atomic JSON operations with backup and rollback, better temporary-file cleanup, and an enhanced `cache` command with metadata operations and status reporting
 - Parallel update checking and batched downloads with ThreadPoolExecutor and configurable worker pools
 
 ### Fixed
 
-- Seven failing tests resolved (Mock object handling in download operations); proper temporary-file cleanup on errors; better handling of network timeouts and server response edge cases
+- Seven failing tests resolved (Mock object handling in download operations), proper temporary-file cleanup on errors, and better handling of network timeouts and server response edge cases
 
 ### Migration
 
-Legacy `weapons.txt` and `keys.txt` are migrated automatically on first use; the originals are preserved as backups. `DataStorageManager` keeps backward-compatible methods, so existing APIs remain functional.
+Legacy `weapons.txt` and `keys.txt` are migrated automatically on first use. The originals are preserved as backups. `DataStorageManager` keeps backward-compatible methods, so existing APIs remain functional.
 
 ---
 
 ## [2.3.1] - 2025-08-29
 
-Quality and reliability release; full backward compatibility with v2.3.0.
+Quality and reliability release. Full backward compatibility with v2.3.0.
 
 ### Changed
 
@@ -373,11 +385,11 @@ Quality and reliability release; full backward compatibility with v2.3.0.
 
 ### Fixed
 
-- `m_Script` data type handling for bytes and string formats; surrogate character encoding in asset extraction; asset size detection for update checking; HEAD request timeout management
+- `m_Script` data type handling for bytes and string formats, surrogate character encoding in asset extraction, asset size detection for update checking, HEAD request timeout management
 
 ### Removed
 
-- numpy and psutil dependencies; unused configuration options and dead code paths
+- numpy and psutil dependencies, unused configuration options and dead code paths
 
 ---
 
@@ -393,7 +405,7 @@ Documentation and community-standards release.
 
 ### Changed
 
-- Consistent formatting across all documentation files; cross-references between documents; copy-paste-ready command examples
+- Consistent formatting across all documentation files, cross-references between documents, copy-paste-ready command examples
 
 ---
 
@@ -403,7 +415,7 @@ Pure Python release: the XOR C binary dependency is removed.
 
 ### Changed
 
-- **XOR decryption in pure Python**: 8KB chunked processing replaces the C binary and the subprocess overhead; no C compiler required, works identically on all platforms
+- **XOR decryption in pure Python**: 8KB chunked processing replaces the C binary and the subprocess overhead. No C compiler required. Works identically on all platforms
 
 ### Removed
 
@@ -421,7 +433,7 @@ Modernization release: uv for package management and Python 3.12+ type annotatio
 
 ### Added
 
-- **uv support** as the recommended package manager; hatchling replaces setuptools as the build backend; unused dependencies removed (pathlib-mate, typing-extensions)
+- **uv support** as the recommended package manager. Hatchling replaces setuptools as the build backend. Unused dependencies removed (pathlib-mate, typing-extensions)
 
 ### Changed
 
@@ -441,7 +453,7 @@ Modernization release: uv for package management and Python 3.12+ type annotatio
 
 ### Removed
 
-- Legacy compatibility scripts (`wog_dump.py`, `convert_normal_map.py`); unused imports and deprecated patterns
+- Legacy compatibility scripts (`wog_dump.py`, `convert_normal_map.py`), unused imports and deprecated patterns
 
 ### Migration (developers)
 
@@ -482,7 +494,7 @@ wog-dump full-pipeline
 wog-convert-normals <path>
 ```
 
-Breaking changes: Python 3.12+ required; the package must be installed (no direct script execution); new command structure.
+Breaking changes: Python 3.12+ is required, the package must be installed (no direct script execution), and the command structure is new.
 
 ### Dependencies
 

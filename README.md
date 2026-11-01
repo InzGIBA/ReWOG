@@ -20,10 +20,10 @@
 ## Table of Contents
 
 - [Description](#description)
-- [What's New in v2.5](#whats-new-in-v25)
+- [What's New in v2.6](#whats-new-in-v26)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [How it Works](#how-it-works)
+- [How WOG Dump Works](#how-wog-dump-works)
 - [Usage](#usage)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -38,9 +38,9 @@
 
 ## Description
 
-WOG Dump is a modern, completely refactored Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). The v2.5 release adds one-command Blender scene export on top of the v2.4 `query2026` protocol, per-user credential storage and game-account login.
+WOG Dump is a Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). Version 2.6 hardens downloads, storage and environment handling after a full security audit. Version 2.5 added one-command Blender scene export, and version 2.4 moved the tool to the `query2026` protocol with per-user credential storage and game-account login.
 
-> **Educational Tool**: Designed for 3D model enthusiasts, modders, and researchers interested in studying game assets and 3D modeling techniques.
+> **Educational Tool**: designed for 3D model enthusiasts, modders and researchers who study game assets and 3D modeling techniques.
 
 ### Who this tool is for
 
@@ -51,26 +51,28 @@ WOG Dump is a modern, completely refactored Python tool for extracting 3D gun mo
 
 The project is actively maintained by [InzGIBA](https://github.com/inzgiba). If you run into trouble, see [Support](#support).
 
-### What's New in v2.5
+### What's New in v2.6
 
-- **`wog-dump build-scene`**: rebuilds the in-game assembled weapon as a Blender-ready glTF scene: exact part hierarchy and positions, game materials with textures, camera and studio lighting, real-world scale
+- **Security hardening** (v2.6.0): asset and weapon names must match a strict alphabet, `.env` files apply only `WOG_*` keys, download resume needs a server validator, and log files are no longer world-readable. Some changes break old workflows on purpose, so read the 2.6.0 changelog entry before upgrading
+- **CLI fixes** (v2.6.1): weapon-list import handles the new atlas format, material dumps work again, and `decrypt-assets --weapons` respects the filter again
+- **`wog-dump build-scene`** (v2.5): rebuilds the in-game assembled weapon as a Blender-ready glTF scene: exact part hierarchy and positions, game materials with textures, camera and studio lighting, real-world scale
 - **No extra objects**: UI arrows, cutaway meshes, muzzle-flash effects and animation dummies are classified and skipped (`--extras` exports them on request)
 - **One-click Blender setup**: a generated `blender_setup.py` imports the scene, sorts collections and saves a `.blend`
-- **query2026 protocol** (v2.4): targets the current game API (game `2.2.3u9`, Unity 6); automatic re-login on session rejection
-- **No secrets in the repo** (v2.4): bundled keys and captured credentials removed; data lives in a per-user SQLite database
+- **query2026 protocol** (v2.4): targets the current game API (game `2.2.3u9`, Unity 6) with automatic re-login on session rejection
+- **No secrets in the repo** (v2.4): bundled keys and captured credentials are gone. All data lives in a per-user SQLite database
 - **`wog-dump login` / `logout`** (v2.4): use your own game account (email + password) to fetch keys
 - **Live tests**: `pytest -m live` verifies fetch/download/decrypt against the real servers
 
 ## Requirements
 
 - **Python 3.12+** (Required)
-- [AssetStudio](https://github.com/Perfare/AssetStudio) - for final asset unpacking
+- [AssetStudio](https://github.com/Perfare/AssetStudio): for final asset unpacking
 
 ## Installation
 
 ### Quick Install with uv (Recommended)
 
-[uv](https://github.com/astral-sh/uv) is the modern, fast Python package installer and resolver.
+[uv](https://github.com/astral-sh/uv) is a fast Python package installer and resolver.
 
 ```bash
 # Install uv if you haven't already
@@ -106,7 +108,7 @@ uv pip install -e ".[dev]"
 pytest
 ```
 
-## How it Works
+## How WOG Dump Works
 
 1. **Download Weapon List**: Fetches and processes the weapon catalog
 2. **Fetch Decryption Keys**: Retrieves keys for each weapon asset
@@ -120,7 +122,7 @@ pytest
 > Capture your own client once with a MITM proxy and run
 > `uv run python scripts/extract_keys.py wog-keys.flows --identity --merge`.
 > Keys and the client identity land in the local database, and the identity
-> values go into your `.env` (see `.env.example`). Alternatively log in with a
+> values go into your `.env` (see `.env.example`). Alternatively, log in with a
 > game-account email/password (`wog-dump login`). Credentials, sessions, keys
 > and the weapon list live in a local SQLite database outside the repository,
 > so no sensitive data ships with the code. Details:
@@ -141,7 +143,7 @@ wog-dump full-pipeline --update-keys --convert-normals
 # 1. Check configuration and status
 wog-dump info
 
-# 2. Log in with your game account (once; creates a local database)
+# 2. Log in with your game account (once, creates a local database)
 wog-dump login
 
 # 3. Download weapon catalog
@@ -163,7 +165,7 @@ wog-dump convert-normals ./unpacked --recursive
 
 ### Command Line Interface
 
-WOG Dump v2.5 provides a comprehensive CLI with multiple commands:
+WOG Dump ships a full CLI with multiple commands:
 
 ```bash
 # Get help for any command
@@ -177,7 +179,7 @@ wog-dump info
 wog-dump full-pipeline --verbose --max-threads 8 --update-keys --convert-normals
 ```
 
-> **Pro Tip**: Use `wog-dump info` to check your system configuration and available storage space before starting large operations.
+> **Tip**: run `wog-dump info` to check your configuration and free disk space before starting large operations.
 
 ### Individual Commands
 
@@ -261,7 +263,7 @@ wog-dump download-weapons --force
 
 **Performance Optimization:**
 ```bash
-# High-performance setup for powerful machines
+# High-performance setup for strong machines
 wog-dump --max-threads 16 full-pipeline
 
 # Conservative setup for limited resources
@@ -279,13 +281,13 @@ wog-dump cache --migrate
 # Show detailed cache statistics
 wog-dump cache --show-cache
 
-# Check that downloaded assets exist and are non-empty
+# Check downloaded assets exist and are non-empty
 wog-dump cache --validate-assets
 ```
 
 **Development and Testing:**
 ```bash
-# See what would be downloaded without downloading it
+# See what would be downloaded without downloading anything
 wog-dump download-assets --check-only
 
 # Validate decrypted files after decryption
@@ -331,6 +333,7 @@ ReWOG/
 │   │   ├── auth.py                  # Game-account login and identity
 │   │   ├── database.py              # Local SQLite storage (weapons/keys/auth)
 │   │   ├── keys.py                  # Decryption key fetching and caching
+│   │   ├── paths.py                 # Name validation and path containment (security)
 │   │   ├── download.py              # Resumable parallel asset downloading
 │   │   ├── decrypt.py               # XOR decryption (pure Python)
 │   │   ├── unpack.py                # Unity asset extraction (per-type extractors)
@@ -370,7 +373,7 @@ ReWOG/
 
 ## Configuration
 
-WOG Dump uses Pydantic for robust configuration management:
+WOG Dump uses Pydantic for configuration management:
 
 ```python
 # Configuration is automatically managed
@@ -423,7 +426,7 @@ flake8 src/ tests/
 
 ## Contributing
 
-We welcome contributions from the community! Whether you're fixing bugs, adding features, or improving documentation, your help makes WOG Dump better for everyone.
+We welcome contributions of every size: bug fixes, features and documentation all make WOG Dump better for everyone.
 
 ### Quick Links
 
@@ -477,7 +480,7 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
 
 ### Recognition
 
-All contributors are recognized in our [CHANGELOG.md](CHANGELOG.md) and commit history. Significant contributors may be invited to join the core team.
+All contributors are recognized in our [CHANGELOG.md](CHANGELOG.md) and commit history. Significant contributors get invited to join the core team.
 
 ## Support
 
@@ -492,25 +495,25 @@ Please use the public channels above so answers remain useful to others. For sec
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Special Thanks
 
-- [DeadZoneGarry](https://github.com/DeadZoneLuna) - original decryption research
-- [Noble Empire Corp.](https://noble-empire.com/news.php) - game and assets
+- [DeadZoneGarry](https://github.com/DeadZoneLuna): original decryption research
+- [Noble Empire Corp.](https://noble-empire.com/news.php): game and assets
 - Contributors to the original WOG Dump project
 
 ## Frequently Asked Questions (FAQ)
 
 ### General Questions
 
-**Q: What is WOG Dump and what does it do?**
-A: WOG Dump extracts 3D gun models, textures, and materials from the World of Guns: Gun Disassembly game for educational, research, and personal use purposes.
+**Q: What is WOG Dump and what does the tool do?**
+A: WOG Dump extracts 3D gun models, textures, and materials from the World of Guns: Gun Disassembly game for study, research, and personal use.
 
 **Q: Do I need to own the game to use this tool?**
-A: The tool downloads public asset files from the game's servers. While game ownership isn't technically required for the tool to function, we recommend owning the game to support the developers.
+A: The tool downloads public asset files from the game's servers. Game ownership is not required for the tool to work, but we recommend owning the game to support the developers.
 
-**Q: What file formats does it extract?**
+**Q: What file formats does WOG Dump extract?**
 A: The tool extracts Unity3D assets including:
 - Blender-ready scenes (glTF 2.0 via `build-scene`: game hierarchy, materials and textures)
 - 3D Models (OBJ format)
@@ -520,11 +523,11 @@ A: The tool extracts Unity3D assets including:
 
 ### Technical Questions
 
-**Q: Why does it require Python 3.12+?**
-A: We use modern Python features like native type annotations (`list[str]` instead of `List[str]`) and improved error handling that are only available in Python 3.12+.
+**Q: Why is Python 3.12+ required?**
+A: We use Python 3.12+ features: native type annotations (`list[str]` instead of `List[str]`) and improved error handling.
 
-**Q: Can I use this on Windows/macOS/Linux?**
-A: Yes! The tool is pure Python and works on all major operating systems. The v2 release removed all C dependencies for better cross-platform compatibility.
+**Q: Does this work on Windows, macOS and Linux?**
+A: Yes. The tool is pure Python and works on all major operating systems. The v2 release removed all C dependencies.
 
 **Q: How much disk space do I need?**
 A: Plan for:
@@ -534,7 +537,7 @@ A: Plan for:
 - Total recommended: **10-20 GB free space**
 
 **Q: Is internet connection required?**
-A: Yes, for downloading assets from game servers. After initial download, you can process files offline.
+A: Yes, for downloading assets from game servers. After the initial download, everything else works offline.
 
 ### Usage Questions
 
@@ -544,23 +547,23 @@ A: Depends on your system and internet speed:
 - Average system (HDD, 4 cores, 25 Mbps): ~5-10 minutes
 - Slow system (older hardware, slow internet): ~15-30 minutes
 
-**Q: Can I extract only specific weapons?**
-A: Yes! Use the `--weapons` parameter:
+**Q: How do I extract only specific weapons?**
+A: Yes. Use the `--weapons` parameter:
 ```bash
 wog-dump download-assets --weapons "ak74,m4a1,glock17"
 ```
 
 **Q: What if the download fails or gets interrupted?**
-A: The tool supports resuming interrupted downloads. Simply run the same command again and it will continue where it left off.
+A: The tool resumes interrupted downloads. Run the same command again, and the download continues where the previous run stopped.
 
 **Q: Key fetching logs `API error for X: Server error` / `No key available`. What is wrong?**
 A: Two common causes. (1) No valid session: capture your client once ([MITM guide](docs/mitm-capture.md)) and put `WOG_AUTH_ID`/`WOG_AUTH_SESSION` into `.env`, or run `wog-dump login` with a game-account email/password. (2) An outdated endpoint/protocol: this tool now targets `query2026.php` with the current client versions (`2.2.3u9` / `6000.0.84f1`), verified against the live servers in November 2026.
 
 **Q: Where are my credentials and keys stored?**
-A: In a per-user SQLite database (`~/.local/share/wog_dump/wog_dump.db` on Linux, `%APPDATA%\wog_dump\` on Windows), with owner-only permissions. Nothing sensitive is stored in the repository. Set `WOG_DB_PATH` to use a different location; `wog-dump logout` removes the stored credentials. A repo-local `.env` (gitignored, see `.env.example`) can provide `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_ACCOUNT_*` instead.
+A: In a per-user SQLite database (`~/.local/share/wog_dump/wog_dump.db` on Linux, `%APPDATA%\wog_dump\` on Windows), with owner-only permissions. Nothing sensitive is stored in the repository. Set `WOG_DB_PATH` to use a different location. `wog-dump logout` removes the stored credentials. A repo-local `.env` (gitignored, see `.env.example`) provides `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_ACCOUNT_*` as an alternative.
 
-**Q: Can I test against the real game servers?**
-A: Yes, configure auth in `.env` and run `pytest -m live`. These live tests fetch a real key, download an asset, decrypt it and load it in UnityPy; they are skipped automatically when no credentials are configured.
+**Q: How do I test against the real game servers?**
+A: Yes, configure auth in `.env` and run `pytest -m live`. The live tests fetch a real key, download an asset, decrypt the file and load the bundle in UnityPy. The tests skip automatically when no credentials are configured.
 
 ### Troubleshooting
 
@@ -572,10 +575,10 @@ wog-dump login
 or put `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` (or a captured `WOG_AUTH_ID`/`WOG_AUTH_SESSION`, see [docs/mitm-capture.md](docs/mitm-capture.md)) into `.env`. Check what is configured with `wog-dump cache`.
 
 **Q: `Authentication failed (result=100)`**
-A: The API rejected the account credentials. Verify the email/password pair in the game client itself, then `wog-dump login` again. If you use a captured session, it expired; capture a fresh one or switch to account login.
+A: The API rejected the account credentials. Verify the email/password pair in the game client itself, then `wog-dump login` again. If you use a captured session, the session expired. Capture a fresh one or switch to account login.
 
 **Q: Key fetching fails with `Session rejected` (result=1000)**
-A: The stored session expired. WOG Dump re-logins automatically; if the error persists, the stored credentials are outdated. Run `wog-dump logout && wog-dump login`.
+A: The stored session expired. WOG Dump re-logins automatically. If the error persists, the stored credentials are outdated. Run `wog-dump logout && wog-dump login`.
 
 **Q: `429` / rate-limit errors from the API**
 A: Requests are too frequent. Raise the throttles in `.env`:
@@ -589,30 +592,30 @@ A: The database has no weapon list yet:
 ```bash
 wog-dump download-weapons
 ```
-Coming from a pre-2.4 installation with `runtime/weapons.txt`? Import it once with `wog-dump cache --migrate`.
+Coming from a pre-2.4 installation with `runtime/weapons.txt`? Import the file once with `wog-dump cache --migrate`.
 
 **Q: `No decryption keys found. Use --update-keys to fetch them.`**
-A: There are no keys in the database. Fetch them for the weapons you need (auth must be configured):
+A: There are no keys in the database. Fetch the keys for the weapons you need (auth must be configured):
 ```bash
 wog-dump decrypt-assets --update-keys
 ```
 
-**Q: The tool seems stuck or very slow, what's wrong?**
+**Q: The tool seems stuck or slow, what's wrong?**
 A: Try these steps:
 1. Check your internet connection
 2. Reduce thread count: `wog-dump --max-threads 2 download-assets`
 3. Enable verbose logging: `--verbose` (or `--debug` for everything)
-4. Downloads are throttled by design; see `WOG_REQUEST_DELAY` above if you want them faster
+4. Downloads are throttled by design. See `WOG_REQUEST_DELAY` above if you want them faster
 
 **Q: Key API stopped working after a game update (`result=1000` on every request)**
-A: The client version strings are validated server-side. Update them in `.env` to match the current client (find them in the game's installation or a fresh capture):
+A: The client version strings are validated server-side. Update the strings in `.env` to match the current client (find the values in the game's installation or a fresh capture):
 ```bash
 WOG_GAME_VERSION=2.2.3u9
 WOG_UNITY_VERSION=6000.0.84f1
 ```
 
 **Q: Interrupted download: do I have to start over?**
-A: No. Partial downloads are kept as `runtime/assets/*.tmp` and resumed via HTTP `Range` requests on the next run. If a `.tmp` file refuses to go away, delete it to force a fresh download.
+A: No. Partial downloads are kept as `runtime/assets/*.tmp` and resumed via HTTP `Range` requests on the next run. If a `.tmp` file refuses to go away, delete the file to force a fresh download.
 
 **Q: How do I report bugs or request features?**
 A: Please create an issue on GitHub with:

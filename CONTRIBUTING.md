@@ -1,20 +1,20 @@
 # Contributing to WOG Dump
 
-Thank you for your interest in contributing to WOG Dump! Every contribution is meaningful: a typo fix, a clearer docstring or a bug report helps the next user just as much as a new feature. This document explains how to contribute, what to expect, and where to start.
+Thank you for your interest in contributing to WOG Dump. Every contribution counts: a typo fix, a clearer docstring or a bug report helps the next user as much as a new feature. This guide explains how to contribute, what to expect, and where to start.
 
-Before participating, please read our [Code of Conduct](CODE_OF_CONDUCT.md); it applies to every community space of this project.
+Before participating, please read our [Code of Conduct](CODE_OF_CONDUCT.md). The code applies to every community space of this project.
 
 ## Ways to Contribute
 
 You do not have to write code to help:
 
-- **Bug reports**: reproduce the problem and report it with full details (see [Bug Reports](#bug-reports)). This is how most issues get fixed.
+- **Bug reports**: reproduce the problem and report the details (see [Bug Reports](#bug-reports)). This is how most issues get fixed.
 - **Documentation**: improvements to the README, this guide, or the `docs/` pages. Documentation-only pull requests are welcome.
 - **Testing**: new test cases, or running the live tests (`pytest -m live`) against the current game servers and reporting what changed.
 - **Feature requests**: describe the problem you are trying to solve (see [Feature Requests](#feature-requests)).
 - **Code**: fixes and features in `src/` (see the [Development Workflow](#development-workflow) below).
 
-Look for issues labeled `good first issue` in the [issue tracker](https://github.com/InzGIBA/ReWOG/issues); they are chosen to be safe entry points for newcomers.
+Look for issues labeled `good first issue` in the [issue tracker](https://github.com/InzGIBA/ReWOG/issues). Maintainers pick these issues as safe entry points for newcomers.
 
 ## Project Scope
 
@@ -28,7 +28,7 @@ In scope:
 
 Out of scope (such contributions will be declined):
 
-- Anything that helps redistribute the game's assets or violates their terms of use
+- Anything which helps redistribute the game's assets or violates their terms of use
 - Support for other games or generic Unity extractors (use [AssetRipper](https://github.com/AssetRipper/AssetRipper) or [AssetStudio](https://github.com/Perfare/AssetStudio) for those)
 - Automating gameplay or interacting with the game beyond the documented APIs
 
@@ -129,9 +129,9 @@ test(download): add tests for parallel downloads
 
 ### Test Structure
 
-- **Unit Tests**: `tests/unit/` - test individual components
-- **Integration Tests**: `tests/integration/` - test component interactions and the CLI end to end
-- **Live Tests**: `tests/integration/test_live.py` (`pytest -m live`) - exercise the real game servers; skipped automatically when no credentials are configured
+- **Unit Tests**: `tests/unit/` for individual components
+- **Integration Tests**: `tests/integration/` for component interactions and the CLI end to end
+- **Live Tests**: `tests/integration/test_live.py` (`pytest -m live`) exercise the real game servers. The tests skip automatically when no credentials are configured.
 
 ### Writing Tests
 
@@ -153,7 +153,7 @@ class TestDownloadManager:
 - Aim for >90% test coverage (the enforced floor is 75, see `[tool.coverage.report]` in `pyproject.toml`)
 - All new features must include tests
 - Bug fixes should include regression tests
-- Mock at the `requests.Session` / `UnityPy.load` boundary; never hit the network in unit tests
+- Mock at the `requests.Session` / `UnityPy.load` boundary. Never hit the network in unit tests
 
 ## Documentation
 
@@ -203,7 +203,7 @@ When reporting bugs, please include:
 
 3. **Error Messages**
    - Full error traceback
-   - Log file (`wog-dump info` shows its location)
+   - Log file (`wog-dump info` shows the location)
 
 4. **Additional Context**
    - Screenshots if applicable
@@ -213,10 +213,10 @@ When reporting bugs, please include:
 
 For new features:
 
-1. **Check Existing Issues** - avoid duplicates
-2. **Describe the Problem** - what need does this address?
-3. **Propose a Solution** - how should it work?
-4. **Consider Alternatives** - what other approaches exist?
+1. **Check Existing Issues**: avoid duplicates
+2. **Describe the Problem**: what need does the request address?
+3. **Propose a Solution**: how should the feature work?
+4. **Consider Alternatives**: what other approaches exist?
 
 ## Code Architecture
 
@@ -231,6 +231,7 @@ src/wog_dump/
 │   ├── auth.py         # Game-account login and identity
 │   ├── database.py     # Local SQLite storage
 │   ├── keys.py         # Key fetching and caching
+│   ├── paths.py        # Name validation and path containment
 │   ├── download.py     # Resumable parallel asset downloads
 │   ├── decrypt.py      # XOR decryption
 │   ├── unpack.py       # Unity asset extraction (extractor registry)
@@ -251,20 +252,20 @@ Dependency direction is strictly downwards: `cli` imports from `core`, `core` ne
 
 ### Design Principles
 
-1. **Separation of Concerns** - each module has a single responsibility
-2. **Dependency Injection** - pass dependencies explicitly
-3. **Error Handling** - graceful error recovery with domain exception hierarchies
-4. **Type Safety** - type hints throughout, `mypy` strict-clean
-5. **Testability** - design for easy testing
-6. **No Secrets in Code** - credentials and keys live only in the per-user database
+1. **Separation of Concerns**: each module has a single responsibility
+2. **Dependency Injection**: pass dependencies explicitly
+3. **Error Handling**: graceful error recovery with domain exception hierarchies
+4. **Type Safety**: type hints throughout, `mypy` strict-clean
+5. **Testability**: design for easy testing
+6. **No Secrets in Code**: credentials and keys live only in the per-user database
 
 ### Adding New Features
 
-1. **Core Logic** - add business logic to the appropriate `core/` module
-2. **CLI Interface** - add the command to the matching `cli/` module (create a new one for a new command group and register it in `cli/main.py`)
-3. **Configuration** - add config options to `core/config.py` with an environment-variable mapping
-4. **Tests** - add comprehensive tests
-5. **Documentation** - update docs and examples
+1. **Core Logic**: add business logic to the appropriate `core/` module
+2. **CLI Interface**: add the command to the matching `cli/` module (create a new one for a new command group and register the module in `cli/main.py`)
+3. **Configuration**: add config options to `core/config.py` with an environment-variable mapping
+4. **Tests**: add comprehensive tests
+5. **Documentation**: update docs and examples
 
 ### Code Quality Standards
 
@@ -331,11 +332,11 @@ python -m cProfile -o profile.stats -m wog_dump.cli.main full-pipeline
 
 ## What to Expect
 
-So that nobody has to guess, here is how contributions are handled:
+So nobody has to guess, here is how contributions are handled:
 
-- **Response time**: bug reports get a first response within about 48 hours, feature requests within about a week. This is a volunteer-maintained project; complex reviews can take longer.
+- **Response time**: bug reports get a first response within about 48 hours, feature requests within about a week. This is a volunteer-maintained project, and complex reviews take longer.
 - **Review criteria**: PRs are reviewed for tests (new features need them), type safety (`mypy`), style (black/isort) and fit with the project scope above.
-- **Issues before big PRs**: for changes beyond a small fix, open an issue first so the approach can be agreed on before you spend time implementing it.
+- **Issues before big PRs**: for changes beyond a small fix, open an issue first so the approach is agreed on before you spend time implementing.
 - **Declined contributions**: if a PR does not fit the scope, we will explain why and link the relevant documentation. We still appreciate the interest.
 
 ## Release Process
@@ -343,7 +344,7 @@ So that nobody has to guess, here is how contributions are handled:
 For maintainers:
 
 1. **Version Bump**
-   - Update `__version__` in `src/wog_dump/__init__.py` (the single version source; `pyproject.toml` reads it dynamically via hatchling)
+   - Update `__version__` in `src/wog_dump/__init__.py` (the single version source). `pyproject.toml` reads the value dynamically via hatchling.
 
 2. **Update Changelog**
    - Move the `[Unreleased]` entries into a new version section with the date
@@ -357,10 +358,10 @@ For maintainers:
 
 - **Discussions**: use GitHub Discussions for questions
 - **Issues**: create issues for bugs and feature requests
-- **Email**: contact maintainers for sensitive matters (including Code of Conduct reports; see [SUPPORT.md](SUPPORT.md) for all channels)
+- **Email**: contact maintainers for sensitive matters, including Code of Conduct reports (see [SUPPORT.md](SUPPORT.md) for all channels)
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree your contributions will be licensed under the MIT License.
 
 Thank you for contributing to WOG Dump!

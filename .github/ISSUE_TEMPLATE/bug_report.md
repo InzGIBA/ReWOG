@@ -21,7 +21,7 @@ What you expected to happen.
 
 **Actual behavior**
 
-What actually happened. Paste the full error output, including the traceback.
+What happened instead. Paste the full error output, including the traceback.
 
 ```
 (paste here)
@@ -37,4 +37,4 @@ What actually happened. Paste the full error output, including the traceback.
 
 **Additional context**
 
-Add any other context here. If available, attach `wog.log` (its location is shown by `wog-dump info`).
+Add any other context here. If available, attach `wog.log` (find the location with `wog-dump info`).

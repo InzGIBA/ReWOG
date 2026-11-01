@@ -1,6 +1,6 @@
 **Summary**
 
-What does this PR change and why? Link the issue it solves, if any (`Fixes #123`).
+What does this PR change and why? Link the issue this solves, if any (`Fixes #123`).
 
 **Changes**
 
@@ -14,4 +14,4 @@ What does this PR change and why? Link the issue it solves, if any (`Fixes #123`
 - [ ] CHANGELOG.md entry added under `[Unreleased]`
 - [ ] For user-facing changes: the change works end to end with real data
 
-If this is a small fix, some boxes may not apply; just say so.
+For a small fix, some boxes do not apply. Say so in the description.

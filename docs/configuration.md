@@ -5,7 +5,10 @@ WOG Dump is configured through three layers, applied in this order
 
 1. **Built-in defaults** (`wog_dump/core/config.py`)
 2. **Environment variables / `.env` file** in the working directory
-   (`python-dotenv`, never overriding variables already set in the shell)
+   (`python-dotenv`, never overriding variables already set in the shell).
+   Since 2.6.0 a `.env` file applies only `WOG_*` keys: transport
+   variables like `HTTPS_PROXY` or `REQUESTS_CA_BUNDLE` belong in your
+   real shell environment.
 3. **CLI global options** (`wog-dump --max-threads 8 ...`)
 
 Copy `.env.example` to `.env` and fill in what you need. `.env` is
@@ -22,8 +25,9 @@ following options:
 | `WOG_AUTH_ID` / `WOG_AUTH_SESSION` | A captured session from your own traffic (see [mitm-capture.md](mitm-capture.md)). |
 | `WOG_DEVICE_ID` | Optional device id to send with a captured session. Generated per installation when unset. |
 
-The recommended flow is `wog-dump login` once: it stores the account in
-the local database and no environment variables are needed at all.
+The recommended flow is a single `wog-dump login` run: the command
+stores the account in the local database, and no environment variables
+are needed at all.
 
 ## Endpoints and protocol
 
@@ -34,14 +38,15 @@ the local database and no environment variables are needed at all.
 | `WOG_GAME_VERSION` | `2.2.3u9` | Game version reported to the API |
 | `WOG_UNITY_VERSION` | `6000.0.84f1` | Unity version reported to the API |
 
-The game version strings must match the current `disasm64.exe` client;
-wrong values are rejected server-side. Update them when the game updates.
+The game version strings must match the current `disasm64.exe` client.
+Wrong values are rejected server-side. Update the strings when the game
+updates.
 
 ## Storage
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WOG_BASE_DIR` | current directory | Base directory; runtime data lives in `<base>/runtime/` |
+| `WOG_BASE_DIR` | current directory | Base directory. Runtime data lives in `<base>/runtime/` |
 | `WOG_DB_PATH` | per-user data dir (see [database.md](database.md)) | Location of the SQLite database |
 
 ## Performance and reliability
@@ -59,8 +64,8 @@ wrong values are rejected server-side. Update them when the game updates.
 
 The console and the log file have independent verbosity:
 
-- **Console**: quiet by default (warnings/errors only); `wog-dump -v` shows
-  INFO, `wog-dump -d` shows DEBUG.
+- **Console**: quiet by default (warnings/errors only). `wog-dump -v`
+  shows INFO, `wog-dump -d` shows DEBUG.
 - **Log file**: always captures INFO and above (including full
   tracebacks) no matter how quiet the console is. Set
   `WOG_LOG_LEVEL=DEBUG` to include debug output in the file.
@@ -78,21 +83,24 @@ the exact path in use.
 ### Rate limiting
 
 The two delay settings throttle every request (downloads and API calls
-alike) across all worker threads. The defaults are polite; increase them
-if you see `429` / rate-limit errors, decrease to zero for maximum speed
-on a connection you trust.
+alike) across all worker threads. The defaults keep request rates low.
+Increase the delays if you see `429` rate-limit errors, decrease to zero
+for maximum speed on a connection you trust.
 
 ### Resumable downloads
 
 Interrupted downloads keep their partial data in `runtime/assets/*.tmp`.
 The next run sends an HTTP `Range` request and continues from where the
-transfer stopped, instead of starting over. If the file changed
-server-side in the meantime, the download restarts automatically.
+transfer stopped, instead of starting over. Since 2.6.0 a resume also
+needs the `<name>.tmp.meta` sidecar written during the original
+download, which records the ETag/Last-Modified validator. Partials
+without a sidecar, or where the server answers 200 because the file
+changed, restart from scratch.
 
 ## CLI equivalents
 
-Every environment variable has a CLI option on the main group where it
-makes sense:
+Every environment variable has a CLI option on the main group where such
+an option makes sense:
 
 ```bash
 wog-dump --max-threads 8 --chunk-size 64 download-assets

@@ -15,7 +15,9 @@ checkouts never fight over `runtime/keys.txt`.
 
 Override with the `WOG_DB_PATH` environment variable (also useful to
 keep a test database around). The file is created with owner-only
-permissions (`0o600`) where the platform supports it.
+permissions (`0o600`) where the platform allows. Since 2.6.0,
+`WOG_DB_PATH` values pointing through a symlink are refused, so
+credentials never get written through a link someone else planted.
 
 Run `wog-dump info` or `wog-dump cache` to see the exact path in use.
 
@@ -52,8 +54,8 @@ CREATE TABLE keys (
 ```
 
 All access goes through `WOGDatabase` (`core/database.py`), which
-serializes every operation with a re-entrant lock; key fetching runs
-in a thread pool, and SQLite connections are per-call.
+serializes every operation with a re-entrant lock. Key fetching runs in
+a thread pool, and SQLite connections are per-call.
 
 ## What is stored where
 
@@ -65,8 +67,8 @@ in a thread pool, and SQLite connections are per-call.
 | Session (auth_id/session) | `identity` | automatic on login / re-login |
 | Device id | `settings` | generated once per installation |
 
-Downloaded/decrypted/unpacked files stay in `<base>/runtime/`; only
-the small indexed data lives in the database.
+Downloaded/decrypted/unpacked files stay in `<base>/runtime/`. Only the
+small indexed data lives in the database.
 
 ## Managing the database
 
@@ -80,7 +82,7 @@ wog-dump logout               # remove account credentials and session
 ## Migrating from pre-2.4 installations
 
 Old installations kept `runtime/weapons.txt` and `runtime/keys.txt`.
-Import them once:
+Import both once:
 
 ```bash
 wog-dump cache --migrate
@@ -88,4 +90,6 @@ wog-dump cache --migrate
 
 The import is non-destructive: existing database rows win, imported
 keys are merged (never dropped). The tool also attempts this migration
-automatically the first time it finds no data in the database.
+automatically the first time the tool starts with an empty database.
+Since 2.6.0 the import runs once per database: a second
+`cache --migrate` is refused, and `--force` overrides.

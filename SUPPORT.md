@@ -1,15 +1,15 @@
 # Support
 
-We want to help you get the most out of WOG Dump! This document provides guidance on how to get support for any issues you might encounter.
+We want to help you get the most out of WOG Dump. This guide explains where to get help and how to report problems so they get solved quickly.
 
 ## Before You Ask for Help
 
 Please try these steps first:
 
-1. **Check the README** - the [`README.md`](README.md) contains comprehensive installation and usage instructions
-2. **Read the FAQ and Troubleshooting sections** - common issues and solutions are documented in the README
-3. **Search Existing Issues** - check if your question or issue has already been reported in our [GitHub Issues](https://github.com/InzGIBA/ReWOG/issues)
-4. **Read the docs** - [configuration](docs/configuration.md), [architecture](docs/architecture.md), [database](docs/database.md) and [MITM capture](docs/mitm-capture.md)
+1. **Check the README**: [`README.md`](README.md) covers installation and usage end to end
+2. **Read the FAQ and Troubleshooting sections**: common issues and solutions live in the README
+3. **Search existing issues**: check if your question or issue already appears in our [GitHub Issues](https://github.com/InzGIBA/ReWOG/issues)
+4. **Read the docs**: [configuration](docs/configuration.md), [architecture](docs/architecture.md), [database](docs/database.md) and [MITM capture](docs/mitm-capture.md)
 
 ## Reporting Issues
 
@@ -24,12 +24,12 @@ When reporting a bug or issue, please include:
 ### Detailed Description
 - **What you were trying to do**: clear description of your goal
 - **What you expected to happen**: expected behavior
-- **What actually happened**: actual behavior with error messages
-- **Steps to reproduce**: exact commands and actions that led to the issue
+- **What happened instead**: the real behavior with error messages
+- **Steps to reproduce**: exact commands and actions leading to the issue
 
 ### Error Information
 - **Full error message**: copy the complete error output
-- **Log file**: attach `wog.log` (run `wog-dump info` to see its location; it always captures INFO and above, including full tracebacks)
+- **Log file**: attach `wog.log` (find the location with `wog-dump info`). The file always captures INFO and above, including full tracebacks.
 - **Screenshots**: if applicable, especially for CLI output
 
 ### Example Issue Template
@@ -73,31 +73,31 @@ Traceback (most recent call last):
 - **Search First**: use GitHub's search to find similar issues
 - **Be Specific**: provide detailed information to help others help you
 - **Be Patient**: this is an open-source project maintained by volunteers
-- **Keep it Public**: prefer issues and discussions over private messages, so answers stay useful to everyone. Private email is reserved for security reports and [Code of Conduct](CODE_OF_CONDUCT.md) violations.
+- **Keep Discussions Public**: prefer issues and discussions over private messages, so answers stay useful to everyone. Private email is reserved for security reports and [Code of Conduct](CODE_OF_CONDUCT.md) violations.
 
 ## Frequently Asked Questions
 
 ### Installation Issues
 
 **Q: I get "command not found" when running `wog-dump`**
-A: Make sure you've installed the package and it's in your PATH. Try:
+A: Make sure the package is installed and `wog-dump` is on your PATH. Try:
 - `pip install -e .` or `uv pip install -e .`
-- Check if `~/.local/bin` is in your PATH (Linux/macOS)
+- Check if `~/.local/bin` is on your PATH (Linux/macOS)
 
 **Q: Import errors about missing modules**
-A: Reinstall the package with all its dependencies (there is no `requirements.txt`; dependencies are declared in `pyproject.toml`):
+A: Reinstall the package with all its dependencies. Dependencies are declared in `pyproject.toml` (there is no `requirements.txt`):
 ```bash
 uv pip install -e .
 ```
 
 ### Runtime Issues
 
-**Q: Downloads are very slow or timing out**
+**Q: Downloads are slow or time out**
 A: Try these solutions:
 - Use fewer threads: `wog-dump --max-threads 2 download-assets`
 - Check your internet connection
 - Try downloading specific weapons instead of all at once
-- Note that downloads are rate-limited by design; see `WOG_REQUEST_DELAY` in [docs/configuration.md](docs/configuration.md)
+- Downloads are rate-limited by design. See `WOG_REQUEST_DELAY` in [docs/configuration.md](docs/configuration.md)
 
 **Q: Decryption fails with "No decryption keys found"**
 A: Fetch the keys for the weapons you need (authentication must be configured first):
@@ -116,11 +116,11 @@ pip install --upgrade UnityPy
 
 ### Development Questions
 
-**Q: How can I contribute to the project?**
+**Q: How do I contribute to the project?**
 A: See our [`CONTRIBUTING.md`](CONTRIBUTING.md) guide for detailed instructions.
 
 **Q: Can I use this in my own project?**
-A: Yes! WOG Dump is MIT licensed. See [`LICENSE`](LICENSE) for details.
+A: Yes. WOG Dump is MIT licensed. See [`LICENSE`](LICENSE) for details.
 
 ## Self-Help Resources
 
@@ -145,7 +145,7 @@ WOG Dump writes a single rotating log file, `wog.log` (5 MB x 3 backups), locate
 
 ### Common Solutions
 
-**Reset the cached data (weapon list and keys; account is kept):**
+**Reset the cached data (weapon list and keys, account is kept):**
 ```bash
 wog-dump cache --clear
 ```
@@ -180,13 +180,13 @@ uv pip install -e .
 
 ## How to Help Others
 
-If you're an experienced user, you can help the community by:
+If you're an experienced user, help the community by:
 - Answering questions in GitHub Issues
 - Improving documentation
 - Contributing code fixes
 - Testing new features
 
-Remember, every contribution helps make WOG Dump better for everyone!
+Every contribution makes WOG Dump better for everyone.
 
 ---
 

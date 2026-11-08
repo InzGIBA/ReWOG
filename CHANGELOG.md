@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-11-08
+
+Email/password login rewritten to match the standalone game client, from a
+fresh mitmproxy capture of its registration and login flows. Every change was
+verified live against the production API (login and key fetch, Nov 2026).
+
+### Fixed
+
+- **`wog-dump login` (email + password) never worked against the query2026
+  API**: the request did not match the standalone client's protocol at any
+  point. It now replicates the captured client exactly
+  - the password travels as its MD5 hex digest under `pass=` (was: plain
+    text under `password=`, which the server does not read)
+  - `session=0&id=0` pre-session markers, `lang=`, `sys_info=` and the
+    standalone `platform=` field are sent (were: missing)
+  - requests PUT to the bare `/v/query2026.php`; the `?soc=steam` marker is
+    gone (a Steam-client trait that breaks email/password queries)
+  - every query carries a 32-hex `hash=` signature like the game client's
+    (the server does not verify it, but the request shape now matches)
+  - values are form-encoded the way Unity's client does it: lowercase
+    percent hex, spaces as `+`
+- **Successful logins were rejected anyway**: the response parser expected
+  `id=`, but the API answers with `acc_id=` - so even a correct request
+  failed with "Login response did not contain id/session". The parser now
+  reads `acc_id` (with `id=` kept as a legacy fallback) and the numeric
+  session counter
+- **Key queries aligned with the captured client**: the `query=3` sync-key
+  request uses the client's field order and carries the `hash=` signature
+
+### Added
+
+- **`wog-dump register`**: creates a new game account through the
+  standalone client's registration flow (`query=39`, plain-text password
+  exactly as captured, server sends a confirmation email) and logs in right
+  away, so key fetching works without further steps
+- `WOG_LANG` setting (default `en`): the two-letter language code sent with
+  login queries
+- `AuthManager.register()` and the standalone login shape are covered by
+  unit tests built purely from synthetic fixtures (dummy accounts, no
+  credentials from any capture)
+
+### Changed
+
+- Default `WOG_GAME_VERSION` is `2.2.3t6` (the standalone client build from
+  the capture; was `2.2.3u9` from the Steam client)
+
 ## [2.6.2] - 2026-11-02
 
 Documentation-only release. No functional changes.

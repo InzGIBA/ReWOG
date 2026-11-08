@@ -1,24 +1,37 @@
 """Game-account authentication for WOG Dump.
 
 The key API only serves requests from authenticated clients. Instead of
-shipping captured credentials, the tool logs into the user's own game
-account (the same email/password login the game client offers) and
-generates a random device id per installation. A fresh session is
-obtained automatically whenever the stored one is missing or rejected.
+shipping captured credentials, the tool registers and logs into the
+user's own game account (the same email/password flow the standalone
+game client offers) and generates a random device id per installation.
+A fresh session is obtained automatically whenever the stored one is
+missing or rejected.
+
+The request shapes mirror the standalone client capture (Nov 2026):
+login is ``query=1`` with the password sent as its MD5 hex digest under
+``pass=``; the server answers with ``acc_id``/``session``. The session
+value is a per-account counter the server bumps over time.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
+import platform as _platform
 import re
 import secrets
 import threading
+import time
 from dataclasses import dataclass
-from urllib.parse import quote
 
 from ..utils.logging import get_logger
-from .api import ApiError, WOGApiClient, parse_response_fields
+from .api import (
+    ApiError,
+    WOGApiClient,
+    form_encode,
+    parse_response_fields,
+    sign_query,
+)
 from .config import WOGConfig, get_config
 from .database import SETTINGS_DEVICE_ID, SETTINGS_EMAIL, SETTINGS_PASSWORD, WOGDatabase
 
@@ -34,6 +47,27 @@ class Identity:
     auth_id: str
     session: str
     device_id: str
+
+
+def build_sys_info() -> str:
+    """Machine report sent with the login query (``sys_info=`` field).
+
+    The game client reports OS/CPU/RAM/GPU for its own statistics; the
+    server does not validate the content. Best effort from the stdlib,
+    in the client's five-line format.
+    """
+    cpu = _platform.processor() or _platform.machine()
+    try:
+        cores = str(os.cpu_count() or 1)
+    except Exception:
+        cores = "1"
+    return (
+        f"OS:{_platform.platform()}|wog-dump\n"
+        f"CPU:{cpu}|{cores}|0\n"
+        "Memory:0|0\n"
+        "GPU:||0\n"
+        "Rating:0"
+    )
 
 
 class AuthManager:
@@ -67,22 +101,41 @@ class AuthManager:
             self.logger.debug("Generated new device id")
         return device_id
 
+    def _common_query_fields(self) -> list[tuple[str, str]]:
+        """Fields every client query carries, in captured order."""
+        return [
+            ("ver", self.config.game_version),
+            ("uver", self.config.unity_version),
+            ("dev", self.get_device_id()),
+            ("session", "0"),
+            ("id", "0"),
+            ("time", str(int(time.time()))),
+        ]
+
     def login(self, email: str, password: str) -> Identity:
         """Log into the game account and store the fresh session.
 
-        The credentials are kept in the local database so future runs can
-        re-login automatically when the session expires.
+        Mirrors the standalone client's email login (``query=1``): the
+        password travels as its MD5 hex digest under ``pass=``, never in
+        plain text. The credentials are kept in the local database so
+        future runs can re-login automatically when the session expires.
         """
+        # Standalone login shape (captured Nov 2026, ver 2.2.3t6):
+        # query=1&email=..&pass=<md5>&lang=..&sys_info=..&ver=..&uver=..
+        #   &dev=..&session=0&id=0&time=..&platform=&hash=..
         device_id = self.get_device_id()
+        pairs: list[tuple[str, str]] = [
+            ("query", "1"),
+            ("email", email),
+            ("pass", hashlib.md5(password.encode("utf-8")).hexdigest()),
+            ("lang", self.config.api_lang),
+            ("sys_info", build_sys_info()),
+        ]
+        pairs += self._common_query_fields()
+        pairs.append(("platform", ""))
 
-        # URL-encoded: &/= inside the email or password must never
-        # rewrite the query's own fields
-        params = (
-            "query=1"
-            f"&email={quote(email, safe='')}"
-            f"&password={quote(password, safe='')}"
-            f"&dev={quote(device_id, safe='')}"
-            f"&{self.client.build_common_params()}"
+        params = sign_query(
+            "&".join(f"{key}={form_encode(value)}" for key, value in pairs)
         )
 
         try:
@@ -97,11 +150,13 @@ class AuthManager:
             message = fields.get("errmsg", "") or self._login_error(response_text)
             raise AuthError(f"Login failed (result={result}): {message}")
 
-        auth_id = fields.get("id")
+        # The query2026 API answers with acc_id; accept the plain id
+        # spelling too in case older servers are ever addressed
+        auth_id = fields.get("acc_id") or fields.get("id")
         session = fields.get("session")
         if not auth_id or not session:
             raise AuthError(
-                "Login response did not contain id/session: "
+                "Login response did not contain acc_id/session: "
                 + response_text.replace("\n", " ")[:200]
             )
 
@@ -113,6 +168,44 @@ class AuthManager:
         identity = Identity(auth_id=auth_id, session=session, device_id=device_id)
         self.logger.info(f"Logged in as {email} (id={auth_id})")
         return identity
+
+    def register(self, name: str, email: str, password: str) -> None:
+        """Create a new game account (the standalone client's ``query=39``).
+
+        The registration password travels in plain text (exactly like the
+        captured client - the MD5 hashing is login-only) and the server
+        sends a confirmation email. No session is returned; call
+        :meth:`login` afterwards to obtain one.
+        """
+        # Captured standalone shape:
+        # query=39&reg_name=..&reg_email=..&reg_pass=..&reg_subs=0&ver=..
+        #   &uver=..&dev=..&session=0&id=0&time=..&hash=..
+        pairs: list[tuple[str, str]] = [
+            ("query", "39"),
+            ("reg_name", name),
+            ("reg_email", email),
+            ("reg_pass", password),
+            ("reg_subs", "0"),
+        ]
+        pairs += self._common_query_fields()
+
+        params = sign_query(
+            "&".join(f"{key}={form_encode(value)}" for key, value in pairs)
+        )
+
+        try:
+            response_text = self.client.call(params)
+        except Exception as e:
+            raise AuthError(f"Registration request failed: {e}") from e
+
+        fields = parse_response_fields(response_text)
+        result = fields.get("result", "")
+
+        if result != "0":
+            message = fields.get("errmsg", "") or self._login_error(response_text)
+            raise AuthError(f"Registration failed (result={result}): {message}")
+
+        self.logger.info(f"Registered game account for {email}")
 
     @staticmethod
     def _login_error(response_text: str) -> str:
@@ -223,4 +316,4 @@ class AuthManager:
         return self.db.get_setting(SETTINGS_EMAIL)
 
 
-__all__ = ["AuthError", "AuthManager", "Identity", "ApiError"]
+__all__ = ["AuthError", "AuthManager", "Identity", "ApiError", "build_sys_info"]

@@ -17,7 +17,7 @@ from dotenv import dotenv_values
 from .. import __version__
 from ..core.config import get_config, set_config
 from ..utils.logging import get_logger, set_log_level
-from .auth import login, logout
+from .auth import login, logout, register
 from .cache import cache
 from .convert import convert_normals
 from .decrypt import decrypt_assets
@@ -191,6 +191,7 @@ cli.add_command(build_scene)
 cli.add_command(full_pipeline)
 cli.add_command(login)
 cli.add_command(logout)
+cli.add_command(register)
 cli.add_command(cache)
 cli.add_command(info)
 

@@ -9,7 +9,10 @@ flow and the key flow share it.
 from __future__ import annotations
 
 import bz2
+import hashlib
+import re
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -70,6 +73,28 @@ def parse_response_fields(text: str) -> dict[str, str]:
     return fields
 
 
+def form_encode(value: str) -> str:
+    """Encode a value the way the Unity client does (WWWForm/EscapeURL).
+
+    Same as ``quote(value, safe='')`` but with lowercase percent hex
+    and ``+`` for spaces, matching the captured request bodies.
+    """
+    encoded = quote(value, safe="").replace("%20", "+")
+    return re.sub(r"%[0-9A-F]{2}", lambda m: m.group(0).lower(), encoded)
+
+
+def sign_query(params: str) -> str:
+    """Append the ``hash=`` signature every client query carries.
+
+    The real client signs each request with an MD5 we cannot reproduce
+    (salted inside the Unity binary), but the server does not verify it
+    (verified live: requests with no/arbitrary hash succeed). A
+    well-formed 32-hex digest keeps the request shape identical to the
+    game client's.
+    """
+    return f"{params}&hash={hashlib.md5(params.encode()).hexdigest()}"
+
+
 class WOGApiClient:
     """Client for the BZ2-over-HTTP query API."""
 
@@ -105,8 +130,11 @@ class WOGApiClient:
 
         self._rate_limiter.wait()
         try:
+            # The standalone client PUTs to the bare script URL; the
+            # ?soc=steam marker is a Steam-client trait and breaks
+            # email/password queries
             response = self.session.put(
-                f"{self.config.api_base_url}?soc=steam",
+                self.config.api_base_url,
                 data=payload,
                 headers=headers,
                 timeout=self.config.request_timeout,

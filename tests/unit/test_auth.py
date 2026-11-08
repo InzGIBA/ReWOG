@@ -2,29 +2,59 @@
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import Mock
 
 import pytest
 
-from wog_dump.core.api import WOGApiClient, parse_response_fields
-from wog_dump.core.auth import AuthError, AuthManager, Identity
+from wog_dump.core.api import WOGApiClient, form_encode, parse_response_fields
+from wog_dump.core.auth import AuthError, AuthManager, Identity, build_sys_info
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.database import WOGDatabase
 
+# Dummy credentials only - never real account data
+TEST_EMAIL = "player@example.com"
+TEST_PASSWORD = "hunter2 test password"
+TEST_NAME = "Player"
 
-def success_login_response(auth_id: str = "123456", session: str = "789") -> str:
+
+def success_login_response(auth_id: str = "123456", session: str = "1") -> str:
+    """A query=1 answer shaped like the real query2026 API (acc_id)."""
     return (
-        f"00001109&query=1&time=1793472977&id={auth_id}"
-        f"&session={session}&_1=52:00:000 Email+login..&result=0&sign=abc123"
+        f"00013076&query=1&time=1700000014&offline_ts=&"
+        f"_1=16:55:179 Email+login..+Client%3A+&"
+        f"_2=16:55:181 ..account+found+%21&"
+        f"&acc_id={auth_id}&acc_name=Player&acc_email=player%40example.com"
+        f"&acc_can_login_email=1&session={session}&result=0&ccode=KZ&sign=abc123"
     )
+
+
+def success_register_response() -> str:
+    """A query=39 (registration) answer: result=0, no session."""
+    return (
+        "00000682&query=39&time=1700000090&offline_ts=&"
+        "_3=16:32:594 Email+to+player%40example.com+sent+ok+%21&"
+        "_4=16:32:594 action+saved+on+server+0.+id%3D123456&"
+        "result=0&sign=def456"
+    )
+
+
+def query_fields(params: str) -> dict[str, str]:
+    """Split a captured query string into fields (first value wins)."""
+    fields: dict[str, str] = {}
+    for segment in params.split("&"):
+        if "=" in segment:
+            key, _, value = segment.partition("=")
+            fields.setdefault(key, value)
+    return fields
 
 
 class TestResponseParsing:
     def test_parse_fields_skips_debug(self) -> None:
         fields = parse_response_fields(success_login_response())
         assert fields["result"] == "0"
-        assert fields["id"] == "123456"
-        assert fields["session"] == "789"
+        assert fields["acc_id"] == "123456"
+        assert fields["session"] == "1"
         assert not any(key.startswith("_") for key in fields)
 
 
@@ -43,51 +73,102 @@ class TestDeviceId:
         assert AuthManager.generate_device_id() != AuthManager.generate_device_id()
 
 
+class TestSysInfo:
+    def test_client_shape(self) -> None:
+        info = build_sys_info()
+        lines = info.splitlines()
+        assert len(lines) == 5
+        assert lines[0].startswith("OS:")
+        assert lines[1].startswith("CPU:")
+        assert lines[2].startswith("Memory:")
+        assert lines[3].startswith("GPU:")
+        assert lines[4] == "Rating:0"
+
+
 class TestLogin:
     def test_login_stores_identity_and_credentials(
         self, test_config: WOGConfig
     ) -> None:
         client = Mock(spec=WOGApiClient)
-        client.build_common_params.return_value = "ver=1&time=2"
         client.call.return_value = success_login_response()
 
         auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
-        identity = auth.login("user@example.com", "secret")
+        identity = auth.login(TEST_EMAIL, TEST_PASSWORD)
 
         assert identity == Identity(
-            auth_id="123456", session="789", device_id=identity.device_id
+            auth_id="123456", session="1", device_id=identity.device_id
         )
-        assert auth.db.get_identity() == ("123456", "789")
-        assert auth.get_account_email() == "user@example.com"
+        assert auth.db.get_identity() == ("123456", "1")
+        assert auth.get_account_email() == TEST_EMAIL
 
-        # The request carried the generated device id and the credentials
-        # (URL-encoded: &/= inside a value must never rewrite the query)
-        sent_params = client.call.call_args[0][0]
-        assert "email=user%40example.com" in sent_params
-        assert "password=secret" in sent_params
-        assert f"dev={identity.device_id}" in sent_params
+    def test_login_request_matches_standalone_protocol(
+        self, test_config: WOGConfig
+    ) -> None:
+        """The query replicates the captured standalone client exactly.
+
+        query=1&email=..&pass=<md5>&lang=..&sys_info=..&ver=..&uver=..
+        &dev=..&session=0&id=0&time=..&platform=&hash=..
+        """
+        client = Mock(spec=WOGApiClient)
+        client.call.return_value = success_login_response()
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        identity = auth.login(TEST_EMAIL, TEST_PASSWORD)
+
+        sent = client.call.call_args[0][0]
+        fields = query_fields(sent)
+
+        # Password never travels in plain text: pass= is its MD5 digest
+        assert "password=" not in sent
+        assert fields["query"] == "1"
+        assert fields["pass"] == hashlib.md5(TEST_PASSWORD.encode()).hexdigest()
+        assert TEST_PASSWORD not in sent
+
+        # Account fields are form-encoded (&/= inside values must never
+        # rewrite the query's own fields)
+        assert fields["email"] == "player%40example.com"
+
+        # Pre-session markers and the standalone platform marker
+        assert fields["session"] == "0"
+        assert fields["id"] == "0"
+        assert fields["platform"] == ""
+        assert fields["lang"] == test_config.api_lang
+        assert fields["sys_info"].startswith("OS%3a")
+
+        # Client identity fields
+        assert fields["ver"] == test_config.game_version
+        assert fields["uver"] == test_config.unity_version
+        assert fields["dev"] == identity.device_id
+        assert fields["time"].isdigit()
+
+        # Every client query carries a 32-hex hash signature
+        assert len(fields["hash"]) == 32
+        int(fields["hash"], 16)
+
+        # Field order matches the captured client
+        order = [segment.partition("=")[0] for segment in sent.split("&")]
+        assert order.index("pass") < order.index("lang") < order.index("sys_info")
+        assert order.index("time") < order.index("platform") < order.index("hash")
 
     def test_login_failure_raises(self, test_config: WOGConfig) -> None:
         client = Mock(spec=WOGApiClient)
-        client.build_common_params.return_value = "ver=1&time=2"
         client.call.return_value = (
             "00001109&query=1&result=100&_3=52:00:000 user+not+found&sign=x"
         )
 
         auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
         with pytest.raises(AuthError, match="result=100"):
-            auth.login("user@example.com", "wrong")
+            auth.login(TEST_EMAIL, "wrong")
 
     def test_login_response_without_session_raises(
         self, test_config: WOGConfig
     ) -> None:
         client = Mock(spec=WOGApiClient)
-        client.build_common_params.return_value = "ver=1&time=2"
         client.call.return_value = "00001109&query=1&result=0&sign=x"
 
         auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
-        with pytest.raises(AuthError, match="id/session"):
-            auth.login("user@example.com", "secret")
+        with pytest.raises(AuthError, match="acc_id/session"):
+            auth.login(TEST_EMAIL, TEST_PASSWORD)
 
     def test_login_error_message_from_debug_output(self) -> None:
         response = (
@@ -95,6 +176,63 @@ class TestLogin:
             "&_14=56:17:089 user+not+found&result=100&sign=x"
         )
         assert AuthManager._login_error(response) == "user not found"
+
+    def test_login_accepts_legacy_id_field(self, test_config: WOGConfig) -> None:
+        """Older servers may answer with id= instead of acc_id=."""
+        client = Mock(spec=WOGApiClient)
+        client.call.return_value = "00001109&query=1&id=42&session=7&result=0&sign=abc"
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        identity = auth.login(TEST_EMAIL, TEST_PASSWORD)
+
+        assert (identity.auth_id, identity.session) == ("42", "7")
+
+
+class TestRegister:
+    def test_register_request_matches_standalone_protocol(
+        self, test_config: WOGConfig
+    ) -> None:
+        """query=39&reg_name=..&reg_email=..&reg_pass=..&reg_subs=0&..."""
+        client = Mock(spec=WOGApiClient)
+        client.call.return_value = success_register_response()
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        auth.register(TEST_NAME, TEST_EMAIL, TEST_PASSWORD)
+
+        sent = client.call.call_args[0][0]
+        fields = query_fields(sent)
+
+        # Registration carries the password in plain text (captured
+        # behavior - the MD5 digest is login-only); spaces travel as +
+        assert fields["query"] == "39"
+        assert fields["reg_name"] == TEST_NAME
+        assert fields["reg_email"] == "player%40example.com"
+        assert fields["reg_pass"] == form_encode(TEST_PASSWORD)
+        assert fields["reg_subs"] == "0"
+        assert fields["session"] == "0"
+        assert fields["id"] == "0"
+        assert fields["ver"] == test_config.game_version
+        assert fields["dev"] == auth.get_device_id()
+        assert len(fields["hash"]) == 32
+
+    def test_register_stores_no_identity(self, test_config: WOGConfig) -> None:
+        client = Mock(spec=WOGApiClient)
+        client.call.return_value = success_register_response()
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        auth.register(TEST_NAME, TEST_EMAIL, TEST_PASSWORD)
+
+        assert auth.db.get_identity() is None
+
+    def test_register_failure_raises(self, test_config: WOGConfig) -> None:
+        client = Mock(spec=WOGApiClient)
+        client.call.return_value = (
+            "00000682&query=39&result=100&_2=16:32:591 email+already+exists&sign=x"
+        )
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        with pytest.raises(AuthError, match="already exists"):
+            auth.register(TEST_NAME, TEST_EMAIL, TEST_PASSWORD)
 
 
 class TestEnsureSession:
@@ -142,11 +280,10 @@ class TestEnsureSession:
         db = WOGDatabase(test_config)
         db.set_setting("device_id", "d" * 40)
         db.save_identity("old", "old")
-        db.set_setting("account_email", "user@example.com")
-        db.set_setting("account_password", "secret")
+        db.set_setting("account_email", TEST_EMAIL)
+        db.set_setting("account_password", TEST_PASSWORD)
 
         client = Mock(spec=WOGApiClient)
-        client.build_common_params.return_value = "ver=1&time=2"
         client.call.return_value = success_login_response("999", "555")
 
         auth = AuthManager(test_config, db=db, client=client)
@@ -159,8 +296,8 @@ class TestEnsureSession:
 class TestLogout:
     def test_logout_removes_credentials(self, test_config: WOGConfig) -> None:
         db = WOGDatabase(test_config)
-        db.set_setting("account_email", "user@example.com")
-        db.set_setting("account_password", "secret")
+        db.set_setting("account_email", TEST_EMAIL)
+        db.set_setting("account_password", TEST_PASSWORD)
         db.save_identity("1", "2")
 
         AuthManager(test_config, db=db).logout()

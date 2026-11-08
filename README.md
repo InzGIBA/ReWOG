@@ -20,6 +20,7 @@
 ## Table of Contents
 
 - [Description](#description)
+- [What's New in v2.7](#whats-new-in-v27)
 - [What's New in v2.6](#whats-new-in-v26)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -38,7 +39,7 @@
 
 ## Description
 
-WOG Dump is a Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). Version 2.6 hardens downloads, storage and environment handling after a full security audit. Version 2.5 added one-command Blender scene export, and version 2.4 moved the tool to the `query2026` protocol with per-user credential storage and game-account login.
+WOG Dump is a Python tool for extracting 3D gun models from [World of Guns: Gun Disassembly](https://store.steampowered.com/app/262410/World_of_Guns_Gun_Disassembly/). Version 2.7 fixes email/password login to match the current standalone client and adds account registration. Version 2.6 hardened downloads, storage and environment handling after a full security audit. Version 2.5 added one-command Blender scene export, and version 2.4 moved the tool to the `query2026` protocol with per-user credential storage and game-account login.
 
 > **Educational Tool**: designed for 3D model enthusiasts, modders and researchers who study game assets and 3D modeling techniques.
 
@@ -51,6 +52,11 @@ WOG Dump is a Python tool for extracting 3D gun models from [World of Guns: Gun 
 
 The project is actively maintained by [InzGIBA](https://github.com/inzgiba). If you run into trouble, see [Support](#support).
 
+### What's New in v2.7
+
+- **Email/password login fixed**: the login query now mirrors the standalone client exactly (password as MD5 digest under `pass=`, `session=0&id=0`, `lang`/`sys_info`/`platform` fields, no `?soc=steam` marker) and reads the account from the `acc_id` response field. Verified live in November 2026
+- **`wog-dump register`**: creates a new game account (the standalone client's registration flow) and logs into it right away
+
 ### What's New in v2.6
 
 - **Security hardening** (v2.6.0): asset and weapon names must match a strict alphabet, `.env` files apply only `WOG_*` keys, download resume needs a server validator, and log files are no longer world-readable. Some changes break old workflows on purpose, so read the 2.6.0 changelog entry before upgrading
@@ -58,7 +64,7 @@ The project is actively maintained by [InzGIBA](https://github.com/inzgiba). If 
 - **`wog-dump build-scene`** (v2.5): rebuilds the in-game assembled weapon as a Blender-ready glTF scene: exact part hierarchy and positions, game materials with textures, camera and studio lighting, real-world scale
 - **No extra objects**: UI arrows, cutaway meshes, muzzle-flash effects and animation dummies are classified and skipped (`--extras` exports them on request)
 - **One-click Blender setup**: a generated `blender_setup.py` imports the scene, sorts collections and saves a `.blend`
-- **query2026 protocol** (v2.4): targets the current game API (game `2.2.3u9`, Unity 6) with automatic re-login on session rejection
+- **query2026 protocol** (v2.4): targets the current game API (game `2.2.3t6`, Unity 6) with automatic re-login on session rejection
 - **No secrets in the repo** (v2.4): bundled keys and captured credentials are gone. All data lives in a per-user SQLite database
 - **`wog-dump login` / `logout`** (v2.4): use your own game account (email + password) to fetch keys
 - **Live tests**: `pytest -m live` verifies fetch/download/decrypt against the real servers
@@ -356,7 +362,7 @@ ReWOG/
 │       ├── convert.py               # convert-normals
 │       ├── scene.py                 # build-scene
 │       ├── pipeline.py              # full-pipeline
-│       ├── auth.py                  # login / logout
+│       ├── auth.py                  # login / logout / register
 │       ├── cache.py                 # cache
 │       └── info.py                  # info
 ├── tests/                           # Comprehensive test suite
@@ -557,7 +563,7 @@ wog-dump download-assets --weapons "ak74,m4a1,glock17"
 A: The tool resumes interrupted downloads. Run the same command again, and the download continues where the previous run stopped.
 
 **Q: Key fetching logs `API error for X: Server error` / `No key available`. What is wrong?**
-A: Two common causes. (1) No valid session: capture your client once ([MITM guide](docs/mitm-capture.md)) and put `WOG_AUTH_ID`/`WOG_AUTH_SESSION` into `.env`, or run `wog-dump login` with a game-account email/password. (2) An outdated endpoint/protocol: this tool now targets `query2026.php` with the current client versions (`2.2.3u9` / `6000.0.84f1`), verified against the live servers in November 2026.
+A: Two common causes. (1) No valid session: run `wog-dump register` to create a game account, `wog-dump login` for an existing one, or capture your client once ([MITM guide](docs/mitm-capture.md)) and put `WOG_AUTH_ID`/`WOG_AUTH_SESSION` into `.env`. (2) An outdated endpoint/protocol: this tool now targets `query2026.php` with the current client versions (`2.2.3t6` / `6000.0.84f1`), verified against the live servers in November 2026.
 
 **Q: Where are my credentials and keys stored?**
 A: In a per-user SQLite database (`~/.local/share/wog_dump/wog_dump.db` on Linux, `%APPDATA%\wog_dump\` on Windows), with owner-only permissions. Nothing sensitive is stored in the repository. Set `WOG_DB_PATH` to use a different location. `wog-dump logout` removes the stored credentials. A repo-local `.env` (gitignored, see `.env.example`) provides `WOG_AUTH_ID`/`WOG_AUTH_SESSION`/`WOG_ACCOUNT_*` as an alternative.

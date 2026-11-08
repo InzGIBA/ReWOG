@@ -170,6 +170,38 @@ class TestCLIIntegration:
         )
         assert "Logged in as user@example.com" in result.output
 
+    @patch("wog_dump.cli.auth.AuthManager")
+    def test_register_command_registers_then_logs_in(self, mock_auth: Mock) -> None:
+        """Test the register command: create the account, then log in."""
+        from wog_dump.core.auth import Identity
+
+        mock_auth.return_value.login.return_value = Identity("123", "1", "d" * 40)
+
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            result = runner.invoke(
+                cli,
+                [
+                    "register",
+                    "--name",
+                    "Player",
+                    "--email",
+                    "user@example.com",
+                    "--password",
+                    "secret",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_auth.return_value.register.assert_called_once_with(
+            "Player", "user@example.com", "secret"
+        )
+        # Registration alone yields no session; the command logs in after
+        mock_auth.return_value.login.assert_called_once_with(
+            "user@example.com", "secret"
+        )
+        assert "Registered and logged in as user@example.com" in result.output
+
     def test_decrypt_assets_requires_account_for_key_update(self) -> None:
         """Updating keys without a configured account fails with a clear message."""
         runner = CliRunner()

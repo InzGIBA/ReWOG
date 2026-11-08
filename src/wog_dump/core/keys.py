@@ -11,10 +11,15 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import quote
 
 from ..utils.logging import get_logger
-from .api import ApiNetworkError, WOGApiClient, parse_response_fields
+from .api import (
+    ApiNetworkError,
+    WOGApiClient,
+    form_encode,
+    parse_response_fields,
+    sign_query,
+)
 from .auth import AuthError, AuthManager, Identity
 from .config import WOGConfig, get_config
 from .database import WOGDatabase
@@ -55,19 +60,25 @@ class KeyManager:
     def _build_api_request_data(self, asset_name: str, identity: Identity) -> str:
         """Build the sync-key query for an asset.
 
-        Values are URL-encoded: an & or = inside a model name or session
-        must never rewrite the query's own fields.
+        Mirrors the captured client (``query=3``) field order, with the
+        ``hash=`` signature appended. Values are form-encoded: an & or =
+        inside a model name or session must never rewrite the query's
+        own fields.
         """
-        return (
-            "query=3"
-            f"&model={quote(str(asset_name), safe='')}"
-            "&need_details=1"
-            f"&session={quote(str(identity.session), safe='')}"
-            f"&id={quote(str(identity.auth_id), safe='')}"
-            f"&dev={quote(str(identity.device_id), safe='')}"
-            f"&mode={self.config.game_mode}"
-            f"&{self.client.build_common_params()}"
-        )
+        pairs = [
+            ("query", "3"),
+            ("model", str(asset_name)),
+            ("mode", self.config.game_mode),
+            ("need_details", "1"),
+            ("ver", self.config.game_version),
+            ("uver", self.config.unity_version),
+            ("dev", str(identity.device_id)),
+            ("session", str(identity.session)),
+            ("id", str(identity.auth_id)),
+            ("time", str(int(time.time()))),
+        ]
+        params = "&".join(f"{key}={form_encode(str(value))}" for key, value in pairs)
+        return sign_query(params)
 
     def _parse_api_response(self, response_text: str, asset_name: str) -> str | None:
         """Parse a sync-key response; returns the key or None."""

@@ -33,6 +33,33 @@ confirmed with live requests:
 - A rejected/expired session produces `result=1000`, which is exactly the
   "Server error" symptom reported in the issues about the old endpoint
 
+## What was verified against the standalone client (Nov 2026, standalone build)
+
+A second capture of the standalone (non-Steam) client showed how email/password
+accounts work. The tool's `wog-dump login` and the new `wog-dump register`
+implement exactly these flows (verified live, Nov 2026):
+
+- The standalone client PUTs to the bare `/v/query2026.php` - no `?soc=steam`
+  marker. That marker is a Steam-client trait; appending it to an
+  email/password query breaks the login
+- Registration is `query=39` with `reg_name`, `reg_email`, `reg_pass` (the
+  password in plain text here - the MD5 hashing below is login-only),
+  `reg_subs=0`. The server answers `result=0` and sends a confirmation email
+- Email login is `query=1` with:
+
+  ```
+  query=1&email=<form-encoded>&pass=<md5(password)>&lang=<2-letter code>
+    &sys_info=<form-encoded machine report>&ver=2.2.3t6&uver=6000.0.84f1
+    &dev=<40-hex>&session=0&id=0&time=<unix>&platform=&hash=<32-hex>
+  ```
+
+- The login response carries the account as `acc_id=` (not `id=`), plus a
+  `session=` **counter** (starts at 1, the server bumps it over time). Later
+  queries send `session=<counter>&id=<acc_id>`
+- `wog-dump register` runs registration and logs in right after; `wog-dump
+  login` alone works for accounts created in-game
+
+
 ## Quick start (mitmproxy, tested with disasm64.exe)
 
 ### 1. Start the capture

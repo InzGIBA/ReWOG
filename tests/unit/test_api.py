@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,7 +11,9 @@ import requests
 from wog_dump.core.api import (
     ApiNetworkError,
     WOGApiClient,
+    form_encode,
     parse_response_fields,
+    sign_query,
 )
 from wog_dump.core.config import WOGConfig
 
@@ -36,6 +39,36 @@ class TestParseResponseFields:
         fields = parse_response_fields("result=&sync=key")
 
         assert fields["result"] == ""
+
+
+class TestFormEncode:
+    def test_mimics_unity_escape_url(self) -> None:
+        # Captured client bodies escape ':' as %3a (lowercase) and
+        # spaces as '+'
+        assert form_encode("OS:Windows 11") == "OS%3aWindows+11"
+
+    def test_escapes_query_structure(self) -> None:
+        # & and = inside a value must never rewrite the query's fields
+        assert form_encode("a&b=c") == "a%26b%3dc"
+
+    def test_passthrough_safe_characters(self) -> None:
+        # -._ and alphanumerics stay literal (like Unity's EscapeURL),
+        # everything else - including @ and * - is escaped
+        assert form_encode("abc123.-_") == "abc123.-_"
+        assert form_encode("a@b*c") == "a%40b%2ac"
+
+
+class TestSignQuery:
+    def test_appends_well_formed_hash(self) -> None:
+        signed = sign_query("query=1&email=x")
+        assert signed.startswith("query=1&email=x&hash=")
+        digest = signed.rsplit("=", 1)[1]
+        assert digest == hashlib.md5(b"query=1&email=x").hexdigest()
+
+    def test_hash_is_plain_hex_digest(self) -> None:
+        # The server does not verify the signature; it just has to be a
+        # 32-hex value so the request shape matches the game client
+        assert len(sign_query("q=1").rsplit("=", 1)[1]) == 32
 
 
 class TestWOGApiClient:
@@ -81,7 +114,10 @@ class TestWOGApiClient:
         result = client.call("query=3")
 
         assert result == "result=0&sync=abc"
-        _, kwargs = mock_put.call_args
+        args, kwargs = mock_put.call_args
+        # The standalone client PUTs to the bare script URL - no
+        # ?soc=steam marker (it breaks email/password queries)
+        assert args[0] == test_config.api_base_url
         assert kwargs["data"] == client.compress_request("query=3")
 
     @patch("wog_dump.core.api.requests.Session.put")

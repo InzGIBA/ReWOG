@@ -24,8 +24,9 @@ class TestWOGConfig:
         assert config.weapons_file == temp_dir / "runtime" / "weapons.txt"
         assert config.keys_file == temp_dir / "runtime" / "keys.txt"
         assert config.max_threads == 4
-        assert config.game_version == "2.2.3u9"
+        assert config.game_version == "2.2.3t6"
         assert config.unity_version == "6000.0.84f1"
+        assert config.api_lang == "en"
 
     def test_directory_creation(self, temp_dir: Path) -> None:
         """Test that directories are created automatically."""

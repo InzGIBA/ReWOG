@@ -118,14 +118,19 @@ class WOGConfig(BaseModel):
         description="Game mode for API queries",
     )
     game_version: str = Field(
-        default="2.2.3u9",
+        default="2.2.3t6",
         pattern=r"^\d+\.\d+\.\d+[a-z]\d+$",
-        description="Game version for API queries",
+        description="Game version for API queries (standalone client build)",
     )
     unity_version: str = Field(
         default="6000.0.84f1",
         pattern=r"^\d+\.\d+\.\d+f\d+$",
         description="Unity version for API queries",
+    )
+    api_lang: str = Field(
+        default="en",
+        pattern=r"^[a-z]{2}$",
+        description="Language code sent with login queries (lang=)",
     )
 
     # Blacklist Configuration
@@ -274,6 +279,7 @@ class WOGConfig(BaseModel):
             "WOG_DATA_BASE_URL": "data_base_url",
             "WOG_GAME_VERSION": "game_version",
             "WOG_UNITY_VERSION": "unity_version",
+            "WOG_LANG": "api_lang",
             "WOG_STRICT_MODE": "strict_mode",
             "WOG_ENABLE_BACKUP": "enable_backup",
             "WOG_ENABLE_VALIDATION": "enable_validation",

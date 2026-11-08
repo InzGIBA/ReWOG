@@ -35,8 +35,9 @@ are needed at all.
 |---|---|---|
 | `WOG_API_BASE_URL` | `https://eu1.ultimate-disassembly.com/v/query2026.php` | Key API endpoint |
 | `WOG_DATA_BASE_URL` | `https://data1eu.ultimate-disassembly.com/uni2018` | Asset download server |
-| `WOG_GAME_VERSION` | `2.2.3u9` | Game version reported to the API |
+| `WOG_GAME_VERSION` | `2.2.3t6` | Game version reported to the API (standalone client build) |
 | `WOG_UNITY_VERSION` | `6000.0.84f1` | Unity version reported to the API |
+| `WOG_LANG` | `en` | Two-letter language code sent with login queries |
 
 The game version strings must match the current `disasm64.exe` client.
 Wrong values are rejected server-side. Update the strings when the game

@@ -67,3 +67,62 @@ def logout(ctx: click.Context) -> None:
         logger.print_status(
             f"Removed account credentials from {config.db_path}", "success"
         )
+
+
+@click.command()
+@click.option(
+    "--name",
+    type=str,
+    default=None,
+    help="Account display name (prompted when omitted)",
+)
+@click.option(
+    "--email", type=str, default=None, help="Game account email (prompted when omitted)"
+)
+@click.option(
+    "--password",
+    type=str,
+    default=None,
+    help="Game account password (prompted when omitted)",
+)
+@click.pass_context
+def register(
+    ctx: click.Context, name: str | None, email: str | None, password: str | None
+) -> None:
+    """Create a new World of Guns game account, then log into it.
+
+    The same email/password registration the standalone game client
+    offers (the server sends a confirmation email). After registering,
+    the account is logged in right away so key fetching works without
+    further steps.
+    """
+    logger = ctx.obj["logger"]
+    config = ctx.obj["config"]
+
+    with error_handler("Register"):
+        if name is None:
+            name = click.prompt("Account name")
+        if email is None:
+            email = click.prompt("Game account email")
+        if password is None:
+            password = click.prompt(
+                "Game account password", hide_input=True, confirmation_prompt=True
+            )
+        else:
+            logger.warning(
+                "Password given on the command line is visible in the "
+                "process list (e.g. /proc/<pid>/cmdline on shared hosts); "
+                "prefer the interactive prompt"
+            )
+
+        auth = AuthManager(config)
+        auth.register(name, email, password)
+        identity = auth.login(email, password)
+
+        logger.print_status(
+            f"Registered and logged in as {email} (id={identity.auth_id})", "success"
+        )
+        logger.console.print(
+            "Credentials and session are stored in the local database:\n"
+            f"  {config.db_path}"
+        )

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`wog-dump login` failed with `result=777` for accounts on a non-EU1
+  shard** (#2): game accounts live on one regional server (eu1/eu2/us3/
+  us4), and a login sent to the wrong one is answered with `result=777`
+  plus a `server=` field naming the home host. The tool now follows that
+  redirect exactly like the standalone client (one hop, only to a host
+  under the game's own domain), remembers the home shard in the local
+  database and goes straight there on later runs. `WOG_API_BASE_URL` is
+  the probe endpoint for the first login (and after logout); once the
+  server has confirmed the account's home shard, the remembered shard
+  takes over and a conflicting `WOG_API_BASE_URL` is reported in the
+  log. `logout` clears the remembered shard with the account
+- Login error messages are URL-decoded for display: the raw server
+  narration `..shard+found+%21` now reads `..shard found !` instead of
+  `..shard found %21`
+
 ## [2.7.0] - 2026-11-08
 
 Email/password login rewritten to match the standalone game client, from a

@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS keys (
 SETTINGS_EMAIL = "account_email"
 SETTINGS_PASSWORD = "account_password"
 SETTINGS_DEVICE_ID = "device_id"
+# Home shard of the logged-in account, learned from a result=777 login
+# redirect (see AuthManager.login)
+SETTINGS_API_BASE_URL = "api_base_url"
 
 # One-time marker for the legacy runtime txt import (see import_legacy_txt)
 SETTINGS_LEGACY_IMPORT_DONE = "legacy_import_done"

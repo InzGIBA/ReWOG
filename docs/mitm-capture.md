@@ -158,4 +158,5 @@ pytest -m live          # skipped automatically when .env has no credentials
 | Browser certificate warnings / game fails to connect | The CA certificate is not trusted. Redo step 3 (administrator shell required). |
 | No keys found in the capture | The game did not talk to the API through the proxy: verify <http://mitm.it> loads through the proxy, open more models in game, start the game *after* configuring the proxy. |
 | `result=1000` when fetching keys | The session expired or was replaced. Capture again and update `WOG_AUTH_SESSION` in `.env` (the server bumps the session number over time). |
+| `result=777` / `..shard found !` on login | The account lives on another regional server (eu1/eu2/us3/us4). `wog-dump login` follows the redirect automatically and remembers the home shard in the local database. `WOG_API_BASE_URL` (e.g. `https://us4.ultimate-disassembly.com/v/query2026.php`) is the probe endpoint for the first login or after logout; the remembered shard takes precedence once the server has confirmed it. |
 | `error: Reading mitmproxy captures requires the mitmproxy package` | Run `uv sync --extra mitm` (or `pip install mitmproxy`). |

@@ -11,6 +11,12 @@ The request shapes mirror the standalone client capture (Nov 2026):
 login is ``query=1`` with the password sent as its MD5 hex digest under
 ``pass=``; the server answers with ``acc_id``/``session``. The session
 value is a per-account counter the server bumps over time.
+
+Accounts live on one regional server ("shard": eu1/eu2/us3/us4). A login
+sent to the wrong shard is answered with ``result=777`` plus a
+``server=`` field naming the home host; the standalone client re-sends
+the login there, and so does :meth:`AuthManager.login` (once, and only
+to a host under the game's own domain).
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass
+from urllib.parse import unquote_plus, urlparse
 
 from ..utils.logging import get_logger
 from .api import (
@@ -33,11 +40,29 @@ from .api import (
     sign_query,
 )
 from .config import WOGConfig, get_config
-from .database import SETTINGS_DEVICE_ID, SETTINGS_EMAIL, SETTINGS_PASSWORD, WOGDatabase
+from .database import (
+    SETTINGS_API_BASE_URL,
+    SETTINGS_DEVICE_ID,
+    SETTINGS_EMAIL,
+    SETTINGS_PASSWORD,
+    WOGDatabase,
+)
+
+# Shard hosts the game's own servers redirect to (server= field of a
+# result=777 login answer); anything else in that field is refused
+SHARD_DOMAIN = "ultimate-disassembly.com"
 
 
 class AuthError(Exception):
     """Raised when authentication with the game API fails."""
+
+
+class _ShardRedirect(Exception):
+    """Internal: a result=777 answer named the account's home shard."""
+
+    def __init__(self, target_url: str) -> None:
+        super().__init__(target_url)
+        self.target_url = target_url
 
 
 @dataclass(frozen=True)
@@ -86,6 +111,7 @@ class AuthManager:
         # Key fetching is parallel: never run two logins at once.
         # RLock: login() may be called while ensure_session() holds the lock.
         self._login_lock = threading.RLock()
+        self._apply_remembered_shard()
 
     @staticmethod
     def generate_device_id() -> str:
@@ -119,7 +145,19 @@ class AuthManager:
         password travels as its MD5 hex digest under ``pass=``, never in
         plain text. The credentials are kept in the local database so
         future runs can re-login automatically when the session expires.
+
+        A ``result=777`` answer means the account lives on another
+        shard; the request is then re-sent to the home server named in
+        the response (once), exactly like the standalone client, and the
+        home shard is remembered in the local database.
         """
+        try:
+            return self._login_attempt(email, password)
+        except _ShardRedirect as redirect:
+            return self._follow_shard_redirect(email, password, redirect.target_url)
+
+    def _login_attempt(self, email: str, password: str) -> Identity:
+        """One login request against the currently configured API URL."""
         # Standalone login shape (captured Nov 2026, ver 2.2.3t6):
         # query=1&email=..&pass=<md5>&lang=..&sys_info=..&ver=..&uver=..
         #   &dev=..&session=0&id=0&time=..&platform=&hash=..
@@ -146,8 +184,21 @@ class AuthManager:
         fields = parse_response_fields(response_text)
         result = fields.get("result", "")
 
+        if result == "777":
+            # The account exists but lives on another shard. Verified
+            # live (Nov 2026): the answer carries
+            # server=<home host> plus the narration "redirect to <host>".
+            target = self._shard_base_url(fields.get("server", ""))
+            if target is None:
+                raise AuthError(
+                    "Login failed (result=777): the account lives on another "
+                    "shard, but the server named no valid home "
+                    f"(server={fields.get('server', '')!r})"
+                )
+            raise _ShardRedirect(target)
+
         if result != "0":
-            message = fields.get("errmsg", "") or self._login_error(response_text)
+            message = self._login_error(response_text, fields.get("errmsg", ""))
             raise AuthError(f"Login failed (result={result}): {message}")
 
         # The query2026 API answers with acc_id; accept the plain id
@@ -168,6 +219,97 @@ class AuthManager:
         identity = Identity(auth_id=auth_id, session=session, device_id=device_id)
         self.logger.info(f"Logged in as {email} (id={auth_id})")
         return identity
+
+    def _follow_shard_redirect(
+        self, email: str, password: str, target_url: str
+    ) -> Identity:
+        """Re-send a 777-redirected login to the account's home shard.
+
+        One hop only: a second redirect is refused (the home shard hosts
+        the account, so another 777 there means something is wrong). The
+        remembered shard keeps later runs, and the key queries of the
+        current run, on the right server without the extra round trip.
+        """
+        current_host = urlparse(self.config.api_base_url).hostname or ""
+        target_host = urlparse(target_url).hostname or ""
+        if target_host == current_host:
+            raise AuthError(
+                f"Login failed (result=777): {current_host} says the account "
+                "is hosted on another shard but named this same server; "
+                "nothing to redirect to"
+            )
+
+        self.config.api_base_url = target_url
+        self.logger.info(
+            f"Account {email} is hosted on shard {target_host}: following "
+            f"the server's redirect from {current_host}"
+        )
+        try:
+            identity = self._login_attempt(email, password)
+        except _ShardRedirect as again:
+            raise AuthError(
+                "Login failed (result=777): shard "
+                f"{urlparse(again.target_url).hostname} redirected again; "
+                "refusing to follow more than one shard redirect"
+            ) from again
+
+        self.db.set_setting(SETTINGS_API_BASE_URL, target_url)
+        self.logger.info(
+            f"{target_host} is this account's home shard (remembered in "
+            f"{self.config.db_path})"
+        )
+        return identity
+
+    @staticmethod
+    def _shard_base_url(server_field: str) -> str | None:
+        """Canonical API URL for a ``server=`` shard host, or None.
+
+        The value comes from a server response and ends up in a request
+        URL, so accept only a bare hostname under the game's own domain:
+        no scheme, port, path, credentials or punctuation beyond shard
+        label dashes.
+        """
+        host = server_field.strip().lower().rstrip(".")
+        suffix = "." + SHARD_DOMAIN
+        if not host.endswith(suffix):
+            return None
+        label = host[: -len(suffix)]
+        if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", label):
+            return None
+        return f"https://{host}/v/query2026.php"
+
+    def _apply_remembered_shard(self) -> None:
+        """Point the client at the remembered home shard of the account.
+
+        The home shard is a property of the account, confirmed by the
+        server on the last successful login (result=777 redirect), so it
+        wins over WOG_API_BASE_URL: the variable is the probe endpoint
+        for the first login and after logout, not a persistent override.
+        A conflict is reported; ``wog-dump logout`` resets the shard
+        with the account.
+        """
+        stored = self.db.get_setting(SETTINGS_API_BASE_URL)
+        if not stored:
+            return
+        target = self._shard_base_url(urlparse(stored).hostname or "")
+        if target is None or target == self.config.api_base_url:
+            return
+
+        env_url = os.environ.get("WOG_API_BASE_URL", "").strip()
+        if env_url:
+            env_host = urlparse(env_url).hostname or env_url
+            self.logger.warning(
+                f"WOG_API_BASE_URL points at {env_host}, but the stored "
+                f"account lives on shard {urlparse(target).hostname} "
+                "(confirmed by the server on the last login); using the "
+                "remembered shard - 'wog-dump logout' resets it"
+            )
+
+        self.config.api_base_url = target
+        self.logger.debug(
+            f"Using remembered home shard "
+            f"{urlparse(target).hostname} for the stored account"
+        )
 
     def register(self, name: str, email: str, password: str) -> None:
         """Create a new game account (the standalone client's ``query=39``).
@@ -202,22 +344,30 @@ class AuthManager:
         result = fields.get("result", "")
 
         if result != "0":
-            message = fields.get("errmsg", "") or self._login_error(response_text)
+            message = self._login_error(response_text, fields.get("errmsg", ""))
             raise AuthError(f"Registration failed (result={result}): {message}")
 
         self.logger.info(f"Registered game account for {email}")
 
     @staticmethod
-    def _login_error(response_text: str) -> str:
-        """Best-effort error message from errmsg or the API debug output."""
+    def _login_error(response_text: str, errmsg: str = "") -> str:
+        """Best-effort error message from errmsg or the API debug output.
+
+        Values arrive form-encoded (spaces as ``+``, punctuation as
+        percent hex) and are decoded for display: ``..shard+found+%21``
+        reads "..shard found !", not "..shard found %21".
+        """
+        if errmsg:
+            return unquote_plus(errmsg)
+
         match = re.search(r"errmsg=([^&\s]+)", response_text)
         if match:
-            return match.group(1).replace("+", " ")
+            return unquote_plus(match.group(1))
 
         # The API narrates failures in _N= debug entries; use the last one
         debug_entries = re.findall(r"_\d+=[\d:.]+ ([^&]+)", response_text)
         if debug_entries:
-            return str(debug_entries[-1]).replace("+", " ")
+            return unquote_plus(str(debug_entries[-1]))
 
         return response_text.replace("\n", " ")[:200]
 
@@ -304,11 +454,13 @@ class AuthManager:
 
         Clearing the device id too keeps logout terminal: otherwise a
         WOG_AUTH_ID/WOG_AUTH_SESSION pair still in the environment would
-        silently re-import an identity on the next run.
+        silently re-import an identity on the next run. The remembered
+        home shard belongs to the account and goes with it.
         """
         self.db.delete_setting(SETTINGS_EMAIL)
         self.db.delete_setting(SETTINGS_PASSWORD)
         self.db.delete_setting(SETTINGS_DEVICE_ID)
+        self.db.delete_setting(SETTINGS_API_BASE_URL)
         self.db.clear_identity()
         self.logger.info("Logged out: removed stored account credentials")
 

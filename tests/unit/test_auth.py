@@ -10,7 +10,7 @@ import pytest
 from wog_dump.core.api import WOGApiClient, form_encode, parse_response_fields
 from wog_dump.core.auth import AuthError, AuthManager, Identity, build_sys_info
 from wog_dump.core.config import WOGConfig
-from wog_dump.core.database import WOGDatabase
+from wog_dump.core.database import SETTINGS_API_BASE_URL, WOGDatabase
 
 # Dummy credentials only - never real account data
 TEST_EMAIL = "player@example.com"
@@ -36,6 +36,24 @@ def success_register_response() -> str:
         "_3=16:32:594 Email+to+player%40example.com+sent+ok+%21&"
         "_4=16:32:594 action+saved+on+server+0.+id%3D123456&"
         "result=0&sign=def456"
+    )
+
+
+def shard_redirect_response(server: str = "us4.ultimate-disassembly.com") -> str:
+    """A query=1 result=777 answer, shaped like the live capture (Nov 2026).
+
+    The server cannot host the account itself and names the home shard
+    under server=, together with an echo of the login fields.
+    """
+    return (
+        "00001277&query=1&time=1700000030&offline_ts=&"
+        "_1=22:20:521 Email+login..+Client%3A+&"
+        "_2=22:20:522 ..acoount+not+found.+Looking+for+shard..&"
+        "_3=22:20:522 calling+v_shards_query%28web%2C5ea23dd5b330e0304a3624204e7ca626%29&"
+        f"_13=22:20:541 redirect+to+{form_encode(server)}&"
+        f"result=777&server={form_encode(server)}&client=&user=&auth=&username=&"
+        "email=player%40example.com&pass=2ab5e6a3393c1e6b9f3626b1d47ba2d2&"
+        "_14=22:20:541 ..shard+found+%21&sign=x"
     )
 
 
@@ -176,6 +194,195 @@ class TestLogin:
             "&_14=56:17:089 user+not+found&result=100&sign=x"
         )
         assert AuthManager._login_error(response) == "user not found"
+
+    def test_login_error_message_is_url_decoded(self) -> None:
+        """Percent hex and + reach the user as real characters (#2)."""
+        response = (
+            "00001277&query=1&time=1&offline_ts=&"
+            "_14=22:20:541 ..shard+found+%21&result=777&sign=x"
+        )
+        assert AuthManager._login_error(response) == "..shard found !"
+
+    def test_login_error_prefers_decoded_errmsg_field(self) -> None:
+        assert AuthManager._login_error("result=100", "wrong+password%21") == (
+            "wrong password!"
+        )
+
+
+class TestShardRedirect:
+    """result=777 handling: the account lives on another shard (#2)."""
+
+    def test_login_follows_redirect_to_home_shard(
+        self, test_config: WOGConfig
+    ) -> None:
+        client = Mock(spec=WOGApiClient)
+        client.call.side_effect = [
+            shard_redirect_response("us4.ultimate-disassembly.com"),
+            success_login_response(),
+        ]
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        identity = auth.login(TEST_EMAIL, TEST_PASSWORD)
+
+        assert (identity.auth_id, identity.session) == ("123456", "1")
+        assert client.call.call_count == 2
+
+        # The client and the store both move to the home shard, so the
+        # key queries of this run and later logins go there directly
+        target = "https://us4.ultimate-disassembly.com/v/query2026.php"
+        assert auth.config.api_base_url == target
+        assert auth.db.get_setting(SETTINGS_API_BASE_URL) == target
+
+    def test_redirect_to_the_same_shard_refused(
+        self, test_config: WOGConfig
+    ) -> None:
+        client = Mock(spec=WOGApiClient)
+        client.call.return_value = shard_redirect_response(
+            "eu1.ultimate-disassembly.com"  # the default endpoint itself
+        )
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        with pytest.raises(AuthError, match="same server"):
+            auth.login(TEST_EMAIL, TEST_PASSWORD)
+
+        assert client.call.call_count == 1
+
+    def test_second_redirect_refused(self, test_config: WOGConfig) -> None:
+        client = Mock(spec=WOGApiClient)
+        client.call.side_effect = [
+            shard_redirect_response("us4.ultimate-disassembly.com"),
+            shard_redirect_response("us3.ultimate-disassembly.com"),
+        ]
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        with pytest.raises(AuthError, match="more than one shard redirect"):
+            auth.login(TEST_EMAIL, TEST_PASSWORD)
+
+        assert client.call.call_count == 2
+        # No shard remembered from a failed redirect chain
+        assert auth.db.get_setting(SETTINGS_API_BASE_URL) is None
+
+    @pytest.mark.parametrize(
+        "server",
+        [
+            "",  # server= missing entirely
+            "evil.example.com",  # outside the game's domain
+            "eu1.ultimate-disassembly.com.evil.com",  # suffix look-alike
+            "eu1.ultimate-disassembly.com:8080",  # port injection
+            "https://eu1.ultimate-disassembly.com",  # scheme injection
+        ],
+    )
+    def test_redirect_to_untrusted_host_refused(
+        self, test_config: WOGConfig, server: str
+    ) -> None:
+        client = Mock(spec=WOGApiClient)
+        client.call.return_value = shard_redirect_response(server)
+
+        auth = AuthManager(test_config, db=WOGDatabase(test_config), client=client)
+        with pytest.raises(AuthError, match="no valid home"):
+            auth.login(TEST_EMAIL, TEST_PASSWORD)
+
+        assert client.call.call_count == 1
+        assert auth.config.api_base_url == test_config.api_base_url
+
+    def test_remembered_shard_used_by_later_managers(
+        self, test_config: WOGConfig
+    ) -> None:
+        client = Mock(spec=WOGApiClient)
+        client.call.side_effect = [
+            shard_redirect_response("us4.ultimate-disassembly.com"),
+            success_login_response(),
+        ]
+        db = WOGDatabase(test_config)
+        AuthManager(test_config, db=db, client=client).login(
+            TEST_EMAIL, TEST_PASSWORD
+        )
+
+        # A fresh process: default eu1 config, same database
+        fresh_config = WOGConfig(
+            base_dir=test_config.base_dir, db_path=test_config.db_path
+        )
+        later_auth = AuthManager(fresh_config, db=db)
+
+        assert fresh_config.api_base_url == (
+            "https://us4.ultimate-disassembly.com/v/query2026.php"
+        )
+
+    def test_remembered_shard_beats_env_endpoint(
+        self, test_config: WOGConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The server-confirmed shard is a fact about the account; env is
+        only the probe endpoint for the first login (#2)."""
+        db = WOGDatabase(test_config)
+        db.set_setting(
+            SETTINGS_API_BASE_URL,
+            "https://us4.ultimate-disassembly.com/v/query2026.php",
+        )
+        monkeypatch.setenv(
+            "WOG_API_BASE_URL", "https://us3.ultimate-disassembly.com/v/query2026.php"
+        )
+        test_config.api_base_url = (
+            "https://us3.ultimate-disassembly.com/v/query2026.php"
+        )
+
+        AuthManager(test_config, db=db)
+
+        assert test_config.api_base_url == (
+            "https://us4.ultimate-disassembly.com/v/query2026.php"
+        )
+
+    def test_env_conflicting_with_remembered_shard_warns(
+        self,
+        test_config: WOGConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        db = WOGDatabase(test_config)
+        db.set_setting(
+            SETTINGS_API_BASE_URL,
+            "https://us4.ultimate-disassembly.com/v/query2026.php",
+        )
+        monkeypatch.setenv(
+            "WOG_API_BASE_URL", "https://us3.ultimate-disassembly.com/v/query2026.php"
+        )
+        test_config.api_base_url = (
+            "https://us3.ultimate-disassembly.com/v/query2026.php"
+        )
+
+        with caplog.at_level("WARNING", logger="wog_dump"):
+            AuthManager(test_config, db=db)
+
+        assert "lives on shard us4" in caplog.text
+        assert "'wog-dump logout' resets it" in caplog.text
+
+    def test_env_endpoint_used_when_no_shard_remembered(
+        self, test_config: WOGConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """First login ever (or after logout): the env probe endpoint
+        stays in charge until the server confirms a home shard."""
+        monkeypatch.setenv(
+            "WOG_API_BASE_URL", "https://us3.ultimate-disassembly.com/v/query2026.php"
+        )
+        test_config.api_base_url = (
+            "https://us3.ultimate-disassembly.com/v/query2026.php"
+        )
+
+        AuthManager(test_config, db=WOGDatabase(test_config))
+
+        assert test_config.api_base_url == (
+            "https://us3.ultimate-disassembly.com/v/query2026.php"
+        )
+
+    def test_logout_clears_remembered_shard(self, test_config: WOGConfig) -> None:
+        db = WOGDatabase(test_config)
+        db.set_setting(
+            SETTINGS_API_BASE_URL,
+            "https://us4.ultimate-disassembly.com/v/query2026.php",
+        )
+
+        AuthManager(test_config, db=db).logout()
+
+        assert db.get_setting(SETTINGS_API_BASE_URL) is None
 
     def test_login_accepts_legacy_id_field(self, test_config: WOGConfig) -> None:
         """Older servers may answer with id= instead of acc_id=."""

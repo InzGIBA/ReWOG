@@ -39,6 +39,23 @@ jobs:
           name: dist
           path: dist/
 
+  addon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build addon zip
+        run: python scripts/build_addon.py --out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wog_dump_addon
+          path: dist/wog_dump_addon.zip
+
   publish:
     needs: build
     runs-on: ubuntu-latest

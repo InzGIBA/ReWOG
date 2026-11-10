@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "wog_dump"
+version = "0.1.0"
+name = "WOG Dump"
+tagline = "Browse the wog-dump catalog and import weapon scenes"
+maintainer = "InzGIBA"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+license = ["SPDX:MIT"]
+
+[permissions]
+# Runs the wog-dump CLI (downloads, scene builds) and reads its output
+files = "Read and write scene files under the configured runtime directory"

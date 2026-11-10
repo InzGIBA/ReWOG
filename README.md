@@ -325,6 +325,13 @@ No. Partial downloads are kept as `runtime/assets/*.tmp` and resumed via HTTP `R
 **The tool seems stuck or slow**
 Check your internet connection, reduce the thread count (`wog-dump --max-threads 2 download-assets`), enable `--verbose` (or `--debug`), and remember that downloads are throttled by design (see `WOG_REQUEST_DELAY`).
 
+## Blender addon
+
+A native Blender extension (4.2+) over the same CLI: browse the catalog
+in a sidebar panel, build missing scenes and import the GLB without a
+terminal. Install the zip from a release, enable it in preferences, set
+the runtime directory. See [blender-addon/README.md](blender-addon/README.md).
+
 ## Contributing
 
 Issues and pull requests are welcome — bug fixes, features, documentation, tests and localization all help. For larger changes, open an issue first to discuss the approach.

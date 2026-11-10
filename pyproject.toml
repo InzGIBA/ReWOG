@@ -69,6 +69,8 @@ usd = [
 Homepage = "https://github.com/InzGIBA/ReWOG"
 Repository = "https://github.com/InzGIBA/ReWOG"
 Documentation = "https://github.com/InzGIBA/ReWOG/blob/main/README.md"
+Changelog = "https://github.com/InzGIBA/ReWOG/blob/main/CHANGELOG.md"
+Issues = "https://github.com/InzGIBA/ReWOG/issues"
 "Bug Tracker" = "https://github.com/InzGIBA/ReWOG/issues"
 
 [project.scripts]

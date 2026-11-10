@@ -63,6 +63,17 @@ WOG Dump automates the full path from the game's servers to usable 3D data: weap
 
 ### Install
 
+From [PyPI](https://pypi.org/project/wog-dump/):
+
+```bash
+pip install wog-dump
+
+# USD/USDZ export support:
+pip install "wog-dump[usd]"
+```
+
+From source (for development):
+
 ```bash
 git clone https://github.com/InzGIBA/ReWOG
 cd ReWOG

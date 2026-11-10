@@ -41,6 +41,19 @@ are needed at all.
 
 The game version strings must match the current `disasm64.exe` client.
 Wrong values are rejected server-side. Update the strings when the game
+updates. `wog-dump info --protocol-probe` checks the whole protocol
+against the live servers and tells you which side moved.
+
+## Interface
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WOG_LOCALE` | `en` | CLI message language. `ru` ships a compiled catalog; any other value falls back to English. The `--locale` flag wins over this setting. |
+| `WOG_NO_PROGRESS` | unset | Set to any value to disable progress bars (same as `--no-progress`). Bars also switch off automatically when the output is not a terminal. |
+| `WOG_BLENDER_PATH` | found on PATH | Blender binary used by `render` (previews and videos) and `--format fbx`. Set this when Blender is installed but not on PATH, for example a Windows `.exe` used from WSL. |
+
+The game version strings must match the current `disasm64.exe` client.
+Wrong values are rejected server-side. Update the strings when the game
 updates.
 
 ## Storage
@@ -106,7 +119,25 @@ an option makes sense:
 ```bash
 wog-dump --max-threads 8 --chunk-size 64 download-assets
 wog-dump --strict-mode full-pipeline
+wog-dump --locale ru catalog
+wog-dump --no-progress full-pipeline
 ```
 
 Run `wog-dump info` at any time to print the effective configuration,
 where your database lives and what is logged in.
+
+## Optional extras
+
+The core install keeps a small dependency list. Capabilities with heavier
+dependencies live in extras:
+
+| Extra | Adds | Commands |
+|---|---|---|
+| `wog-dump[usd]` | `usd-core` (Pixar) | `build-scene --format usd,usdz` |
+| `wog-dump[web]` | `fastapi`, `uvicorn` | `wog-dump serve` |
+| `wog-dump[print]` | `trimesh`, `numpy`, `networkx` | `wog-dump print-export` |
+| `wog-dump[mitm]` | `mitmproxy` | reading `.flows` captures |
+| `wog-dump[dev]` | test and docs tooling | development |
+
+FBX export and the preview/video renderers need a Blender installation
+(`WOG_BLENDER_PATH` or PATH), no extra package.

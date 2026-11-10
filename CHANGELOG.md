@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The roadmap 2027 series: 21 tasks, each one a separate commit with its
+own tests. Every command from the series keeps its old behavior by
+default; new things switch on through flags and extras.
+
+### Added
+
+- **Disassembly states in `build-scene`**: `--state field-strip` puts
+  parts where the game itself puts them after removal (the bundles
+  carry per-part `<part>_out` anchors, documented in
+  `docs/research-disassembly-data.md`), `--state exploded` pushes them
+  along removal directions, `--state parts` lays them out in a grid.
+  Non-assembled scenes go to `<weapon>-<state>` folders.
+- **Assembly steps**: `--assembly-steps N` writes N GLBs with more
+  parts placed at each step plus `steps.json`; `--animated` adds
+  `assembly.glb`, one animation placing part after part.
+- **Operate animations**: `--animations` embeds the bundle's legacy
+  clip as glTF animation tracks (344 channels for ak47);
+  `--animation <name>` limits the export to one clip.
+- **HTML viewer**: `--viewer` produces one self-contained
+  `viewer.html` (GLB and three.js embedded, works offline);
+  `--annotate` adds part markers with size cards; `--viewer-link`
+  writes a folder variant for big scenes.
+- **Export formats**: `--format stl,usd,usdz,fbx` converts a built
+  scene. STL is self-contained with unit baking and a per-part mode.
+  USD/USDZ needs the new `wog-dump[usd]` extra. FBX goes through
+  headless Blender (`WOG_BLENDER_PATH`).
+- **`wog-dump print-export`** (extra `wog-dump[print]`): repairs parts
+  with trimesh, reports watertight status per part and writes
+  millimeter-true STLs, single or merged.
+- **`wog-dump render`**: turntable previews through headless Blender
+  (transparent PNGs plus GIF); `--video` encodes an orbit MP4 or one
+  animation clip; `--all` sweeps every built scene.
+- **`wog-dump catalog`**: per-weapon pipeline status with filters,
+  sorting and a stable JSON schema (`wog-dump.catalog/1`).
+- **`wog-dump serve`** (extra `wog-dump[web]`): local web UI with the
+  catalog, a 3D viewer per weapon and stage buttons streaming live
+  logs. Token-guarded, bound to 127.0.0.1.
+- **`wog-dump info --protocol-probe`**: checks endpoint reachability,
+  the anonymous query, the authenticated key query, the weapon list
+  and the client version; exits 2 on any failure. Golden protocol
+  fixtures and a drift issue template ship with the repo.
+- **Extractor plugins**: third-party packages register extractors
+  through the `wog_dump.extractors` entry-point group; a plugin wins
+  over a built-in, a broken plugin only logs. Example plugin in
+  `examples/plugin-sprite/`, guide in `docs/plugins.md`.
+- **Localization**: `--locale ru` (or `WOG_LOCALE`) switches CLI
+  messages to Russian through gettext; unknown locales fall back to
+  English. Pure-stdlib `.po` compiler in `scripts/`.
+- **Docker**: image with the CLI as entrypoint and `/data` state
+  volume; GHCR publishing on release tags.
+- **Blender addon** (`blender-addon/`): catalog panel, scene import and
+  batch building inside Blender 4.2+, talking to the CLI only.
+- **Documentation site**: mkdocs-material with an API reference
+  (mkdocstrings), deployed to GitHub Pages.
+- **Coverage gate**: 85 percent enforced through `.coveragerc`;
+  569 tests total, up from 445 before the series.
+
+### Changed
+
+- **Downloads report byte progress** through a new optional callback;
+  the CLI shows one aggregate bar with speed and ETA. `--no-progress`
+  (or `WOG_NO_PROGRESS`, or any piped output) switches every bar off.
+- **Scene emission refactored** into one shared helper, so single
+  scenes, steps and annotations use the same pipeline; the assembled
+  ak47 GLB stays byte-identical. A mesh-cache bug found during the
+  quality pass (id reuse across builds could hand one scene another
+  part's geometry) is fixed and guarded by a test.
+- **`key_import` error handling**: unreadable mitmproxy dumps now raise
+  `KeyImportError` with an actionable message for both keys and
+  identity extraction, and identity extraction warns when the winning
+  capture came from a non-game host.
+- **flake8 got a config** (`setup.cfg`, black-compatible) and the
+  docs gained a mkdocs site; both enforce in CI.
+
+### Deferred by their own thresholds
+
+- **Async downloads** (`tasks/11`): the live benchmark measured a
+  1.9 percent gain for asyncio/httpx against the 15 percent threshold.
+  The threaded implementation stays; `scripts/bench_download.py` keeps
+  the decision reproducible.
+- **Content-addressed storage** (`tasks/12`): the duplicate audit over
+  87,163 unpacked files found 3.4 percent reclaimable volume against
+  the 10 percent threshold. `scripts/audit_duplicates.py` stays for a
+  re-run when the cache grows.
+
 ## [2.7.1] - 2026-11-09
 
 ### Fixed

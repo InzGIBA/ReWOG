@@ -48,6 +48,9 @@ scene.add(key);
 const partNames = new Set(
   (config.manifest.parts || []).concat(config.manifest.field_strip || [])
 );
+const annotations = config.manifest.annotations || [];
+let markersVisible = true;
+const markers = [];
 const nameToMeshes = new Map();
 const originalEmissive = new Map();
 let selected = null;
@@ -164,8 +167,87 @@ canvas.addEventListener("pointerup", function (event) {
     object = object.parent;
   }
   setHighlight(name === selected ? null : name);
-  if (name) focusOn(name);
+  if (name) {
+    focusOn(name);
+    const annotation = annotations.find(function (a) {
+      return a.name === name;
+    });
+    if (annotation) showCard(annotation);
+  } else {
+    hideCard();
+  }
 });
+
+function buildMarkers(gltfScene) {
+  if (!annotations.length) return;
+  const texture = markerTexture();
+  const group = new THREE.Group();
+  annotations.forEach(function (annotation) {
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      color: annotation.group === "field_strip" ? 0xffa726 : 0x4a9eff,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.position.set(
+      annotation.center[0],
+      annotation.center[1],
+      annotation.center[2]
+    );
+    sprite.scale.setScalar(0.02);
+    sprite.userData.part = annotation.name;
+    sprite.renderOrder = 10;
+    group.add(sprite);
+    markers.push(sprite);
+  });
+  gltfScene.add(group);
+  const toggle = document.getElementById("markers");
+  if (toggle) {
+    toggle.style.display = "";
+    toggle.addEventListener("click", function () {
+      markersVisible = !markersVisible;
+      markers.forEach(function (marker) {
+        marker.visible = markersVisible;
+      });
+    });
+  }
+}
+
+function markerTexture() {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#1a1d23";
+  ctx.stroke();
+  return new THREE.CanvasTexture(canvas);
+}
+
+function showCard(annotation) {
+  let card = document.getElementById("card");
+  if (!card) {
+    card = document.createElement("div");
+    card.id = "card";
+    document.body.appendChild(card);
+  }
+  card.style.display = "block";
+  const size = annotation.bbox_size || [0, 0, 0];
+  card.innerHTML =
+    "<strong>" + annotation.name + "</strong><br>" +
+    "group: " + annotation.group + "<br>" +
+    "size: " + size.map(function (v) { return (v * 1000).toFixed(0) + " mm"; }).join(" x ");
+}
+
+function hideCard() {
+  const card = document.getElementById("card");
+  if (card) card.style.display = "none";
+}
 
 function buildList() {
   const list = document.getElementById("parts");
@@ -179,7 +261,15 @@ function buildList() {
     item.addEventListener("click", function () {
       const next = selected === name ? null : name;
       setHighlight(next);
-      if (next) focusOn(next);
+      if (next) {
+        focusOn(next);
+        const annotation = annotations.find(function (a) {
+          return a.name === name;
+        });
+        if (annotation) showCard(annotation);
+      } else {
+        hideCard();
+      }
     });
     list.appendChild(item);
   });
@@ -190,6 +280,7 @@ gltfLoader.load(config.glbUrl, function (gltf) {
   scene.add(gltf.scene);
   collectNames(gltf.scene);
   buildList();
+  buildMarkers(gltf.scene);
 
   const cameras = [];
   gltf.scene.traverse(function (object) {
@@ -242,6 +333,7 @@ document.getElementById("autorotate").addEventListener("click", function () {
 
 document.getElementById("clear").addEventListener("click", function () {
   setHighlight(null);
+  hideCard();
 });
 
 window.addEventListener("resize", function () {

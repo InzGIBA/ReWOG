@@ -132,6 +132,12 @@ def _parse_formats(formats: str) -> frozenset[str]:
     "placing part after part (1 second each)",
 )
 @click.option(
+    "--annotate",
+    is_flag=True,
+    default=False,
+    help="Add part annotations to the viewer (implies --viewer)",
+)
+@click.option(
     "--viewer",
     is_flag=True,
     default=False,
@@ -170,6 +176,7 @@ def build_scene(
     stl_per_part: bool,
     viewer: bool,
     viewer_link: bool,
+    annotate: bool,
     assembly_steps: int,
     steps_from: str,
     animated: bool,
@@ -224,6 +231,7 @@ def build_scene(
                     export_options=export_options,
                     viewer=viewer,
                     viewer_link=viewer_link,
+                    annotate=annotate,
                     assembly_steps=assembly_steps,
                     steps_from=steps_from,
                     animated=animated,

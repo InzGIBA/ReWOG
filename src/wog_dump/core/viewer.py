@@ -87,6 +87,7 @@ def render_viewer_html(glb: bytes, manifest: dict, *, linked: bool = False) -> s
                 "state": manifest.get("state", "assembled"),
                 "parts": manifest.get("parts", []),
                 "field_strip": manifest.get("field_strip", []),
+                "annotations": manifest.get("annotations", []),
                 "meshes": manifest.get("meshes", 0),
             },
         }

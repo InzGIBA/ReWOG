@@ -116,6 +116,8 @@ class SceneStats:
     state: str = "assembled"
     placements: list[PartPlacement] = field(default_factory=list)
     animations: list[dict[str, object]] = field(default_factory=list)
+    annotations: list[dict[str, object]] = field(default_factory=list)
+    annotate: bool = False
     exports: list[str] = field(default_factory=list)
     parts: list[str] = field(default_factory=list)
     field_strip: list[str] = field(default_factory=list)
@@ -159,6 +161,83 @@ def classify_game_object(name: str, materials: list[str]) -> str:
     if any(m in VFX_MATERIALS for m in materials):
         return "vfx"
     return "gun"
+
+
+def collect_annotations(
+    root: _GameObjectInfo,
+    world_by_path: dict[str, list[float]],
+    unit_scale: float,
+    stats: SceneStats,
+    mesh_data_fn: Any | None = None,
+) -> list[dict[str, object]]:
+    """One annotation per listed part: glTF center, group and bbox size.
+
+    Centers come from the emitted world matrices; sizes are the local
+    mesh extents scaled (a good-enough proxy, orientations ignored).
+    """
+    annotations: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for group in ("parts", "field_strip"):
+        for name in getattr(stats, group):
+            if name in seen:
+                continue
+            path = _longest_path_for_name(root, world_by_path, name)
+            if path is None:
+                continue
+            seen.add(name)
+            world = world_by_path[path]
+            center = convert_position((world[12], world[13], world[14]), unit_scale)
+            annotations.append(
+                {
+                    "name": name,
+                    "node": path,
+                    "center": [round(c, 6) for c in center],
+                    "group": group,
+                    "bbox_size": _bbox_size(root, path, unit_scale, mesh_data_fn),
+                }
+            )
+    return annotations
+
+
+def _longest_path_for_name(
+    root: _GameObjectInfo, world_by_path: dict[str, list[float]], name: str
+) -> str | None:
+    """The deepest emitted path whose last segment matches name."""
+    best: str | None = None
+    for path in world_by_path:
+        segment = path.rsplit("/", 1)[-1]
+        if segment == name and (best is None or len(path) > len(best)):
+            best = path
+    return best
+
+
+def _node_at_path(root: _GameObjectInfo, path: str) -> _GameObjectInfo | None:
+    node = None
+    current = list(root.children)
+    for segment in path.split("/"):
+        node = next((child for child in current if child.name == segment), None)
+        if node is None:
+            return None
+        current = node.children
+    return node
+
+
+def _bbox_size(
+    root: _GameObjectInfo,
+    path: str,
+    unit_scale: float,
+    mesh_data_fn: Any | None,
+) -> list[float]:
+    """Local mesh extents scaled to glTF meters (orientation ignored)."""
+    node = _node_at_path(root, path)
+    if node is None or node.mesh is None or mesh_data_fn is None:
+        return [0.0, 0.0, 0.0]
+    mesh = mesh_data_fn(node.mesh)
+    if mesh is None or not getattr(mesh, "local_min", None):
+        return [0.0, 0.0, 0.0]
+    return [
+        round((mesh.local_max[i] - mesh.local_min[i]) * unit_scale, 6) for i in range(3)
+    ]
 
 
 def convert_position(
@@ -205,6 +284,7 @@ class SceneBuilder:
         assembly_steps: int = 0,
         steps_from: str = "parts",
         animated: bool = False,
+        annotate: bool = False,
     ) -> Path:
         """Export one weapon to ``<output_dir>/<weapon>.glb``.
 
@@ -320,6 +400,12 @@ class SceneBuilder:
                     root, unit_scale, stats.parts, self._mesh_data, stats
                 )
             stats.state = state
+            stats.annotate = annotate or viewer or viewer_link
+            if annotate and not (viewer or viewer_link):
+                # Annotations live in the HTML layer only: generating them
+                # without a viewer makes an empty gesture, so a viewer
+                # comes along automatically
+                viewer = True
 
             glb_path, _ = self._emit_and_write(
                 env,
@@ -414,6 +500,7 @@ class SceneBuilder:
 
         world_bounds = [[math.inf] * 3, [-math.inf] * 3]
         node_paths: dict[str, int] = {}
+        world_by_path: dict[str, list[float]] = {}
         self._emit_nodes(
             root,
             parent=None,
@@ -426,6 +513,7 @@ class SceneBuilder:
             stats=stats,
             world_bounds=world_bounds,
             node_paths=node_paths,
+            world_by_path=world_by_path,
             path="",
         )
         stats.nodes = len(writer._nodes)
@@ -441,6 +529,11 @@ class SceneBuilder:
                 name, channels = built
                 if channels:
                     writer.add_animation(name, channels)
+
+        if getattr(stats, "annotate", False):
+            stats.annotations = collect_annotations(
+                root, world_by_path, unit_scale, stats, self._mesh_data
+            )
 
         glb_path = output_dir / (glb_name or f"{weapon}.glb")
         writer.write(glb_path)
@@ -875,6 +968,7 @@ class SceneBuilder:
         stats: SceneStats,
         world_bounds: list[list[float]],
         node_paths: dict[str, int],
+        world_by_path: dict[str, list[float]],
         path: str,
     ) -> int | None:
         """Recursively emit kept nodes; returns the glTF node index or None.
@@ -911,6 +1005,7 @@ class SceneBuilder:
                 stats,
                 world_bounds,
                 node_paths,
+                world_by_path,
                 child_path,
             )
             if child_index is not None:
@@ -943,6 +1038,7 @@ class SceneBuilder:
         for child_index in child_indices:
             writer.attach_child(node_index, child_index)
         node_paths[path] = node_index
+        world_by_path[path] = world_matrix
 
         return node_index
 
@@ -1205,6 +1301,8 @@ class SceneBuilder:
             manifest["animations"] = stats.animations
         if stats.exports:
             manifest["exports"] = stats.exports
+        if stats.annotations:
+            manifest["annotations"] = stats.annotations
         _atomic_write(
             output_dir / "scene.json",
             json.dumps(manifest, indent=2).encode("utf-8"),

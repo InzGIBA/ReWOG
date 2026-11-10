@@ -38,6 +38,12 @@ header button:hover { border-color: currentColor; }
   background: rgba(128, 128, 128, 0.10);
   backdrop-filter: blur(6px);
 }
+#card {
+  position: fixed; left: 12px; bottom: 12px; z-index: 2; display: none;
+  padding: 10px 14px; font-size: 13px;
+  background: rgba(128, 128, 128, 0.15);
+  backdrop-filter: blur(6px); border-radius: 8px;
+}
 #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; padding: 6px 8px; }
 #parts { list-style: none; padding: 0; }
 #parts li {
@@ -61,6 +67,7 @@ $IMPORT_MAP
   <h1>$TITLE</h1>
   <span id="stats">loading&hellip;</span>
   <span style="flex: 1"></span>
+  <button id="markers" style="display:none">markers</button>
   <button id="wireframe">wireframe</button>
   <button id="autorotate">rotate</button>
   <button id="clear">clear</button>

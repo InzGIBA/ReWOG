@@ -34,8 +34,9 @@ from UnityPy.helpers import MeshHelper
 
 from ..utils.logging import get_logger
 from ..utils.normal_map import is_unity_swizzled_normal, unswizzle_normal_map
+from .anim import extract_tracks
 from .config import WOGConfig, get_config
-from .glb import GLBWriter, MeshPrimitive, SceneError
+from .glb import AnimationChannel, GLBWriter, MeshPrimitive, SceneError
 from .paths import contained_path, is_safe_weapon_name, safe_object_name
 from .scene_states import (
     SCENE_STATES,
@@ -105,6 +106,7 @@ class SceneStats:
     nodes: int = 0
     state: str = "assembled"
     placements: list[PartPlacement] = field(default_factory=list)
+    animations: list[dict[str, object]] = field(default_factory=list)
     parts: list[str] = field(default_factory=list)
     field_strip: list[str] = field(default_factory=list)
     skipped: dict[str, int] = field(default_factory=dict)
@@ -184,6 +186,8 @@ class SceneBuilder:
         output_dir: Path | None = None,
         state: str = "assembled",
         explode_distance: float = 0.35,
+        animations: bool = False,
+        animation_name: str | None = None,
     ) -> Path:
         """Export one weapon to ``<output_dir>/<weapon>.glb``.
 
@@ -196,6 +200,10 @@ class SceneBuilder:
         ``exploded`` (parts pushed apart along removal directions) or
         ``parts`` (grid layout). Non-assembled states export to
         ``<weapon>-<state>`` directories unless ``output_dir`` is set.
+
+        ``animations`` embeds the bundle's operate animation as glTF
+        animation tracks; ``animation_name`` limits the export to one
+        clip.
         """
         # The weapon string builds both the bundle path and the output
         # directory: reject anything outside the name alphabet
@@ -268,6 +276,9 @@ class SceneBuilder:
             )
 
             world_bounds = [[math.inf] * 3, [-math.inf] * 3]
+            # Unity hierarchy path -> glTF node index, the address space
+            # animation curve bindings resolve against
+            node_paths: dict[str, int] = {}
             self._emit_nodes(
                 root,
                 parent=None,
@@ -279,9 +290,20 @@ class SceneBuilder:
                 writer=writer,
                 stats=stats,
                 world_bounds=world_bounds,
+                node_paths=node_paths,
+                path="",
             )
             stats.nodes = len(writer._nodes)
             self._add_studio_rig(writer, world_bounds)
+
+            if animations:
+                stats.animations = self._export_animations(
+                    env,
+                    writer,
+                    node_paths,
+                    unit_scale,
+                    animation_name,
+                )
 
             glb_path = output_dir / f"{weapon}.glb"
             writer.write(glb_path)
@@ -518,8 +540,14 @@ class SceneBuilder:
         writer: GLBWriter,
         stats: SceneStats,
         world_bounds: list[list[float]],
+        node_paths: dict[str, int],
+        path: str,
     ) -> int | None:
-        """Recursively emit kept nodes; returns the glTF node index or None."""
+        """Recursively emit kept nodes; returns the glTF node index or None.
+
+        Emitted nodes register their Unity hierarchy path in
+        ``node_paths`` (animation bindings address nodes by path).
+        """
         material_names = [
             materials_by_pid[pid].m_Name
             for pid in node.material_pids
@@ -536,6 +564,7 @@ class SceneBuilder:
 
         child_indices: list[int] = []
         for child in node.children:
+            child_path = f"{path}/{child.name}" if path else child.name
             child_index = self._emit_nodes(
                 child,
                 None,
@@ -547,6 +576,8 @@ class SceneBuilder:
                 writer,
                 stats,
                 world_bounds,
+                node_paths,
+                child_path,
             )
             if child_index is not None:
                 child_indices.append(child_index)
@@ -577,6 +608,7 @@ class SceneBuilder:
         )
         for child_index in child_indices:
             writer.attach_child(node_index, child_index)
+        node_paths[path] = node_index
 
         return node_index
 
@@ -642,6 +674,82 @@ class SceneBuilder:
 
         stats.meshes += 1
         return writer.add_mesh(mesh_data.name, primitives)
+
+    # ------------------------------------------------------------------
+    # Animations
+    # ------------------------------------------------------------------
+
+    def _export_animations(
+        self,
+        env: Any,
+        writer: GLBWriter,
+        node_paths: dict[str, int],
+        unit_scale: float,
+        animation_name: str | None,
+    ) -> list[dict[str, object]]:
+        """Write every AnimationClip as a glTF animation.
+
+        Returns manifest entries (name, duration, tracks, skipped
+        bindings) for clips that produced at least one channel.
+        """
+        entries: list[dict[str, object]] = []
+        for obj in env.objects:
+            if obj.type.name != "AnimationClip":
+                continue
+            clip = obj.read()
+            if animation_name is not None and clip.m_Name != animation_name:
+                continue
+            clip_tracks = extract_tracks(clip)
+            if clip_tracks is None:
+                self.logger.debug(f"Animation clip {clip.m_Name!r}: no TRS curves")
+                continue
+
+            channels: list[AnimationChannel] = []
+            skipped = 0
+            for track in clip_tracks.tracks:
+                node_index = node_paths.get(track.path)
+                if node_index is None:
+                    skipped += 1
+                    continue
+                values: list[tuple[float, ...]]
+                if track.property == "translation":
+                    values = [
+                        convert_position((v[0], v[1], v[2]), unit_scale)
+                        for v in track.values
+                    ]
+                else:
+                    values = [
+                        convert_rotation((v[0], v[1], v[2], v[3])) for v in track.values
+                    ]
+                channels.append(
+                    AnimationChannel(
+                        node_index=node_index,
+                        property=track.property,
+                        times=track.times,
+                        values=values,
+                    )
+                )
+            if not channels:
+                stats_note = "all bindings unmatched"
+                self.logger.debug(
+                    f"Animation clip {clip.m_Name!r}: {stats_note}, not written"
+                )
+                continue
+
+            writer.add_animation(clip_tracks.name, channels)
+            entries.append(
+                {
+                    "name": clip_tracks.name,
+                    "duration": round(clip_tracks.duration, 6),
+                    "tracks": len(channels),
+                    "skipped_bindings": skipped,
+                }
+            )
+            self.logger.info(
+                f"Animation {clip_tracks.name!r}: {len(channels)} tracks, "
+                f"{skipped} unmatched bindings"
+            )
+        return entries
 
     # ------------------------------------------------------------------
     # Scene dressing
@@ -736,6 +844,8 @@ class SceneBuilder:
             "field_strip": stats.field_strip,
             "skipped": stats.skipped,
         }
+        if stats.animations:
+            manifest["animations"] = stats.animations
         _atomic_write(
             output_dir / "scene.json",
             json.dumps(manifest, indent=2).encode("utf-8"),

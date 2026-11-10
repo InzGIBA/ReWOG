@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-__all__ = ["GLBWriter", "MeshPrimitive", "SceneError"]
+__all__ = ["AnimationChannel", "GLBWriter", "MeshPrimitive", "SceneError"]
 
 GLB_MAGIC = 0x46546C67  # 'glTF'
 JSON_CHUNK_TYPE = 0x4E4F534A  # 'JSON'
@@ -79,6 +79,21 @@ class _GLTFNode:
     children: list[int] = field(default_factory=list)
 
 
+@dataclass
+class AnimationChannel:
+    """One animated node property, sampled at explicit times.
+
+    ``property`` is ``"translation"`` (VEC3 values) or ``"rotation"``
+    (VEC4 quaternions, x, y, z, w). Values live in glTF space, already
+    converted by the caller.
+    """
+
+    node_index: int
+    property: str
+    times: list[float]
+    values: list[tuple[float, ...]]
+
+
 def _srgb_to_linear(c: float) -> float:
     """Convert an sRGB channel to linear space (glTF factors are linear)."""
     if c <= 0.04045:
@@ -102,6 +117,7 @@ class GLBWriter:
         self._nodes: list[_GLTFNode] = []
         self._cameras: list[dict[str, object]] = []
         self._lights: list[dict[str, object]] = []
+        self._animations: list[dict[str, object]] = []
         self._root_children: list[int] = []
 
     # ------------------------------------------------------------------
@@ -394,6 +410,71 @@ class GLBWriter:
         return index
 
     # ------------------------------------------------------------------
+    # Animations
+    # ------------------------------------------------------------------
+
+    def add_animation(self, name: str, channels: list[AnimationChannel]) -> int:
+        """Add a glTF animation (LINEAR sampled TRS channels).
+
+        Input accessors carry the required min/max bounds; their buffer
+        views stay targetless per the glTF spec.
+        """
+        if not channels:
+            raise SceneError(f"Animation {name!r} has no channels")
+
+        samplers: list[dict[str, object]] = []
+        entries: list[dict[str, object]] = []
+        for channel in channels:
+            if not channel.times or not channel.values:
+                raise SceneError(
+                    f"Animation {name!r} channel "
+                    f"(node {channel.node_index}, {channel.property}) is empty"
+                )
+            if channel.property not in ("translation", "rotation"):
+                raise SceneError(f"Unsupported animation property: {channel.property}")
+
+            packed = struct.pack(f"<{len(channel.times)}f", *channel.times)
+            view = self._add_buffer_view(packed)
+            times_accessor = self._add_accessor(
+                view,
+                COMPONENT_FLOAT,
+                len(channel.times),
+                "SCALAR",
+                min_values=[min(channel.times)],
+                max_values=[max(channel.times)],
+            )
+
+            flat = [c for value in channel.values for c in value]
+            packed = struct.pack(f"<{len(flat)}f", *flat)
+            view = self._add_buffer_view(packed)
+            value_type = "VEC3" if channel.property == "translation" else "VEC4"
+            values_accessor = self._add_accessor(
+                view, COMPONENT_FLOAT, len(channel.values), value_type
+            )
+
+            samplers.append(
+                {
+                    "input": times_accessor,
+                    "output": values_accessor,
+                    "interpolation": "LINEAR",
+                }
+            )
+            entries.append(
+                {
+                    "sampler": len(samplers) - 1,
+                    "target": {
+                        "node": channel.node_index,
+                        "path": channel.property,
+                    },
+                }
+            )
+
+        self._animations.append(
+            {"name": name, "channels": entries, "samplers": samplers}
+        )
+        return len(self._animations) - 1
+
+    # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
 
@@ -464,6 +545,8 @@ class GLBWriter:
         if self._lights:
             document["extensionsUsed"] = extensions_used
             document["extensions"] = {"KHR_lights_punctual": {"lights": self._lights}}
+        if self._animations:
+            document["animations"] = self._animations
         return document
 
     def write(self, path: Path) -> None:

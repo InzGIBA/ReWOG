@@ -126,6 +126,20 @@ def built_scene(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return output_dir
 
 
+@pytest.fixture(scope="module")
+def built_scene_animated(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    output_dir = tmp_path_factory.mktemp("scene_ak47_anim")
+    config = get_config()
+    set_config(
+        base_dir=REPO_ROOT,
+        decrypted_dir=REPO_ROOT / "runtime" / "decrypted",
+    )
+    builder = SceneBuilder(get_config())
+    glb = builder.build_scene("ak47", output_dir=output_dir, animations=True)
+    assert glb.exists()
+    return output_dir
+
+
 class TestAk47Scene:
     def test_output_layout(self, built_scene: Path) -> None:
         assert (built_scene / "ak47.glb").exists()
@@ -215,3 +229,42 @@ class TestAk47Scene:
         assert manifest["skipped"]["cut"] == 14
         assert "magazine" in manifest["parts"]
         assert "magazine" in manifest["field_strip"]
+        assert "animations" not in manifest
+
+
+class TestAk47AnimatedScene:
+    def test_manifest_lists_the_operate_clip(self, built_scene_animated: Path) -> None:
+        manifest = json.loads((built_scene_animated / "scene.json").read_text())
+        animations = manifest["animations"]
+        assert len(animations) == 1
+        entry = animations[0]
+        assert entry["name"] == "Take 001"
+        assert entry["duration"] > 0
+        assert entry["tracks"] > 0
+        assert entry["skipped_bindings"] >= 0
+
+    def test_glb_animation_targets_existing_nodes(
+        self, built_scene_animated: Path
+    ) -> None:
+        document, _ = parse_glb(built_scene_animated / "ak47.glb")
+        animations = document.get("animations", [])
+        assert len(animations) == 1
+        node_count = len(document["nodes"])
+        for animation in animations:
+            assert animation["channels"]
+            for channel in animation["channels"]:
+                target = channel["target"]
+                assert 0 <= target["node"] < node_count
+                assert target["path"] in ("translation", "rotation")
+            for sampler in animation["samplers"]:
+                input_accessor = document["accessors"][sampler["input"]]
+                assert "min" in input_accessor
+                assert "max" in input_accessor
+
+    def test_animation_times_are_monotonic(self, built_scene_animated: Path) -> None:
+        document, binary = parse_glb(built_scene_animated / "ak47.glb")
+        animation = document["animations"][0]
+        for sampler in animation["samplers"][:20]:
+            times = read_accessor(document, binary, sampler["input"])
+            assert len(times) >= 2
+            assert list(times) == sorted(times)

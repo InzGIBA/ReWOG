@@ -60,6 +60,19 @@ def _parse_extras(extras: tuple[str, ...]) -> frozenset[str]:
     help="Displacement magnitude for --state exploded, in meters",
 )
 @click.option(
+    "--animations",
+    is_flag=True,
+    default=False,
+    help="Embed the bundle's operate animation as glTF animation tracks",
+)
+@click.option(
+    "--animation",
+    "animation_name",
+    metavar="NAME",
+    default=None,
+    help="Export only the named animation clip (implies --animations)",
+)
+@click.option(
     "--input-dir",
     type=click.Path(exists=True, path_type=Path),
     help="Directory with decrypted bundles (default: runtime/decrypted)",
@@ -77,6 +90,8 @@ def build_scene(
     unit_scale: float,
     state: str,
     explode_distance: float,
+    animations: bool,
+    animation_name: str | None,
     input_dir: Path | None,
     output_dir: Path | None,
 ) -> int:
@@ -117,6 +132,8 @@ def build_scene(
                     output_dir=output_dir / dir_name(weapon) if output_dir else None,
                     state=state,
                     explode_distance=explode_distance,
+                    animations=animations or animation_name is not None,
+                    animation_name=animation_name,
                 )
                 exported += 1
                 logger.print_status(f"Scene exported: {glb_path}", "success")

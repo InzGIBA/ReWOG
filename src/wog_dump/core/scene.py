@@ -36,6 +36,7 @@ from ..utils.logging import get_logger
 from ..utils.normal_map import is_unity_swizzled_normal, unswizzle_normal_map
 from .anim import extract_tracks
 from .config import WOGConfig, get_config
+from .export import EXPORT_FORMATS, ExportError, ExportOptions, convert_format
 from .glb import AnimationChannel, GLBWriter, MeshPrimitive, SceneError
 from .paths import contained_path, is_safe_weapon_name, safe_object_name
 from .scene_states import (
@@ -107,6 +108,7 @@ class SceneStats:
     state: str = "assembled"
     placements: list[PartPlacement] = field(default_factory=list)
     animations: list[dict[str, object]] = field(default_factory=list)
+    exports: list[str] = field(default_factory=list)
     parts: list[str] = field(default_factory=list)
     field_strip: list[str] = field(default_factory=list)
     skipped: dict[str, int] = field(default_factory=dict)
@@ -188,6 +190,8 @@ class SceneBuilder:
         explode_distance: float = 0.35,
         animations: bool = False,
         animation_name: str | None = None,
+        export_formats: frozenset[str] = frozenset(),
+        export_options: ExportOptions | None = None,
     ) -> Path:
         """Export one weapon to ``<output_dir>/<weapon>.glb``.
 
@@ -204,6 +208,9 @@ class SceneBuilder:
         ``animations`` embeds the bundle's operate animation as glTF
         animation tracks; ``animation_name`` limits the export to one
         clip.
+
+        ``export_formats`` requests extra formats alongside the GLB:
+        ``stl``, ``usd``, ``usdz`` and/or ``fbx`` (see core/export.py).
         """
         # The weapon string builds both the bundle path and the output
         # directory: reject anything outside the name alphabet
@@ -307,6 +314,18 @@ class SceneBuilder:
 
             glb_path = output_dir / f"{weapon}.glb"
             writer.write(glb_path)
+
+            extra_formats = export_formats - {"glb"}
+            unknown = extra_formats - EXPORT_FORMATS
+            if unknown:
+                raise SceneExportError(
+                    f"Unknown export format(s): {sorted(unknown)}, "
+                    f"expected one of {sorted(EXPORT_FORMATS)}"
+                )
+            if extra_formats:
+                stats.exports = self._export_extra_formats(
+                    glb_path, output_dir, extra_formats, export_options
+                )
 
             self._write_manifest(output_dir, weapon, include_extras, unit_scale, stats)
             self._write_blender_setup(output_dir)
@@ -786,6 +805,29 @@ class SceneBuilder:
             writer.add_light_node(f"WOG_Light_{name}", light, light_eye, center)
 
     # ------------------------------------------------------------------
+    # Extra formats
+    # ------------------------------------------------------------------
+
+    def _export_extra_formats(
+        self,
+        glb_path: Path,
+        output_dir: Path,
+        formats: frozenset[str],
+        export_options: ExportOptions | None,
+    ) -> list[str]:
+        """Convert the built GLB to the requested extra formats."""
+        written: list[str] = []
+        options = export_options or ExportOptions()
+        for format_name in sorted(formats):
+            try:
+                paths = convert_format(glb_path, format_name, output_dir, options)
+            except ExportError as e:
+                raise SceneExportError(str(e)) from e
+            written.extend(str(path) for path in paths)
+            self.logger.info(f"Exported {format_name}: {paths[-1]}")
+        return written
+
+    # ------------------------------------------------------------------
     # Manifest and helper files
     # ------------------------------------------------------------------
 
@@ -846,6 +888,8 @@ class SceneBuilder:
         }
         if stats.animations:
             manifest["animations"] = stats.animations
+        if stats.exports:
+            manifest["exports"] = stats.exports
         _atomic_write(
             output_dir / "scene.json",
             json.dumps(manifest, indent=2).encode("utf-8"),

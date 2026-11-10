@@ -14,6 +14,7 @@ from typing import Any
 
 import UnityPy
 from UnityPy.export import MeshExporter
+from UnityPy.helpers import MeshHelper
 
 from ..core.config import WOGConfig, get_config
 from ..core.database import WOGDatabase
@@ -143,17 +144,26 @@ class Texture2DExtractor(AssetExtractor):
 
 
 class MeshExtractor(AssetExtractor):
-    """Writes Mesh objects as OBJ files.
+    """Writes Mesh objects as OBJ or binary STL files.
 
     Unity 6 meshes keep their vertices in packed ``m_VertexData`` (the
     legacy ``m_Vertices`` array is None), so the OBJ text comes from
     UnityPy's mesh exporter; meshes with populated legacy arrays fall
-    back to a manual writer.
+    back to a manual writer. ``mesh_format`` switches the output
+    format; STL coordinates are baked to millimeters (Unity
+    centimeters x 10) so slicers print parts at true size.
     """
 
     obj_type = "Mesh"
 
+    def __init__(self, mesh_format: str = "obj") -> None:
+        super().__init__()
+        self.mesh_format = mesh_format
+
     def _extract_data(self, data: Any, output_dir: Path) -> Path | None:
+        if self.mesh_format == "stl":
+            return self._write_stl(data, output_dir)
+
         output_path = contained_path(output_dir, f"{data.m_Name}.obj")
 
         obj_text: str | None = None
@@ -167,6 +177,38 @@ class MeshExtractor(AssetExtractor):
             return output_path
 
         return self._write_legacy_obj(data, output_path)
+
+    def _write_stl(self, data: Any, output_dir: Path) -> Path | None:
+        """Write a binary STL from MeshHandler triangles (cm to mm)."""
+        from .export import write_stl
+
+        try:
+            handler = MeshHelper.MeshHandler(data)
+            handler.process()
+            vertices = handler.m_Vertices or []
+            submeshes = handler.get_triangles()
+        except Exception as e:
+            self.logger.debug(f"Mesh extraction failed for {data.m_Name}: {e}")
+            return None
+        if not vertices or not submeshes:
+            return None
+
+        triangles = []
+        for submesh in submeshes:
+            for triangle in submesh:
+                face = tuple(
+                    (
+                        vertices[corner][0] * 10.0,
+                        vertices[corner][1] * 10.0,
+                        vertices[corner][2] * 10.0,
+                    )
+                    for corner in triangle
+                )
+                triangles.append(face)
+
+        output_path = contained_path(output_dir, f"{data.m_Name}.stl")
+        write_stl(triangles, output_path)
+        return output_path
 
     def _write_legacy_obj(self, data: Any, output_path: Path) -> Path | None:
         """Write an OBJ from legacy m_Vertices/m_UV/m_Normals/m_Triangles arrays."""
@@ -540,6 +582,12 @@ class AssetUnpacker:
             "objects_skipped": 0,
             "objects_failed": 0,
         }
+
+    def set_mesh_format(self, mesh_format: str) -> None:
+        """Configure the MeshExtractor output format ('obj' or 'stl')."""
+        extractor = EXTRACTORS["Mesh"]
+        if isinstance(extractor, MeshExtractor):
+            extractor.mesh_format = mesh_format
 
     def unpack_asset(
         self,

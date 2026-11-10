@@ -33,6 +33,13 @@ from .errors import error_handler, print_banner_if_standalone
     default="Texture2D,Mesh,Material",
     help="Comma-separated list of Unity object types to extract",
 )
+@click.option(
+    "--mesh-format",
+    type=click.Choice(("obj", "stl")),
+    default="obj",
+    show_default=True,
+    help="Model output format; STL coordinates are baked to millimeters",
+)
 @click.pass_context
 def unpack_assets(
     ctx: click.Context,
@@ -40,6 +47,7 @@ def unpack_assets(
     output_dir: Path | None,
     asset_filter: str | None,
     extract_types: str,
+    mesh_format: str,
 ) -> int:
     """Unpack decrypted Unity assets to extract models and textures.
 
@@ -79,6 +87,7 @@ def unpack_assets(
         total_files = 0
         with logger.operation_context("unpacking", "asset unpacking"):
             unpacker = AssetUnpacker(config)
+            unpacker.set_mesh_format(mesh_format)
             results = unpacker.unpack_multiple_assets(
                 asset_files, output_dir=output_dir, extract_types=extract_type_list
             )

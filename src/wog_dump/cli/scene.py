@@ -7,11 +7,13 @@ from pathlib import Path
 
 import click
 
+from ..core.export import EXPORT_FORMATS, ExportOptions
 from ..core.scene import SceneBuilder, SceneExportError
 from ..core.scene_states import SCENE_STATES
 from .errors import error_handler, print_banner_if_standalone
 
 EXTRA_CHOICES = ("arrows", "cut", "vfx", "all")
+STL_UNIT_CHOICES = ("m", "cm", "mm")
 
 
 def _parse_extras(extras: tuple[str, ...]) -> frozenset[str]:
@@ -22,6 +24,18 @@ def _parse_extras(extras: tuple[str, ...]) -> frozenset[str]:
             selected.update(("arrows", "cut", "vfx"))
         else:
             selected.add(choice)
+    return frozenset(selected)
+
+
+def _parse_formats(formats: str) -> frozenset[str]:
+    """Parse a comma-separated --format list into a validated set."""
+    selected = {part.strip().lower() for part in formats.split(",") if part.strip()}
+    unknown = selected - EXPORT_FORMATS
+    if unknown:
+        raise click.BadParameter(
+            f"unknown format(s) {sorted(unknown)}, expected one of "
+            f"{sorted(EXPORT_FORMATS)}"
+        )
     return frozenset(selected)
 
 
@@ -73,6 +87,28 @@ def _parse_extras(extras: tuple[str, ...]) -> frozenset[str]:
     help="Export only the named animation clip (implies --animations)",
 )
 @click.option(
+    "--format",
+    "formats",
+    default="",
+    metavar="LIST",
+    help="Extra output formats alongside the GLB, comma-separated: "
+    "stl, usd, usdz, fbx. Example: --format stl,usdz",
+)
+@click.option(
+    "--stl-units",
+    type=click.Choice(STL_UNIT_CHOICES),
+    default="m",
+    show_default=True,
+    help="Unit scale baked into STL files (meters, centimeters or "
+    "millimeters; slicers expect mm)",
+)
+@click.option(
+    "--stl-per-part",
+    is_flag=True,
+    default=False,
+    help="Write one STL per meshed top-level part instead of a merged " "solid",
+)
+@click.option(
     "--input-dir",
     type=click.Path(exists=True, path_type=Path),
     help="Directory with decrypted bundles (default: runtime/decrypted)",
@@ -92,6 +128,9 @@ def build_scene(
     explode_distance: float,
     animations: bool,
     animation_name: str | None,
+    formats: str,
+    stl_units: str,
+    stl_per_part: bool,
     input_dir: Path | None,
     output_dir: Path | None,
 ) -> int:
@@ -108,6 +147,7 @@ def build_scene(
         wog-dump build-scene ak47 colt_1911 --extras all
         wog-dump build-scene ak47 --state field-strip
         wog-dump build-scene ak47 --state exploded --explode-distance 0.5
+        wog-dump build-scene ak47 --format stl,usdz --stl-units mm
     """
     logger = ctx.obj["logger"]
     config = ctx.obj["config"]
@@ -117,6 +157,8 @@ def build_scene(
 
         builder = SceneBuilder(config)
         include_extras = _parse_extras(extras)
+        export_formats = _parse_formats(formats)
+        export_options = ExportOptions(units=stl_units, per_part=stl_per_part)
 
         def dir_name(weapon: str) -> str:
             return weapon if state == "assembled" else f"{weapon}-{state}"
@@ -134,6 +176,8 @@ def build_scene(
                     explode_distance=explode_distance,
                     animations=animations or animation_name is not None,
                     animation_name=animation_name,
+                    export_formats=export_formats,
+                    export_options=export_options,
                 )
                 exported += 1
                 logger.print_status(f"Scene exported: {glb_path}", "success")

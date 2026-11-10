@@ -61,6 +61,9 @@ test = [
 mitm = [
     "mitmproxy>=10.0",
 ]
+usd = [
+    "usd-core>=24.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/InzGIBA/ReWOG"
@@ -112,6 +115,10 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
+
+[[tool.mypy.overrides]]
+module = "pxr.*"
+ignore_missing_imports = true
 warn_unreachable = true
 strict_equality = true
 

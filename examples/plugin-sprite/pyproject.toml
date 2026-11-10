@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-sprite"
+version = "0.1.0"
+description = "Example WOG Dump extractor plugin: Sprite metadata dumps"
+requires-python = ">=3.12"
+
+[project.entry-points."wog_dump.extractors"]
+sprite = "wog_plugin_sprite:SpriteExtractor"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_sprite"]

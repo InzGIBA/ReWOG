@@ -45,6 +45,8 @@ class AssetExtractor:
     """
 
     obj_type: str = ""
+    # Set by the plugin loader: the distributing package's name
+    plugin_package: str = "built-in"
 
     def __init__(self) -> None:
         self.logger = get_logger()
@@ -395,6 +397,62 @@ class AudioClipExtractor(AssetExtractor):
         return output_path
 
 
+# ----------------------------------------------------------------------
+# Plugin extractors (entry points group "wog_dump.extractors")
+# ----------------------------------------------------------------------
+
+
+def _load_plugin_extractors(logger: Any) -> dict[str, AssetExtractor]:
+    """Load third-party extractors declared through entry points.
+
+    A plugin wins over a built-in extractor on the same obj_type (a
+    legal way to override behavior); a plugin that fails to import or
+    to instantiate only logs a warning, never breaks the unpack.
+    """
+    from importlib.metadata import entry_points
+
+    plugins: dict[str, AssetExtractor] = {}
+    selected = entry_points(group="wog_dump.extractors")
+    for entry_point in list(selected):
+        try:
+            loaded = entry_point.load()
+            instance = loaded() if isinstance(loaded, type) else loaded
+            if not isinstance(instance, AssetExtractor):
+                logger.warning(
+                    f"Plugin {entry_point.name!r} is not an AssetExtractor, skipped"
+                )
+                continue
+            if not instance.obj_type:
+                logger.warning(f"Plugin {entry_point.name!r} sets no obj_type, skipped")
+                continue
+            metadata = getattr(entry_point.dist, "metadata", None) or {}
+            instance.plugin_package = str(metadata.get("Name", "plugin"))
+            plugins[instance.obj_type] = instance
+        except Exception as e:
+            logger.warning(f"Plugin {entry_point.name!r} failed to load: {e}")
+    return plugins
+
+
+def get_extractors(logger: Any | None = None) -> dict[str, AssetExtractor]:
+    """Built-in extractors plus plugin overrides, cached per process."""
+    global _MERGED_EXTRACTORS
+    if _MERGED_EXTRACTORS is None:
+        logger = logger or get_logger()
+        merged = dict(EXTRACTORS)
+        for obj_type, plugin in _load_plugin_extractors(logger).items():
+            if obj_type in merged:
+                logger.warning(
+                    f"Plugin {plugin.plugin_package} overrides the built-in "
+                    f"extractor for {obj_type}"
+                )
+            merged[obj_type] = plugin
+        _MERGED_EXTRACTORS = merged
+    return _MERGED_EXTRACTORS
+
+
+_MERGED_EXTRACTORS: dict[str, AssetExtractor] | None = None
+
+
 # Registry: Unity object type name -> extractor instance
 EXTRACTORS: dict[str, AssetExtractor] = {
     extractor.obj_type: extractor
@@ -602,8 +660,9 @@ class AssetUnpacker:
         if output_dir is None:
             output_dir = asset_path.parent / "unpacked" / asset_path.stem
 
+        extractors = get_extractors()
         if extract_types is None:
-            extract_types = list(EXTRACTORS)
+            extract_types = list(extractors)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         extracted_files = []
@@ -616,11 +675,11 @@ class AssetUnpacker:
                     self._extraction_stats["objects_processed"] += 1
                     obj_type = obj.type.name
 
-                    if obj_type not in extract_types or obj_type not in EXTRACTORS:
+                    if obj_type not in extract_types or obj_type not in extractors:
                         self._extraction_stats["objects_skipped"] += 1
                         continue
 
-                    extracted_file = EXTRACTORS[obj_type].extract(obj, output_dir)
+                    extracted_file = extractors[obj_type].extract(obj, output_dir)
 
                     if extracted_file:
                         extracted_files.append(extracted_file)
@@ -772,7 +831,7 @@ class AssetUnpacker:
                 "total_objects": len(info["objects"]),
                 "type_distribution": info["types"],
                 "extractable_objects": len(
-                    [obj for obj in info["objects"] if obj["type"] in EXTRACTORS]
+                    [obj for obj in info["objects"] if obj["type"] in get_extractors()]
                 ),
             }
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from ..core.unpack import AssetUnpacker
+from ..core.unpack import AssetUnpacker, get_extractors
 from .errors import error_handler, print_banner_if_standalone
 
 
@@ -34,6 +34,13 @@ from .errors import error_handler, print_banner_if_standalone
     help="Comma-separated list of Unity object types to extract",
 )
 @click.option(
+    "--list-extractors",
+    "list_extractors",
+    is_flag=True,
+    default=False,
+    help="Show every extractor (built-in and plugin) and exit",
+)
+@click.option(
     "--mesh-format",
     type=click.Choice(("obj", "stl")),
     default="obj",
@@ -48,6 +55,7 @@ def unpack_assets(
     asset_filter: str | None,
     extract_types: str,
     mesh_format: str,
+    list_extractors: bool,
 ) -> int:
     """Unpack decrypted Unity assets to extract models and textures.
 
@@ -60,6 +68,12 @@ def unpack_assets(
     with error_handler("Asset unpacking"):
         print_banner_if_standalone(ctx)
         nested = bool(ctx.obj.get("pipeline_nested"))
+
+        if list_extractors:
+            for obj_type, extractor in get_extractors().items():
+                source = getattr(extractor, "plugin_package", "built-in")
+                logger.console.print(f"{obj_type:<16} {source}")
+            return 0
 
         # Set directories
         if input_dir is None:

@@ -109,6 +109,29 @@ def _parse_formats(formats: str) -> frozenset[str]:
     help="Write one STL per meshed top-level part instead of a merged " "solid",
 )
 @click.option(
+    "--assembly-steps",
+    type=int,
+    default=0,
+    metavar="N",
+    help="Export an N-step build into <weapon>-steps/ (each step places "
+    "more parts, plus steps.json; implies assembled state)",
+)
+@click.option(
+    "--steps-from",
+    type=click.Choice(("parts", "field_strip")),
+    default="parts",
+    show_default=True,
+    help="Ordering source for --assembly-steps: the _parts list or the "
+    "field-strip list",
+)
+@click.option(
+    "--animated",
+    is_flag=True,
+    default=False,
+    help="With --assembly-steps: also write assembly.glb, one animation "
+    "placing part after part (1 second each)",
+)
+@click.option(
     "--viewer",
     is_flag=True,
     default=False,
@@ -147,6 +170,9 @@ def build_scene(
     stl_per_part: bool,
     viewer: bool,
     viewer_link: bool,
+    assembly_steps: int,
+    steps_from: str,
+    animated: bool,
     input_dir: Path | None,
     output_dir: Path | None,
 ) -> int:
@@ -165,6 +191,7 @@ def build_scene(
         wog-dump build-scene ak47 --state exploded --explode-distance 0.5
         wog-dump build-scene ak47 --format stl,usdz --stl-units mm
         wog-dump build-scene ak47 --viewer
+        wog-dump build-scene ak47 --assembly-steps 5 --animated
     """
     logger = ctx.obj["logger"]
     config = ctx.obj["config"]
@@ -197,6 +224,9 @@ def build_scene(
                     export_options=export_options,
                     viewer=viewer,
                     viewer_link=viewer_link,
+                    assembly_steps=assembly_steps,
+                    steps_from=steps_from,
+                    animated=animated,
                 )
                 exported += 1
                 logger.print_status(f"Scene exported: {glb_path}", "success")

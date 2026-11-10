@@ -24,6 +24,7 @@ import json
 import math
 import os
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -46,7 +47,13 @@ from .scene_states import (
     apply_field_strip,
     apply_grid_layout,
 )
-from .transforms import compose_matrix, identity_matrix, multiply_matrix
+from .transforms import (
+    compose_matrix,
+    identity_matrix,
+    invert_matrix,
+    multiply_matrix,
+    transform_point,
+)
 from .viewer import copy_viewer_assets, render_viewer_html
 
 __all__ = [
@@ -195,6 +202,9 @@ class SceneBuilder:
         export_options: ExportOptions | None = None,
         viewer: bool = False,
         viewer_link: bool = False,
+        assembly_steps: int = 0,
+        steps_from: str = "parts",
+        animated: bool = False,
     ) -> Path:
         """Export one weapon to ``<output_dir>/<weapon>.glb``.
 
@@ -219,6 +229,13 @@ class SceneBuilder:
         three.js runtime embedded, opens offline). ``viewer_link``
         writes an HTML that loads the GLB and ``./vendor/`` from the
         scene directory instead (smaller file, same folder layout).
+
+        ``assembly_steps`` exports a step-by-step build instead: N GLBs
+        in a ``<weapon>-steps`` directory, each with more parts placed,
+        plus ``steps.json`` and (with ``animated``) one ``assembly.glb``
+        whose animation places part after part. ``steps_from`` picks
+        the ordering source: the ``_parts`` list (default) or the
+        field-strip list.
         """
         # The weapon string builds both the bundle path and the output
         # directory: reject anything outside the name alphabet
@@ -232,6 +249,15 @@ class SceneBuilder:
             raise SceneExportError(
                 f"Explode distance must be non-negative, got {explode_distance}"
             )
+        if assembly_steps and state != "assembled":
+            raise SceneExportError(
+                "--assembly-steps defines its own poses; drop --state or "
+                "build the states separately"
+            )
+        if assembly_steps and steps_from not in ("parts", "field_strip"):
+            raise SceneExportError(
+                f"Invalid steps source {steps_from!r}, expected parts or " "field_strip"
+            )
 
         bundle = (input_dir or self.config.decrypted_dir) / f"{weapon}.unity3d"
         if not bundle.exists():
@@ -239,7 +265,14 @@ class SceneBuilder:
                 f"Decrypted bundle not found: {bundle} (run decrypt-assets first)"
             )
 
-        if output_dir is None:
+        if assembly_steps:
+            dir_name = f"{weapon}-steps"
+            output_dir = (
+                output_dir
+                if output_dir is not None
+                else self.config.base_dir / "runtime" / "scenes" / dir_name
+            )
+        elif output_dir is None:
             dir_name = weapon if state == "assembled" else f"{weapon}-{state}"
             output_dir = self.config.base_dir / "runtime" / "scenes" / dir_name
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -253,17 +286,6 @@ class SceneBuilder:
         with self.logger.time_operation(f"scene:{weapon}"):
             env = UnityPy.load(str(bundle))
 
-            materials_by_pid = {
-                obj.path_id: obj.read()
-                for obj in env.objects
-                if obj.type.name == "Material"
-            }
-            textures_by_pid = {
-                obj.path_id: obj.read()
-                for obj in env.objects
-                if obj.type.name == "Texture2D"
-            }
-
             stats = SceneStats(weapon=weapon)
             root = self._build_game_object_tree(env)
             if root is None:
@@ -272,6 +294,21 @@ class SceneBuilder:
             # Part lists feed the grid layout, so they are read before
             # the state pass rewrites translations
             self._read_part_lists(env, weapon, stats)
+
+            if assembly_steps:
+                return self._build_assembly_steps(
+                    env,
+                    root,
+                    weapon,
+                    output_dir,
+                    include_extras,
+                    unit_scale,
+                    stats,
+                    assembly_steps,
+                    steps_from,
+                    animated,
+                )
+
             if state == "field-strip":
                 stats.placements = apply_field_strip(root, unit_scale, stats)
             elif state == "exploded":
@@ -284,44 +321,17 @@ class SceneBuilder:
                 )
             stats.state = state
 
-            writer = GLBWriter(generator="WOG Dump scene exporter")
-
-            gltf_materials = self._convert_materials(
-                writer, materials_by_pid, textures_by_pid, output_dir, stats
-            )
-
-            world_bounds = [[math.inf] * 3, [-math.inf] * 3]
-            # Unity hierarchy path -> glTF node index, the address space
-            # animation curve bindings resolve against
-            node_paths: dict[str, int] = {}
-            self._emit_nodes(
+            glb_path, _ = self._emit_and_write(
+                env,
                 root,
-                parent=None,
-                matrix=_identity_matrix(),
-                include_extras=include_extras,
-                unit_scale=unit_scale,
-                gltf_materials=gltf_materials,
-                materials_by_pid=materials_by_pid,
-                writer=writer,
-                stats=stats,
-                world_bounds=world_bounds,
-                node_paths=node_paths,
-                path="",
+                weapon,
+                output_dir,
+                include_extras,
+                unit_scale,
+                stats,
+                animations=animations,
+                animation_name=animation_name,
             )
-            stats.nodes = len(writer._nodes)
-            self._add_studio_rig(writer, world_bounds)
-
-            if animations:
-                stats.animations = self._export_animations(
-                    env,
-                    writer,
-                    node_paths,
-                    unit_scale,
-                    animation_name,
-                )
-
-            glb_path = output_dir / f"{weapon}.glb"
-            writer.write(glb_path)
 
             extra_formats = export_formats - {"glb"}
             unknown = extra_formats - EXPORT_FORMATS
@@ -359,6 +369,292 @@ class SceneBuilder:
             f"{stats.textures} textures{state_note} -> {glb_path}"
         )
         return glb_path
+
+    # ------------------------------------------------------------------
+    # Scene emission (shared by the single-scene and steps paths)
+    # ------------------------------------------------------------------
+
+    def _emit_and_write(
+        self,
+        env: Any,
+        root: _GameObjectInfo,
+        weapon: str,
+        output_dir: Path,
+        include_extras: frozenset[str],
+        unit_scale: float,
+        stats: SceneStats,
+        animations: bool = False,
+        animation_name: str | None = None,
+        extra_animation: (
+            Callable[[dict[str, int]], tuple[str, list[AnimationChannel]]] | None
+        ) = None,
+        glb_name: str | None = None,
+    ) -> tuple[Path, dict[str, int]]:
+        """Emit the tree into a GLB and write it to output_dir.
+
+        Returns the written path and the emitted node path map (the
+        animation binding address space).
+        """
+        materials_by_pid = {
+            obj.path_id: obj.read()
+            for obj in env.objects
+            if obj.type.name == "Material"
+        }
+        textures_by_pid = {
+            obj.path_id: obj.read()
+            for obj in env.objects
+            if obj.type.name == "Texture2D"
+        }
+
+        writer = GLBWriter(generator="WOG Dump scene exporter")
+
+        gltf_materials = self._convert_materials(
+            writer, materials_by_pid, textures_by_pid, output_dir, stats
+        )
+
+        world_bounds = [[math.inf] * 3, [-math.inf] * 3]
+        node_paths: dict[str, int] = {}
+        self._emit_nodes(
+            root,
+            parent=None,
+            matrix=_identity_matrix(),
+            include_extras=include_extras,
+            unit_scale=unit_scale,
+            gltf_materials=gltf_materials,
+            materials_by_pid=materials_by_pid,
+            writer=writer,
+            stats=stats,
+            world_bounds=world_bounds,
+            node_paths=node_paths,
+            path="",
+        )
+        stats.nodes = len(writer._nodes)
+        self._add_studio_rig(writer, world_bounds)
+
+        if animations:
+            stats.animations = self._export_animations(
+                env, writer, node_paths, unit_scale, animation_name
+            )
+        if extra_animation is not None:
+            built = extra_animation(node_paths)
+            if built is not None:
+                name, channels = built
+                if channels:
+                    writer.add_animation(name, channels)
+
+        glb_path = output_dir / (glb_name or f"{weapon}.glb")
+        writer.write(glb_path)
+        return glb_path, node_paths
+
+    def _build_assembly_steps(
+        self,
+        env: Any,
+        root: _GameObjectInfo,
+        weapon: str,
+        output_dir: Path,
+        include_extras: frozenset[str],
+        unit_scale: float,
+        stats: SceneStats,
+        steps: int,
+        steps_from: str,
+        animated: bool,
+    ) -> Path:
+        """Export the step-by-step build (see build_scene docs)."""
+        from .anim import AnimationTrack
+        from .paths import contained_path
+        from .scene_states import (
+            _apply_containment,
+            _collect_removal_targets,
+            _match_slot,
+            _move_to,
+            _walk_world,
+            normalize_part_name,
+        )
+        from .scene_steps import (
+            assembled_counts,
+            assembly_windows,
+            node_paths_by_id,
+        )
+
+        if steps < 1:
+            raise SceneExportError(f"Assembly steps must be >= 1, got {steps}")
+
+        index = _walk_world(root)
+        targets = _collect_removal_targets(root)
+        if not targets:
+            raise SceneExportError(
+                f"{weapon}: no removal anchors in the bundle, step export "
+                "needs the _in/_out placeholders"
+            )
+
+        # Anchor base -> matched slot, the reverse lookup for list names
+        base_of_slot: dict[int, str] = {}
+        slot_by_base: dict[str, Any] = {}
+        for base in sorted(targets):
+            slot = _match_slot(base, index)
+            if slot is not None:
+                base_of_slot[id(slot.node)] = base
+                slot_by_base[base] = slot
+
+        order_source = stats.field_strip if steps_from == "field_strip" else stats.parts
+        # List order drives the build sequence; unmatched entries fall
+        # through to anchor order below
+        ordered: list[tuple[str, Any]] = []
+        seen_ids: set[int] = set()
+        for name in order_source:
+            slot = index.get(normalize_part_name(name))
+            if slot is None or id(slot.node) in seen_ids:
+                continue
+            slot_base = base_of_slot.get(id(slot.node))
+            if slot_base is None or slot_base not in targets:
+                continue
+            seen_ids.add(id(slot.node))
+            ordered.append((slot_base, slot))
+        for base in sorted(targets):
+            slot = _match_slot(base, index)
+            if slot is None or id(slot.node) in seen_ids:
+                continue
+            seen_ids.add(id(slot.node))
+            ordered.append((base, slot))
+
+        kept_ids = {
+            id(slot.node)
+            for slot in _apply_containment([slot for _, slot in ordered])[0]
+        }
+        outer_by_base = [
+            (base, slot) for base, slot in ordered if id(slot.node) in kept_ids
+        ]
+        if not outer_by_base:
+            raise SceneExportError(f"{weapon}: no anchored parts to step through")
+
+        slot_targets = {id(slot): targets[base] for base, slot in outer_by_base}
+
+        def target_of(slot: Any) -> tuple[float, float, float]:
+            return slot_targets[id(slot)]
+
+        total = len(outer_by_base)
+        counts = assembled_counts(total, steps)
+        windows = assembly_windows(total, steps)
+
+        home: dict[int, tuple[float, float, float]] = {}
+        exploded_local: dict[int, tuple[float, float, float]] = {}
+        for _, slot in outer_by_base:
+            home[id(slot.node)] = slot.node.translation
+            parent_inverse = invert_matrix(slot.parent_world)
+            exploded_local[id(slot.node)] = transform_point(
+                parent_inverse, target_of(slot)
+            )
+
+        # Reuse the material cache across steps: the textures land in the
+        # shared output directory once, later writes are identical bytes
+        glb_paths = []
+        for step_index, count in enumerate(counts, start=1):
+            assembled_ids = {id(slot.node) for _, slot in outer_by_base[:count]}
+            for _, slot in outer_by_base:
+                node_id = id(slot.node)
+                slot.node.translation = (
+                    home[node_id]
+                    if node_id in assembled_ids
+                    else exploded_local[node_id]
+                )
+            step_stats = SceneStats(weapon=weapon, state=f"step-{step_index}")
+            step_stats.parts = list(stats.parts)
+            step_stats.field_strip = list(stats.field_strip)
+            glb_path, _ = self._emit_and_write(
+                env,
+                root,
+                weapon,
+                output_dir,
+                include_extras,
+                unit_scale,
+                step_stats,
+                glb_name=f"step_{step_index:02d}.glb",
+            )
+            glb_paths.append(glb_path.name)
+            self.logger.info(
+                f"Step {step_index}/{len(counts)}: {count} of {total} parts placed"
+            )
+
+        extra_animation: (
+            Callable[[dict[str, int]], tuple[str, list[AnimationChannel]]] | None
+        ) = None
+        if animated:
+            # Parts start exploded and slide home, one per window; the
+            # channel builder resolves node indices from the emitted paths
+            for _, slot in outer_by_base:
+                slot.node.translation = exploded_local[id(slot.node)]
+            paths_by_id = node_paths_by_id(root)
+            exploded_start = {
+                id(slot.node): exploded_local[id(slot.node)]
+                for _, slot in outer_by_base
+            }
+            home_start = {
+                id(slot.node): home[id(slot.node)] for _, slot in outer_by_base
+            }
+
+            def build_assembly_animation(
+                node_paths: dict[str, int],
+            ) -> tuple[str, list[AnimationChannel]]:
+                channels: list[AnimationChannel] = []
+                unmatched = 0
+                for part_index, (_, slot) in enumerate(outer_by_base):
+                    node_id = id(slot.node)
+                    node_index = node_paths.get(paths_by_id[node_id])
+                    if not node_index:
+                        unmatched += 1
+                        continue
+                    start, end = windows[part_index]
+                    channels.append(
+                        AnimationChannel(
+                            node_index=node_index,
+                            property="translation",
+                            times=[start, end],
+                            values=[
+                                convert_position(exploded_start[node_id], unit_scale),
+                                convert_position(home_start[node_id], unit_scale),
+                            ],
+                        )
+                    )
+                if unmatched:
+                    self.logger.warning(
+                        f"Assembly animation: {unmatched} unmatched parts skipped"
+                    )
+                return "assembly", channels
+
+            animation_stats = SceneStats(weapon=weapon, state="animated")
+            self._emit_and_write(
+                env,
+                root,
+                weapon,
+                output_dir,
+                include_extras,
+                unit_scale,
+                animation_stats,
+                glb_name="assembly.glb",
+                extra_animation=build_assembly_animation,
+            )
+
+        manifest = {
+            "weapon": weapon,
+            "steps": len(counts),
+            "parts": total,
+            "placed_per_step": counts,
+            "windows": windows,
+            "files": glb_paths,
+            "animated": animated,
+        }
+        _atomic_write(
+            contained_path(output_dir, "steps.json"),
+            json.dumps(manifest, indent=2).encode("utf-8"),
+        )
+        self._write_blender_setup(output_dir)
+
+        first = output_dir / "step_01.glb"
+        self.logger.info(
+            f"Assembly steps {weapon}: {len(counts)} steps, {total} parts "
+            f"-> {output_dir}"
+        )
+        return first
 
     # ------------------------------------------------------------------
     # Bundle indexing

@@ -7,6 +7,7 @@ import click
 from ..core.auth import AuthManager
 from ..core.config import WOGConfig
 from ..core.database import WOGDatabase
+from ..core.export import find_blender
 from ..utils.logging import WOGLogger
 from .decrypt import validate_decrypted_files
 from .errors import print_banner_if_standalone
@@ -90,6 +91,11 @@ def collect_status_info(config: WOGConfig) -> list[list[str]]:
         status_data.append(["Unpacked Files", f"{unpacked_count} files"])
     else:
         status_data.append(["Unpacked Files", "0 files"])
+
+    blender = find_blender()
+    status_data.append(
+        ["Blender (previews, FBX)", str(blender) if blender else "not found"]
+    )
 
     return status_data
 

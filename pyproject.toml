@@ -104,7 +104,7 @@ known_first_party = ["wog_dump"]
 
 [tool.mypy]
 python_version = "3.12"
-exclude = 'src/wog_dump/resources/blender_setup\.py'
+exclude = 'src/wog_dump/resources/(blender_setup|render_turntable)\.py'
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

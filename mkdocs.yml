@@ -1,0 +1,55 @@
+site_name: WOG Dump
+site_description: "Extract and rebuild 3D weapon models from World of Guns: Gun Disassembly"
+repo_url: https://github.com/InzGIBA/ReWOG
+repo_name: InzGIBA/ReWOG
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting started: quickstart.md
+  - Usage: usage.md
+  - Configuration: configuration.md
+  - Architecture: architecture.md
+  - Database: database.md
+  - Capturing sessions: mitm-capture.md
+  - Disassembly data: research-disassembly-data.md
+  - Benchmarks: benchmarks-download.md
+  - Plugins: plugins.md
+  - API Reference:
+      - Overview: api/overview.md
+      - Catalog: api/catalog.md
+      - Download: api/download.md
+      - Decrypt and keys: api/decrypt_keys.md
+      - Unpack and plugins: api/unpack.md
+      - Scene export: api/scene.md
+      - Formats and viewer: api/export_viewer.md
+      - Probe and auth: api/probe_auth.md
+      - Support modules: api/support.md
+
+strict: true

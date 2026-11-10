@@ -187,6 +187,14 @@ def download_asset(self, asset_name: str, force: bool = False) -> bool:
 - Document configuration options in `docs/configuration.md`
 - Add a CHANGELOG.md entry under `[Unreleased]`
 
+### Documentation site
+
+The docs site builds with mkdocs: `mkdocs serve` for a live preview,
+`mkdocs build --strict` before committing (a CI job runs the same
+strict build and GitHub Pages deploys main). API reference pages live
+in `docs/api/` and render docstrings through mkdocstrings, so keep
+public docstrings current.
+
 ### Localization
 
 CLI messages wrap English strings with `t()` / `tn()` from

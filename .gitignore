@@ -167,3 +167,4 @@ runtime/*.bak
 # local databases
 *.db
 *.db-journal
+site/

@@ -284,6 +284,9 @@ Encrypted ~2–5 GB, decrypted ~2–5 GB, extracted ~3–8 GB. Plan for **10–2
 
 ### Troubleshooting
 
+**Everything broke after a game update**
+Run `wog-dump info --protocol-probe` first. It checks endpoint reachability, the anonymous query, the authenticated key query, the weapon list asset and your client version, and tells you whether the problem is local or the game protocol moved. Any FAIL exits with code 2; report drifts with the [protocol drift template](https://github.com/InzGIBA/ReWOG/issues/new?template=protocol_drift.md).
+
 **`No game account configured` when fetching keys**
 The key API needs authentication. Run `wog-dump register` (new account), `wog-dump login` (existing one), or put `WOG_ACCOUNT_EMAIL`/`WOG_ACCOUNT_PASSWORD` — or a captured `WOG_AUTH_ID`/`WOG_AUTH_SESSION` — into `.env` (see [docs/mitm-capture.md](docs/mitm-capture.md)). Check what is configured with `wog-dump cache`.
 

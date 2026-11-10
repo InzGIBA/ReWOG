@@ -16,8 +16,27 @@ from .errors import print_banner_if_standalone
 @click.command()
 @click.option("--show-performance", is_flag=True, help="Show performance metrics")
 @click.option("--validate-files", is_flag=True, help="Validate existing files")
+@click.option(
+    "--protocol-probe",
+    is_flag=True,
+    help="Check game API compatibility (run this first when everything "
+    "breaks after a game update); exits 2 on any failed check",
+)
+@click.option(
+    "--probe-json",
+    is_flag=True,
+    default=False,
+    help="With --protocol-probe: print the machine-readable report "
+    "(schema wog-dump.probe/1) instead of the table",
+)
 @click.pass_context
-def info(ctx: click.Context, show_performance: bool, validate_files: bool) -> None:
+def info(
+    ctx: click.Context,
+    show_performance: bool,
+    validate_files: bool,
+    protocol_probe: bool,
+    probe_json: bool,
+) -> None:
     """Show comprehensive configuration and status information.
 
     Displays current configuration, file status, and optionally performance
@@ -27,6 +46,10 @@ def info(ctx: click.Context, show_performance: bool, validate_files: bool) -> No
     config = ctx.obj["config"]
 
     print_banner_if_standalone(ctx)
+
+    if protocol_probe:
+        run_protocol_probe(logger, probe_json)
+        return
 
     # Configuration info
     config_data = [
@@ -55,6 +78,56 @@ def info(ctx: click.Context, show_performance: bool, validate_files: bool) -> No
     # File validation
     if validate_files:
         perform_file_validation(config, logger)
+
+
+def run_protocol_probe(logger: WOGLogger, as_json: bool) -> None:
+    """Run the protocol cascade and print or emit the report."""
+    import json
+    import sys
+
+    from ..core.probe import PROBE_SCHEMA, ProtocolProbe, probe_verdict
+
+    results = ProtocolProbe().run()
+    verdict = probe_verdict(results)
+    if as_json:
+        logger.console.print(
+            json.dumps(
+                {
+                    "schema": PROBE_SCHEMA,
+                    "verdict": verdict,
+                    "checks": [
+                        {
+                            "name": r.name,
+                            "verdict": r.verdict,
+                            "detail": r.detail,
+                        }
+                        for r in results
+                    ],
+                },
+                indent=2,
+            )
+        )
+    else:
+        rows = [
+            [
+                r.name,
+                {"ok": "OK", "fail": "FAIL", "skip": "SKIP", "warn": "WARN"}[r.verdict],
+                r.detail or "-",
+            ]
+            for r in results
+        ]
+        logger.print_table(
+            f"Protocol probe ({verdict.upper()})", ["Check", "Result", "Detail"], rows
+        )
+        if verdict == "fail":
+            logger.print_status(
+                "Protocol drift detected: capture a fresh session per "
+                "docs/mitm-capture.md and open a protocol-drift issue",
+                "error",
+            )
+
+    if verdict == "fail":
+        sys.exit(2)
 
 
 def collect_status_info(config: WOGConfig) -> list[list[str]]:

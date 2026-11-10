@@ -150,6 +150,21 @@ class TestRunWhitelist:
 
 
 class TestPagesAndData:
+    def test_page_scripts_resolve(self, client: Any) -> None:
+        """Every script src the pages emit must return 200 (regression:
+        app.js used to be referenced outside the static mount)."""
+        import re
+
+        tc, token = client
+        for page_path in (f"/t/{token}/", f"/t/{token}/weapon/ak47"):
+            html = tc.get(page_path).text
+            for src in re.findall(r'src="([^"]+)"', html):
+                if src.startswith(("http", "//")):
+                    continue
+                url = src if src.startswith("/") else f"/t/{token}/{src}"
+                status = tc.get(url).status_code
+                assert status == 200, f"{src} -> {status} on {page_path}"
+
     def test_index_page(self, client: Any) -> None:
         tc, token = client
         response = tc.get(f"/t/{token}/")

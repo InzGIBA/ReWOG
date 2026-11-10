@@ -1,0 +1,21 @@
+# Build context hygiene: the local runtime cache alone is ~5 GB
+runtime/
+.venv/
+.env
+.git/
+.github/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+# Repo-only material, not needed inside the image
+docs/
+tasks/
+assets/
+docker-compose.yml
+Dockerfile
+.dockerignore

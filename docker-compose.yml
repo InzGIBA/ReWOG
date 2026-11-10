@@ -1,0 +1,16 @@
+# Local usage:
+#   docker compose run --rm wog catalog
+#   docker compose run --rm wog full-pipeline --update-keys
+services:
+  wog:
+    build: .
+    image: ghcr.io/inzgiba/rewog:local
+    volumes:
+      - wog-data:/data
+    # Environment variables (or a --env-file) carry the account login
+    # state; interactive commands use stdin, keep a TTY attached
+    stdin_open: true
+    tty: true
+
+volumes:
+  wog-data:

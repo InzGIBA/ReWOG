@@ -164,6 +164,19 @@ wog-dump cache --show-cache      # detailed cache statistics
 wog-dump cache --validate-assets # check downloads exist and are non-empty
 ```
 
+### Docker
+
+No local Python needed; all state lives in a named volume mounted at `/data`:
+
+```bash
+docker run --rm -it -v wog-data:/data ghcr.io/inzgiba/rewog:latest catalog
+docker run --rm -it -v wog-data:/data ghcr.io/inzgiba/rewog:latest full-pipeline --update-keys
+docker compose run --rm wog catalog   # from the repo, via docker-compose.yml
+```
+
+Images publish to GHCR on release tags (`latest` plus semantic versions);
+pull requests build the image without pushing.
+
 ### Using as a Python library
 
 ```python

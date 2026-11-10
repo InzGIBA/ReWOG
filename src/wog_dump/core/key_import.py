@@ -220,21 +220,30 @@ def extract_keys_from_flows(path: Path) -> list[CapturedKey]:
         ) from e
 
     keys: list[CapturedKey] = []
-    with open(path, "rb") as f:
-        for flow in mitm_io.FlowReader(f).stream():
-            if not isinstance(flow, mitm_http.HTTPFlow) or flow.response is None:
-                continue
-            request_body = flow.request.content or b""
-            if not _is_api_request(flow.request.path, flow.request.host, request_body):
-                continue
+    try:
+        with open(path, "rb") as f:
+            for flow in mitm_io.FlowReader(f).stream():
+                if not isinstance(flow, mitm_http.HTTPFlow) or flow.response is None:
+                    continue
+                request_body = flow.request.content or b""
+                if not _is_api_request(
+                    flow.request.path, flow.request.host, request_body
+                ):
+                    continue
 
-            captured = _parse_request_response(
-                request_body,
-                flow.response.content or b"",
-                source=flow.request.pretty_url,
-            )
-            if captured:
-                keys.append(captured)
+                captured = _parse_request_response(
+                    request_body,
+                    flow.response.content or b"",
+                    source=flow.request.pretty_url,
+                )
+                if captured:
+                    keys.append(captured)
+    except KeyImportError:
+        raise
+    except Exception as e:
+        # Anything the FlowReader chokes on (truncated dump, foreign
+        # format) becomes the import error users can act on
+        raise KeyImportError(f"Capture is not a readable mitmproxy dump: {e}") from e
 
     return keys
 
@@ -260,38 +269,50 @@ def extract_identity_from_flows(path: Path) -> CapturedIdentity:
 
     fallback: CapturedIdentity | None = None
 
-    with open(path, "rb") as f:
-        for flow in mitm_io.FlowReader(f).stream():
-            if not isinstance(flow, mitm_http.HTTPFlow):
-                continue
-            request_body = flow.request.content or b""
-            if not _is_api_request(flow.request.path, flow.request.host, request_body):
-                continue
+    try:
+        with open(path, "rb") as f:
+            for flow in mitm_io.FlowReader(f).stream():
+                if not isinstance(flow, mitm_http.HTTPFlow):
+                    continue
+                request_body = flow.request.content or b""
+                if not _is_api_request(
+                    flow.request.path, flow.request.host, request_body
+                ):
+                    continue
 
-            text = decode_api_body(request_body) or ""
-            fields = {}
-            for segment in text.split("&"):
-                if "=" in segment:
-                    key, _, value = segment.partition("=")
-                    fields[key] = value
+                text = decode_api_body(request_body) or ""
+                fields = {}
+                for segment in text.split("&"):
+                    if "=" in segment:
+                        key, _, value = segment.partition("=")
+                        fields[key] = value
 
-            auth_id = fields.get("id")
-            session = fields.get("session")
-            if not auth_id or not session or auth_id == "0" or session == "0":
-                continue
+                auth_id = fields.get("id")
+                session = fields.get("session")
+                if not auth_id or not session or auth_id == "0" or session == "0":
+                    continue
 
-            identity = CapturedIdentity(
-                auth_id=auth_id,
-                session=session,
-                device_id=fields.get("dev"),
-                source=flow.request.pretty_url,
-            )
-            if _is_game_host(flow.request.host):
-                return identity
-            if fallback is None:
-                fallback = identity
+                identity = CapturedIdentity(
+                    auth_id=auth_id,
+                    session=session,
+                    device_id=fields.get("dev"),
+                    source=flow.request.pretty_url,
+                )
+                if _is_game_host(flow.request.host):
+                    return identity
+                if fallback is None:
+                    fallback = identity
+    except KeyImportError:
+        raise
+    except Exception as e:
+        raise KeyImportError(f"Capture is not a readable mitmproxy dump: {e}") from e
 
     if fallback is not None:
+        logger = get_logger()
+        logger.warning(
+            f"Identity recovered from a non-game host ({fallback.source}); "
+            "verify the capture before trusting it"
+        )
         return fallback
     raise KeyImportError(f"No authenticated API request (id/session) found in {path}")
 

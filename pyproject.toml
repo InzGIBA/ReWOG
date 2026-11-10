@@ -154,25 +154,4 @@ filterwarnings = [
     "ignore:open_binary is deprecated:DeprecationWarning",
 ]
 
-[tool.coverage.run]
-source = ["src/wog_dump"]
-omit = [
-    "*/tests/*",
-    "*/test_*",
-    "*/__pycache__/*",
-]
 
-[tool.coverage.report]
-fail_under = 75
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
-]

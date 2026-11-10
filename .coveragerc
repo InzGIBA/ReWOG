@@ -1,0 +1,25 @@
+# Coverage configuration (pytest-cov reads this file first)
+[run]
+source = ["src/wog_dump"]
+omit =
+    */tests/*
+    */test_*
+    */__pycache__/*
+    # Blender templates: run only inside Blender, never importable here
+    */resources/blender_setup.py
+    */resources/render_turntable.py
+    */resources/render_video.py
+
+[report]
+fail_under = 85
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if self.debug:
+    if settings.DEBUG
+    raise AssertionError
+    raise NotImplementedError
+    if 0:
+    if __name__ == .__main__.:
+    class .*\bProtocol\):
+    if TYPE_CHECKING:

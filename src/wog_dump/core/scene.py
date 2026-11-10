@@ -481,6 +481,10 @@ class SceneBuilder:
         Returns the written path and the emitted node path map (the
         animation binding address space).
         """
+        # The mesh cache is keyed by id(mesh): CPython reuses freed
+        # addresses, so entries from a previous build could hand one
+        # scene another part's geometry. One build, one cache.
+        self._mesh_cache.clear()
         materials_by_pid = {
             obj.path_id: obj.read()
             for obj in env.objects

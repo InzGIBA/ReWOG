@@ -288,6 +288,10 @@ Dependency direction is strictly downwards: `cli` imports from `core`, `core` ne
 
 ### Code Quality Standards
 
+Coverage lives in `.coveragerc` (pytest-cov reads it first) with a
+`fail_under = 85` gate; the Blender templates are omitted because they
+only run inside Blender.
+
 **Complexity Guidelines:**
 - Functions should be < 50 lines
 - Classes should be < 300 lines

@@ -27,6 +27,7 @@ from .download import download_assets, download_weapons
 from .errors import OperationCancelled
 from .info import info
 from .pipeline import full_pipeline
+from .print_export import print_export
 from .render import render
 from .scene import build_scene
 from .serve import serve
@@ -212,6 +213,7 @@ cli.add_command(unpack_assets)
 cli.add_command(convert_normals)
 cli.add_command(build_scene)
 cli.add_command(render)
+cli.add_command(print_export)
 cli.add_command(full_pipeline)
 cli.add_command(login)
 cli.add_command(logout)

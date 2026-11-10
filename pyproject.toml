@@ -71,6 +71,11 @@ web = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]
+print = [
+    "trimesh>=4.0",
+    "numpy>=1.26",
+    "networkx>=3.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/InzGIBA/ReWOG"

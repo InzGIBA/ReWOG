@@ -12,6 +12,7 @@ from ..core.auth import AuthError
 from ..core.decrypt import DecryptionError
 from ..core.download import DownloadError
 from ..core.unpack import UnpackError
+from ..utils.i18n import t
 from ..utils.logging import get_logger
 from ..utils.normal_map import NormalMapError
 
@@ -42,7 +43,9 @@ def error_handler(operation_name: str) -> Iterator[None]:
     try:
         yield
     except KeyboardInterrupt:
-        logger.print_status(f"{operation_name} cancelled by user", "warning")
+        logger.print_status(
+            t("{operation} cancelled by user", operation=operation_name), "warning"
+        )
         raise OperationCancelled() from None
     except (
         AuthError,
@@ -51,10 +54,19 @@ def error_handler(operation_name: str) -> Iterator[None]:
         UnpackError,
         NormalMapError,
     ) as e:
-        logger.print_status(f"{operation_name} failed: {str(e)}", "error")
+        logger.print_status(
+            t("{operation} failed: {error}", operation=operation_name, error=str(e)),
+            "error",
+        )
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Unexpected error in {operation_name}: {e}")
+        logger.error(
+            t(
+                "Unexpected error in {operation}: {error}",
+                operation=operation_name,
+                error=e,
+            )
+        )
         # The traceback belongs in the log file; keep the console to the
         # one-line error unless -d asked for debug output
         if logger.is_debug():

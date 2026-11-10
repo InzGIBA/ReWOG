@@ -7,6 +7,7 @@ import json
 import click
 
 from ..core.catalog import CATALOG_SCHEMA, STAGES, WeaponEntry, build_catalog
+from ..utils.i18n import t, tn
 from .errors import error_handler, print_banner_if_standalone
 
 STATUS_CHOICES = STAGES + ("previews",)
@@ -124,7 +125,8 @@ def catalog(
         entries = build_catalog(config)
         if not entries:
             logger.print_status(
-                "Catalog is empty: run 'wog-dump download-weapons' first", "warning"
+                t("Catalog is empty: run 'wog-dump download-weapons' first"),
+                "warning",
             )
             return
 
@@ -141,7 +143,7 @@ def catalog(
             return
 
         if not entries:
-            logger.print_status("No weapons match the filters", "warning")
+            logger.print_status(t("No weapons match the filters"), "warning")
             return
 
         rows = [

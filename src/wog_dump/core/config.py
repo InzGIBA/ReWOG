@@ -132,6 +132,11 @@ class WOGConfig(BaseModel):
         pattern=r"^[a-z]{2}$",
         description="Language code sent with login queries (lang=)",
     )
+    locale: str = Field(
+        default="en",
+        pattern=r"^[a-z]{2}$",
+        description="CLI message language (ru ships a catalog, others fall back to English)",
+    )
 
     # Blacklist Configuration
     weapon_blacklist: list[str] = Field(
@@ -280,6 +285,7 @@ class WOGConfig(BaseModel):
             "WOG_GAME_VERSION": "game_version",
             "WOG_UNITY_VERSION": "unity_version",
             "WOG_LANG": "api_lang",
+            "WOG_LOCALE": "locale",
             "WOG_STRICT_MODE": "strict_mode",
             "WOG_ENABLE_BACKUP": "enable_backup",
             "WOG_ENABLE_VALIDATION": "enable_validation",

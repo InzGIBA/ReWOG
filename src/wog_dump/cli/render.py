@@ -9,6 +9,7 @@ import click
 
 from ..core.config import get_config
 from ..core.render import RenderError, RenderManager, RenderOptions
+from ..utils.i18n import t
 from .errors import error_handler, print_banner_if_standalone
 
 
@@ -109,8 +110,10 @@ def render(
         weapon_list = _collect_weapons(weapons, render_all)
         if not weapon_list:
             logger.error(
-                "No weapons requested (pass names or --all); "
-                "scenes come from runtime/scenes/"
+                t(
+                    "No weapons requested (pass names or --all); scenes come "
+                    "from runtime/scenes/"
+                )
             )
             sys.exit(1)
 
@@ -121,15 +124,21 @@ def render(
                 frames = manager.render(weapon, options)
                 rendered += 1
                 logger.print_status(
-                    f"Previews for {weapon}: {len(frames)} frames in "
-                    f"{manager.scenes_dir(weapon) / 'previews'}",
+                    t(
+                        "Previews for {weapon}: {info}",
+                        weapon=weapon,
+                        info=f"{len(frames)} frames in "
+                        f"{manager.scenes_dir(weapon) / 'previews'}",
+                    ),
                     "success",
                 )
             except RenderError as e:
-                logger.error(f"Render failed for {weapon}: {e}")
+                logger.error(
+                    t("Render failed for {weapon}: {error}", weapon=weapon, error=e)
+                )
 
         if not rendered:
-            logger.error("No previews rendered")
+            logger.error(t("No previews rendered"))
             sys.exit(1)
 
     return rendered

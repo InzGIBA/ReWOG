@@ -16,6 +16,7 @@ from dotenv import dotenv_values
 
 from .. import __version__
 from ..core.config import get_config, set_config
+from ..utils.i18n import set_locale
 from ..utils.logging import get_logger, set_log_level
 from .auth import login, logout, register
 from .cache import cache
@@ -101,6 +102,12 @@ def validate_config(ctx: click.Context) -> None:
 @click.option(
     "--strict-mode", is_flag=True, help="Enable strict validation and error handling"
 )
+@click.option(
+    "--locale",
+    type=str,
+    help="Message language: ru ships a catalog, anything else falls back "
+    "to English (default from WOG_LOCALE)",
+)
 @click.version_option(version=__version__, prog_name="WOG Dump")
 @click.pass_context
 def cli(
@@ -111,6 +118,7 @@ def cli(
     max_threads: int | None,
     chunk_size: int | None,
     strict_mode: bool,
+    locale: str | None,
 ) -> None:
     """WOG Dump - Modern tool for extracting 3D models from World of Guns: Gun Disassembly.
 
@@ -167,12 +175,15 @@ def cli(
         config_updates["chunk_size"] = chunk_size * 1024  # Convert to bytes
     if strict_mode:
         config_updates["strict_mode"] = True
+    if locale:
+        config_updates["locale"] = locale
 
     if config_updates:
         set_config(**config_updates)
 
     # Store context
     config = get_config()
+    set_locale(config.locale)
     ctx.obj["config"] = config
     ctx.obj["logger"] = logger
 

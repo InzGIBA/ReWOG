@@ -11,6 +11,7 @@ from ..core.download import DownloadManager
 from ..core.keys import KeyManager
 from ..core.paths import is_safe_weapon_name
 from ..core.unpack import WeaponListProcessor
+from ..utils.i18n import t
 from ..utils.logging import get_logger
 from .errors import error_handler, print_banner_if_standalone
 
@@ -182,7 +183,8 @@ def download_assets(
                         logger.print_status(detail, "success")
                     elif not successful and not failed and not nested:
                         logger.print_status(
-                            f"All {len(weapon_list)} assets up to date", "success"
+                            t("All {count} assets up to date", count=len(weapon_list)),
+                            "success",
                         )
 
                     if failed:

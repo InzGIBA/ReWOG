@@ -187,6 +187,17 @@ def download_asset(self, asset_name: str, force: bool = False) -> bool:
 - Document configuration options in `docs/configuration.md`
 - Add a CHANGELOG.md entry under `[Unreleased]`
 
+### Localization
+
+CLI messages wrap English strings with `t()` / `tn()` from
+`utils/i18n.py`; catalogs live in
+`src/wog_dump/resources/locales/<lang>/LC_MESSAGES/wog_dump.po`. After
+editing a `.po` file, run `python scripts/compile_locales.py` to
+regenerate the `.mo` (pure stdlib, no system gettext needed) and commit
+both files. A CI test fails when a committed `.mo` is stale. Unknown
+locales fall back to English silently, so a partial catalog is always
+safe to ship. `--help` texts and log lines stay English.
+
 ## Bug Reports
 
 When reporting bugs, please include:

@@ -1,0 +1,52 @@
+# Russian catalog for WOG Dump CLI messages.
+# Compile after editing: python scripts/compile_locales.py
+msgid ""
+msgstr ""
+"Project-Id-Version: wog-dump\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "{operation} cancelled by user"
+msgstr "{operation} отменено пользователем"
+
+msgid "{operation} failed: {error}"
+msgstr "{operation} завершилось с ошибкой: {error}"
+
+msgid "Unexpected error in {operation}: {error}"
+msgstr "Неожиданная ошибка в {operation}: {error}"
+
+msgid "Catalog is empty: run 'wog-dump download-weapons' first"
+msgstr "Каталог пуст: сначала выполните 'wog-dump download-weapons'"
+
+msgid "No weapons match the filters"
+msgstr "Нет оружия по заданным фильтрам"
+
+msgid "Catalog ({shown})"
+msgstr "Каталог ({shown})"
+
+msgid "No weapons requested (pass names or --all); scenes come from runtime/scenes/"
+msgstr ""
+"Оружие не указано (передайте имена или --all); сцены берутся из "
+"runtime/scenes/"
+
+msgid "Render failed for {weapon}: {error}"
+msgstr "Ошибка рендера для {weapon}: {error}"
+
+msgid "Previews for {weapon}: {info}"
+msgstr "Превью для {weapon}: {info}"
+
+msgid "No previews rendered"
+msgstr "Ни одного превью не отрендерено"
+
+msgid "{n} weapon shown"
+msgid_plural "{n} weapons shown"
+msgstr[0] "Показано {n} оружие"
+msgstr[1] "Показано {n} оружия"
+msgstr[2] "Показано {n} оружий"
+
+msgid "All {count} assets up to date"
+msgstr "Все {count} ассеты уже актуальны"

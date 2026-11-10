@@ -8,7 +8,12 @@ from pathlib import Path
 import click
 
 from ..core.config import get_config
-from ..core.render import RenderError, RenderManager, RenderOptions
+from ..core.render import (
+    RenderError,
+    RenderManager,
+    RenderOptions,
+    VideoOptions,
+)
 from ..utils.i18n import t
 from .errors import error_handler, print_banner_if_standalone
 
@@ -68,6 +73,41 @@ def _collect_weapons(weapons: tuple[str, ...], render_all: bool) -> list[str]:
     default=False,
     help="Skip the preview.gif assembled from the frames",
 )
+@click.option(
+    "--video",
+    is_flag=True,
+    default=False,
+    help="Render a video instead of still previews: an orbit MP4, or "
+    "one animation clip with --clip",
+)
+@click.option(
+    "--clip",
+    metavar="NAME",
+    default=None,
+    help="Animation clip from the scene manifest to render (implies --video)",
+)
+@click.option(
+    "--duration",
+    type=float,
+    default=10.0,
+    show_default=True,
+    metavar="SEC",
+    help="Orbit video length",
+)
+@click.option(
+    "--fps",
+    "video_fps",
+    type=int,
+    default=30,
+    show_default=True,
+    help="Video frame rate",
+)
+@click.option(
+    "--square",
+    is_flag=True,
+    default=False,
+    help="Square video instead of 16:9",
+)
 @click.pass_context
 def render(
     ctx: click.Context,
@@ -78,6 +118,11 @@ def render(
     elevation: float,
     image_format: str,
     no_gif: bool,
+    video: bool,
+    clip: str | None,
+    duration: float,
+    video_fps: int,
+    square: bool,
 ) -> int:
     """Render turntable previews for built scenes via headless Blender.
 
@@ -89,6 +134,8 @@ def render(
         wog-dump render ak47
         wog-dump render ak74n --angles 12 --size 1600
         wog-dump render --all --image-format webp
+        wog-dump render ak47 --video --duration 8
+        wog-dump render ak47 --video --clip "Take 001" --square
     """
     logger = ctx.obj["logger"]
 
@@ -118,9 +165,28 @@ def render(
             sys.exit(1)
 
         manager = RenderManager()
+        video_options = None
+        if video or clip is not None:
+            try:
+                video_options = VideoOptions(
+                    duration=duration,
+                    fps=video_fps,
+                    size=size,
+                    square=square,
+                    clip=clip,
+                )
+            except RenderError as e:
+                logger.error(str(e))
+                sys.exit(1)
+
         rendered = 0
         for weapon in weapon_list:
             try:
+                if video_options is not None:
+                    output = manager.render_video(weapon, video_options)
+                    rendered += 1
+                    logger.print_status(f"Video: {output}", "success")
+                    continue
                 frames = manager.render(weapon, options)
                 rendered += 1
                 logger.print_status(

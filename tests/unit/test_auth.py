@@ -212,9 +212,7 @@ class TestLogin:
 class TestShardRedirect:
     """result=777 handling: the account lives on another shard (#2)."""
 
-    def test_login_follows_redirect_to_home_shard(
-        self, test_config: WOGConfig
-    ) -> None:
+    def test_login_follows_redirect_to_home_shard(self, test_config: WOGConfig) -> None:
         client = Mock(spec=WOGApiClient)
         client.call.side_effect = [
             shard_redirect_response("us4.ultimate-disassembly.com"),
@@ -233,9 +231,7 @@ class TestShardRedirect:
         assert auth.config.api_base_url == target
         assert auth.db.get_setting(SETTINGS_API_BASE_URL) == target
 
-    def test_redirect_to_the_same_shard_refused(
-        self, test_config: WOGConfig
-    ) -> None:
+    def test_redirect_to_the_same_shard_refused(self, test_config: WOGConfig) -> None:
         client = Mock(spec=WOGApiClient)
         client.call.return_value = shard_redirect_response(
             "eu1.ultimate-disassembly.com"  # the default endpoint itself
@@ -294,9 +290,7 @@ class TestShardRedirect:
             success_login_response(),
         ]
         db = WOGDatabase(test_config)
-        AuthManager(test_config, db=db, client=client).login(
-            TEST_EMAIL, TEST_PASSWORD
-        )
+        AuthManager(test_config, db=db, client=client).login(TEST_EMAIL, TEST_PASSWORD)
 
         # A fresh process: default eu1 config, same database
         fresh_config = WOGConfig(

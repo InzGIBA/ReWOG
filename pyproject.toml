@@ -67,6 +67,10 @@ mitm = [
 usd = [
     "usd-core>=24.0",
 ]
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
 
 [project.urls]
 Homepage = "https://github.com/InzGIBA/ReWOG"

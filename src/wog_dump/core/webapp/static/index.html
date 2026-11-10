@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WOG Dump</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 20px; color-scheme: light dark; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(128,128,128,.25); }
+th { cursor: pointer; }
+input { padding: 6px 10px; margin-bottom: 12px; width: 240px; }
+a { color: inherit; }
+</style>
+</head>
+<body>
+<h1>WOG Dump catalog</h1>
+<input id="filter" placeholder="filter weapons" oninput="render()">
+<table id="table">
+<thead><tr><th>name</th><th>key</th><th>dl</th><th>dec</th><th>unp</th><th>scene</th><th>size</th></tr></thead>
+<tbody></tbody>
+</table>
+<pre id="log" style="background:rgba(128,128,128,.1);padding:10px;white-space:pre-wrap;height:180px;overflow:auto"></pre>
+<script src="app.js"></script>
+</body>
+</html>

@@ -29,6 +29,7 @@ from .info import info
 from .pipeline import full_pipeline
 from .render import render
 from .scene import build_scene
+from .serve import serve
 from .unpack import unpack_assets
 
 
@@ -218,6 +219,7 @@ cli.add_command(register)
 cli.add_command(cache)
 cli.add_command(catalog)
 cli.add_command(info)
+cli.add_command(serve)
 
 
 def main() -> None:

@@ -164,6 +164,17 @@ wog-dump cache --show-cache      # detailed cache statistics
 wog-dump cache --validate-assets # check downloads exist and are non-empty
 ```
 
+### Web UI
+
+A local web UI over the same pipeline: catalog with statuses, a 3D
+viewer per weapon and stage buttons with live logs. Needs the web
+extra, binds 127.0.0.1 with a per-start token URL.
+
+```bash
+pip install "wog-dump[web]"
+wog-dump serve
+```
+
 ### Docker
 
 No local Python needed; all state lives in a named volume mounted at `/data`:

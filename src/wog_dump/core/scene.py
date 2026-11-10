@@ -37,6 +37,14 @@ from ..utils.normal_map import is_unity_swizzled_normal, unswizzle_normal_map
 from .config import WOGConfig, get_config
 from .glb import GLBWriter, MeshPrimitive, SceneError
 from .paths import contained_path, is_safe_weapon_name, safe_object_name
+from .scene_states import (
+    SCENE_STATES,
+    PartPlacement,
+    apply_exploded,
+    apply_field_strip,
+    apply_grid_layout,
+)
+from .transforms import compose_matrix, identity_matrix, multiply_matrix
 
 __all__ = [
     "SceneBuilder",
@@ -47,6 +55,12 @@ __all__ = [
     "convert_position",
     "convert_rotation",
 ]
+
+# Matrix helpers live in core/transforms.py; the underscore names stay
+# for the established call sites and tests
+_compose_matrix = compose_matrix
+_identity_matrix = identity_matrix
+_multiply_matrix = multiply_matrix
 
 # Unity material names that mark UI/visual-effect objects rather than
 # real weapon geometry
@@ -89,6 +103,8 @@ class SceneStats:
     materials: int = 0
     textures: int = 0
     nodes: int = 0
+    state: str = "assembled"
+    placements: list[PartPlacement] = field(default_factory=list)
     parts: list[str] = field(default_factory=list)
     field_strip: list[str] = field(default_factory=list)
     skipped: dict[str, int] = field(default_factory=dict)
@@ -166,17 +182,33 @@ class SceneBuilder:
         unit_scale: float = 0.01,
         input_dir: Path | None = None,
         output_dir: Path | None = None,
+        state: str = "assembled",
+        explode_distance: float = 0.35,
     ) -> Path:
         """Export one weapon to ``<output_dir>/<weapon>.glb``.
 
         ``include_extras`` may contain ``"arrows"``, ``"cut"`` and/or
         ``"vfx"`` to also export UI arrows, cutaway meshes and visual
         effects (hidden in the game's default assembled view).
+
+        ``state`` selects the disassembly pose: ``assembled`` (default),
+        ``field-strip`` (parts at their game removal positions),
+        ``exploded`` (parts pushed apart along removal directions) or
+        ``parts`` (grid layout). Non-assembled states export to
+        ``<weapon>-<state>`` directories unless ``output_dir`` is set.
         """
         # The weapon string builds both the bundle path and the output
         # directory: reject anything outside the name alphabet
         if not is_safe_weapon_name(weapon):
             raise SceneExportError(f"Invalid weapon name: {weapon!r}")
+        if state not in SCENE_STATES:
+            raise SceneExportError(
+                f"Invalid state {state!r}, expected one of: {sorted(SCENE_STATES)}"
+            )
+        if explode_distance < 0:
+            raise SceneExportError(
+                f"Explode distance must be non-negative, got {explode_distance}"
+            )
 
         bundle = (input_dir or self.config.decrypted_dir) / f"{weapon}.unity3d"
         if not bundle.exists():
@@ -185,7 +217,8 @@ class SceneBuilder:
             )
 
         if output_dir is None:
-            output_dir = self.config.base_dir / "runtime" / "scenes" / weapon
+            dir_name = weapon if state == "assembled" else f"{weapon}-{state}"
+            output_dir = self.config.base_dir / "runtime" / "scenes" / dir_name
         output_dir.mkdir(parents=True, exist_ok=True)
         # A pre-existing output tree is provenance-unknown content: a
         # symlinked directory would redirect every subsequent write
@@ -213,6 +246,21 @@ class SceneBuilder:
             if root is None:
                 raise SceneExportError(f"No transform hierarchy found in {bundle}")
 
+            # Part lists feed the grid layout, so they are read before
+            # the state pass rewrites translations
+            self._read_part_lists(env, weapon, stats)
+            if state == "field-strip":
+                stats.placements = apply_field_strip(root, unit_scale, stats)
+            elif state == "exploded":
+                stats.placements = apply_exploded(
+                    root, unit_scale, explode_distance, stats
+                )
+            elif state == "parts":
+                stats.placements = apply_grid_layout(
+                    root, unit_scale, stats.parts, self._mesh_data, stats
+                )
+            stats.state = state
+
             writer = GLBWriter(generator="WOG Dump scene exporter")
 
             gltf_materials = self._convert_materials(
@@ -238,13 +286,17 @@ class SceneBuilder:
             glb_path = output_dir / f"{weapon}.glb"
             writer.write(glb_path)
 
-            self._read_part_lists(env, weapon, stats)
             self._write_manifest(output_dir, weapon, include_extras, unit_scale, stats)
             self._write_blender_setup(output_dir)
 
+        state_note = (
+            f", state={state} ({len(stats.placements)} parts moved)"
+            if state != "assembled"
+            else ""
+        )
         self.logger.info(
             f"Scene {weapon}: {stats.meshes} meshes, {stats.materials} materials, "
-            f"{stats.textures} textures -> {glb_path}"
+            f"{stats.textures} textures{state_note} -> {glb_path}"
         )
         return glb_path
 
@@ -670,6 +722,10 @@ class SceneBuilder:
             "source": f"decrypted/{weapon}.unity3d",
             "unit_scale": unit_scale,
             "units": "meters",
+            "state": stats.state,
+            "placements": [
+                {"name": p.name, "offset": list(p.offset)} for p in stats.placements
+            ],
             "extras_included": sorted(include_extras),
             "camera": "WOG_Camera",
             "meshes": stats.meshes,
@@ -693,81 +749,8 @@ class SceneBuilder:
 
 
 # ----------------------------------------------------------------------
-# Matrix helpers (column-major 4x4, pure Python)
+# Matrix helpers live in core/transforms.py (imported above)
 # ----------------------------------------------------------------------
-
-
-def _identity_matrix() -> list[float]:
-    return [
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    ]
-
-
-def _compose_matrix(
-    translation: tuple[float, float, float],
-    rotation: tuple[float, float, float, float],
-    scale: tuple[float, float, float],
-) -> list[float]:
-    """TRS to a column-major 4x4 matrix."""
-    x, y, z, w = rotation
-    xx, yy, zz = x * x, y * y, z * z
-    xy, xz, yz = x * y, x * z, y * z
-    wx, wy, wz = w * x, w * y, w * z
-
-    r = [
-        1 - 2 * (yy + zz),
-        2 * (xy + wz),
-        2 * (xz - wy),
-        2 * (xy - wz),
-        1 - 2 * (xx + zz),
-        2 * (yz + wx),
-        2 * (xz + wy),
-        2 * (yz - wx),
-        1 - 2 * (xx + yy),
-    ]
-    sx, sy, sz = scale
-    return [
-        r[0] * sx,
-        r[1] * sx,
-        r[2] * sx,
-        0.0,
-        r[3] * sy,
-        r[4] * sy,
-        r[5] * sy,
-        0.0,
-        r[6] * sz,
-        r[7] * sz,
-        r[8] * sz,
-        0.0,
-        translation[0],
-        translation[1],
-        translation[2],
-        1.0,
-    ]
-
-
-def _multiply_matrix(a: list[float], b: list[float]) -> list[float]:
-    """Column-major matrix product ``a @ b``."""
-    out = [0.0] * 16
-    for i in range(4):  # column of b
-        for j in range(4):  # row of a
-            out[i * 4 + j] = sum(a[k * 4 + j] * b[i * 4 + k] for k in range(4))
-    return out
 
 
 def _accumulate_bounds(

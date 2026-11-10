@@ -108,6 +108,12 @@ def validate_config(ctx: click.Context) -> None:
     help="Message language: ru ships a catalog, anything else falls back "
     "to English (default from WOG_LOCALE)",
 )
+@click.option(
+    "--no-progress",
+    is_flag=True,
+    default=False,
+    help="Disable progress bars (also WOG_NO_PROGRESS, or any non-terminal " "output)",
+)
 @click.version_option(version=__version__, prog_name="WOG Dump")
 @click.pass_context
 def cli(
@@ -119,6 +125,7 @@ def cli(
     chunk_size: int | None,
     strict_mode: bool,
     locale: str | None,
+    no_progress: bool,
 ) -> None:
     """WOG Dump - Modern tool for extracting 3D models from World of Guns: Gun Disassembly.
 
@@ -135,6 +142,8 @@ def cli(
     ctx.ensure_object(dict)
 
     logger = get_logger()
+    if no_progress:
+        logger.progress_enabled = False
 
     # Honor a .env from the working directory (WOG_* keys only) without
     # overriding variables already in the environment. Explicit cwd

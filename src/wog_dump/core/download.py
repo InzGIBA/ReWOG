@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,10 @@ UNITY_SIGNATURES = (b"UnityFS", b"UnityWeb", b"UnityRaw", b"CAB-")
 
 # Files without a known signature are accepted once they are at least this large
 MIN_VALID_ASSET_SIZE = 20
+
+
+# Optional per-chunk byte callback: (asset_name, downloaded_bytes, total_or_None)
+ByteProgressFn = Callable[[str, int, int | None], None]
 
 
 class DownloadError(Exception):
@@ -167,7 +172,12 @@ class DownloadManager:
 
         return False
 
-    def _fetch_asset(self, asset_name: str, validate: bool = True) -> Path:
+    def _fetch_asset(
+        self,
+        asset_name: str,
+        validate: bool = True,
+        byte_progress: ByteProgressFn | None = None,
+    ) -> Path:
         """Download an asset to its final location.
 
         Downloads to a temporary file first, optionally validates it and
@@ -267,6 +277,8 @@ class DownloadManager:
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
+                        if byte_progress is not None:
+                            byte_progress(asset_name, downloaded, expected_size)
 
             # Transfer integrity: the final file must match the declared size
             if expected_size is not None:
@@ -360,11 +372,18 @@ class DownloadManager:
         headers = getattr(response, "headers", {}) or {}
         return headers.get("ETag") or headers.get("Last-Modified") or None
 
-    def _download_with_status(self, asset_name: str, validate: bool = True) -> str:
+    def _download_with_status(
+        self,
+        asset_name: str,
+        validate: bool = True,
+        byte_progress: ByteProgressFn | None = None,
+    ) -> str:
         """Download one asset; returns "ok", "not_found" or "failed"."""
         try:
             with self.logger.time_operation(f"download:{asset_name}"):
-                self._fetch_asset(asset_name, validate=validate)
+                self._fetch_asset(
+                    asset_name, validate=validate, byte_progress=byte_progress
+                )
             with self._stats_lock:
                 self._download_stats["files_downloaded"] += 1
             return "ok"
@@ -379,9 +398,19 @@ class DownloadManager:
                 self._download_stats["files_failed"] += 1
             return "failed"
 
-    def download_single_asset(self, asset_name: str, validate: bool = True) -> bool:
+    def download_single_asset(
+        self,
+        asset_name: str,
+        validate: bool = True,
+        byte_progress: ByteProgressFn | None = None,
+    ) -> bool:
         """Download a single asset, returning True on success."""
-        return self._download_with_status(asset_name, validate=validate) == "ok"
+        return (
+            self._download_with_status(
+                asset_name, validate=validate, byte_progress=byte_progress
+            )
+            == "ok"
+        )
 
     def download_weapon_list(self, force_update: bool = False) -> Path:
         """Download the weapon list asset (spider_gen.unity3d)."""
@@ -463,6 +492,7 @@ class DownloadManager:
         check_updates: bool = True,
         progress: Progress | None = None,
         task: TaskID | None = None,
+        byte_progress: ByteProgressFn | None = None,
     ) -> tuple[list[str], list[str], int]:
         """Download multiple assets in parallel.
 
@@ -514,7 +544,9 @@ class DownloadManager:
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_weapon = {
-                    executor.submit(self._download_with_status, weapon): weapon
+                    executor.submit(
+                        self._download_with_status, weapon, True, byte_progress
+                    ): weapon
                     for weapon in to_download
                 }
 
@@ -558,6 +590,7 @@ class DownloadManager:
         weapon_list: list[str],
         batch_size: int = 50,
         continue_on_error: bool = True,
+        byte_progress: ByteProgressFn | None = None,
     ) -> tuple[list[str], list[str], int]:
         """Download assets in batches under one aggregate progress bar.
 
@@ -585,7 +618,11 @@ class DownloadManager:
 
                 try:
                     successful, failed, missing = self.download_assets(
-                        batch, check_updates=True, progress=progress, task=task
+                        batch,
+                        check_updates=True,
+                        progress=progress,
+                        task=task,
+                        byte_progress=byte_progress,
                     )
                     all_successful.extend(successful)
                     all_failed.extend(failed)

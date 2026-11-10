@@ -24,6 +24,7 @@ from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.progress import (
@@ -213,6 +214,36 @@ class _OwnerOnlyRotatingFileHandler(RotatingFileHandler):
         _restrict_owner_only(self.baseFilename)
 
 
+class NullProgress:
+    """Drop-in progress stand-in that renders nothing.
+
+    Returned by ``create_task_progress`` when progress output is
+    disabled (``--no-progress``) or the output is not a terminal, so
+    piped runs and CI get clean logs.
+    """
+
+    def __enter__(self) -> NullProgress:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        return None
+
+    def start(self) -> None:
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    def add_task(self, *args: Any, **kwargs: Any) -> int:
+        return 0
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def log(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
 class WOGLogger:
     """Logger for WOG Dump with Rich console formatting and file history."""
 
@@ -226,6 +257,7 @@ class WOGLogger:
         # the console.
         self.logger.setLevel(logging.DEBUG)
         self.performance_monitor = PerformanceMonitor()
+        self.progress_enabled = True
         self._console_handler: ConsoleHandler | None = None
         self._file_handler: RotatingFileHandler | None = None
         self.log_file: Path | None = None
@@ -388,12 +420,21 @@ class WOGLogger:
         )
         self.logger.info(f"[step] {title}: {result.detail} in {elapsed:.2f}s")
 
-    def create_task_progress(self) -> Progress:
-        """Create a progress bar for a task.
+    def create_task_progress(self) -> Any:
+        """Create a progress bar for a task (Rich Progress or NullProgress).
 
         Bars are transient: once finished they disappear, leaving the
-        step lines as the run's summary.
+        step lines as the run's summary. Disabled by ``--no-progress``
+        (or ``WOG_NO_PROGRESS``) and when the output is not a terminal,
+        so piped runs and CI get plain logs. Both flavors share the
+        add_task/update/start/stop interface.
         """
+        if (
+            not self.progress_enabled
+            or os.environ.get("WOG_NO_PROGRESS")
+            or not self.console.is_terminal
+        ):
+            return NullProgress()
         return Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}", justify="right"),

@@ -13,6 +13,7 @@ from ..core.paths import is_safe_weapon_name
 from ..core.unpack import WeaponListProcessor
 from ..utils.i18n import t
 from ..utils.logging import get_logger
+from ..utils.progress import make_byte_tracker
 from .errors import error_handler, print_banner_if_standalone
 
 
@@ -66,7 +67,15 @@ def download_weapons(ctx: click.Context, force: bool, validate: bool) -> list[st
         weapon_list: list[str] = []
         with logger.operation_context("download_weapons", "weapon list download"):
             with DownloadManager(config) as downloader:
-                asset_path = downloader.download_weapon_list(force_update=force)
+                spinner = None
+                if not nested and logger.progress_enabled:
+                    spinner = logger.console.status("Fetching weapon list")
+                    spinner.start()
+                try:
+                    asset_path = downloader.download_weapon_list(force_update=force)
+                finally:
+                    if spinner:
+                        spinner.stop()
 
                 if validate and not downloader.validate_asset(asset_path):
                     logger.error("Downloaded asset failed validation")
@@ -169,11 +178,19 @@ def download_assets(
                             )
                     results = (to_download, [], 0)
                 else:
-                    successful, failed, missing = downloader.download_assets_batched(
-                        weapon_list,
-                        batch_size=batch_size,
-                        continue_on_error=continue_on_error,
-                    )
+                    byte_bar = make_byte_tracker(logger)
+                    try:
+                        successful, failed, missing = (
+                            downloader.download_assets_batched(
+                                weapon_list,
+                                batch_size=batch_size,
+                                continue_on_error=continue_on_error,
+                                byte_progress=byte_bar[1] if byte_bar else None,
+                            )
+                        )
+                    finally:
+                        if byte_bar:
+                            byte_bar[0].stop()
                     results = (successful, failed, missing)
 
                     if successful and not nested:

@@ -109,6 +109,20 @@ def _parse_formats(formats: str) -> frozenset[str]:
     help="Write one STL per meshed top-level part instead of a merged " "solid",
 )
 @click.option(
+    "--viewer",
+    is_flag=True,
+    default=False,
+    help="Also write a self-contained viewer.html (GLB and three.js "
+    "embedded, opens offline in any browser)",
+)
+@click.option(
+    "--viewer-link",
+    is_flag=True,
+    default=False,
+    help="Write viewer.html that loads the GLB and vendor/ from the "
+    "scene directory (smaller HTML, folder must stay together)",
+)
+@click.option(
     "--input-dir",
     type=click.Path(exists=True, path_type=Path),
     help="Directory with decrypted bundles (default: runtime/decrypted)",
@@ -131,6 +145,8 @@ def build_scene(
     formats: str,
     stl_units: str,
     stl_per_part: bool,
+    viewer: bool,
+    viewer_link: bool,
     input_dir: Path | None,
     output_dir: Path | None,
 ) -> int:
@@ -148,6 +164,7 @@ def build_scene(
         wog-dump build-scene ak47 --state field-strip
         wog-dump build-scene ak47 --state exploded --explode-distance 0.5
         wog-dump build-scene ak47 --format stl,usdz --stl-units mm
+        wog-dump build-scene ak47 --viewer
     """
     logger = ctx.obj["logger"]
     config = ctx.obj["config"]
@@ -178,6 +195,8 @@ def build_scene(
                     animation_name=animation_name,
                     export_formats=export_formats,
                     export_options=export_options,
+                    viewer=viewer,
+                    viewer_link=viewer_link,
                 )
                 exported += 1
                 logger.print_status(f"Scene exported: {glb_path}", "success")

@@ -47,6 +47,7 @@ from .scene_states import (
     apply_grid_layout,
 )
 from .transforms import compose_matrix, identity_matrix, multiply_matrix
+from .viewer import copy_viewer_assets, render_viewer_html
 
 __all__ = [
     "SceneBuilder",
@@ -192,6 +193,8 @@ class SceneBuilder:
         animation_name: str | None = None,
         export_formats: frozenset[str] = frozenset(),
         export_options: ExportOptions | None = None,
+        viewer: bool = False,
+        viewer_link: bool = False,
     ) -> Path:
         """Export one weapon to ``<output_dir>/<weapon>.glb``.
 
@@ -211,6 +214,11 @@ class SceneBuilder:
 
         ``export_formats`` requests extra formats alongside the GLB:
         ``stl``, ``usd``, ``usdz`` and/or ``fbx`` (see core/export.py).
+
+        ``viewer`` writes a self-contained ``viewer.html`` (GLB and the
+        three.js runtime embedded, opens offline). ``viewer_link``
+        writes an HTML that loads the GLB and ``./vendor/`` from the
+        scene directory instead (smaller file, same folder layout).
         """
         # The weapon string builds both the bundle path and the output
         # directory: reject anything outside the name alphabet
@@ -329,6 +337,17 @@ class SceneBuilder:
 
             self._write_manifest(output_dir, weapon, include_extras, unit_scale, stats)
             self._write_blender_setup(output_dir)
+
+            if viewer or viewer_link:
+                manifest = json.loads(
+                    (output_dir / "scene.json").read_text(encoding="utf-8")
+                )
+                html = render_viewer_html(
+                    glb_path.read_bytes(), manifest, linked=viewer_link
+                )
+                _atomic_write(output_dir / "viewer.html", html.encode("utf-8"))
+                if viewer_link:
+                    copy_viewer_assets(output_dir)
 
         state_note = (
             f", state={state} ({len(stats.placements)} parts moved)"

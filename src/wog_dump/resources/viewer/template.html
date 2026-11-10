@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$TITLE - WOG Dump viewer</title>
+<style>
+:root { color-scheme: light dark; }
+* { margin: 0; box-sizing: border-box; }
+body {
+  font-family: system-ui, sans-serif;
+  background: #f2f4f8;
+  color: #26292f;
+  overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  body { background: #16181d; color: #d8dde6; }
+}
+#viewport { position: fixed; inset: 0; }
+header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: rgba(128, 128, 128, 0.12);
+  backdrop-filter: blur(6px);
+}
+header h1 { font-size: 15px; font-weight: 600; }
+header #stats { font-size: 12px; opacity: 0.75; }
+header button {
+  font-size: 12px; padding: 5px 10px; cursor: pointer;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 6px; background: transparent; color: inherit;
+}
+header button:hover { border-color: currentColor; }
+#panel {
+  position: fixed; top: 52px; right: 0; bottom: 0; width: 230px; z-index: 2;
+  overflow-y: auto; padding: 8px;
+  background: rgba(128, 128, 128, 0.10);
+  backdrop-filter: blur(6px);
+}
+#panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; padding: 6px 8px; }
+#parts { list-style: none; padding: 0; }
+#parts li {
+  font-size: 13px; padding: 5px 10px; cursor: pointer;
+  border-radius: 5px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+#parts li:hover { background: rgba(128, 128, 128, 0.18); }
+#parts li.selected { background: #2a6fb8; color: #fff; }
+@media (prefers-color-scheme: dark) {
+  #parts li.selected { background: #4a9eff; color: #10141a; }
+}
+</style>
+<script type="importmap">
+$IMPORT_MAP
+</script>
+</head>
+<body>
+<canvas id="viewport"></canvas>
+<header>
+  <h1>$TITLE</h1>
+  <span id="stats">loading&hellip;</span>
+  <span style="flex: 1"></span>
+  <button id="wireframe">wireframe</button>
+  <button id="autorotate">rotate</button>
+  <button id="clear">clear</button>
+</header>
+<nav id="panel">
+  <h2>parts</h2>
+  <ul id="parts"></ul>
+</nav>
+<script type="application/json" id="wog-config">$CONFIG_JSON</script>
+<script type="module">
+$VIEWER_JS
+</script>
+</body>
+</html>

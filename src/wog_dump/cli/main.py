@@ -19,6 +19,7 @@ from ..core.config import get_config, set_config
 from ..utils.logging import get_logger, set_log_level
 from .auth import login, logout, register
 from .cache import cache
+from .catalog import catalog
 from .convert import convert_normals
 from .decrypt import decrypt_assets
 from .download import download_assets, download_weapons
@@ -195,6 +196,7 @@ cli.add_command(login)
 cli.add_command(logout)
 cli.add_command(register)
 cli.add_command(cache)
+cli.add_command(catalog)
 cli.add_command(info)
 
 

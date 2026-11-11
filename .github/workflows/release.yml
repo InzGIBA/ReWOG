@@ -15,6 +15,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Build the PyPI-safe description
+        run: python scripts/build_pypi_readme.py README.md README.md
+
       - name: Build sdist and wheel
         run: |
           python -m pip install --upgrade build

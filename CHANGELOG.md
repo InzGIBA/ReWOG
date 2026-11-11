@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-11-11
+
+### Fixed
+
+- **Images now render on the PyPI project page.** PyPI strips
+  `<picture>` blocks, blocks SVG and cannot resolve repository-relative
+  paths, so the hero banner and feature cards vanished from
+  pypi.org/project/rewog. The release workflow now rewrites the
+  long description before the build (`scripts/build_pypi_readme.py`,
+  same approach as ReString): the hero becomes one image with an
+  absolute URL (new committed `assets/social-preview.png`), feature
+  cards collapse into the bullet list, and every repository-relative
+  link becomes an absolute GitHub URL. The repository README keeps the
+  dark/light picture rendering for GitHub.
+
 ## [3.0.0] - 2026-11-11
 
 The PyPI distribution is named rewog; the CLI stays wog-dump.

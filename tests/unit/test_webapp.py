@@ -151,17 +151,22 @@ class TestRunWhitelist:
 
 class TestPagesAndData:
     def test_page_scripts_resolve(self, client: Any) -> None:
-        """Every script src the pages emit must return 200 (regression:
-        app.js used to be referenced outside the static mount)."""
+        """Every script src the pages emit must return 200.
+
+        Relative srcs resolve against the page URL exactly like a
+        browser does (regression: app.js was referenced outside the
+        static mount, then broke again one level deeper on /weapon/).
+        """
         import re
+        from urllib.parse import urljoin
 
         tc, token = client
         for page_path in (f"/t/{token}/", f"/t/{token}/weapon/ak47"):
             html = tc.get(page_path).text
-            for src in re.findall(r'src="([^"]+)"', html):
-                if src.startswith(("http", "//")):
+            for src in re.findall(r'(?:src|href)="([^"]+)"', html):
+                if src.startswith(("http", "//", "data:")):
                     continue
-                url = src if src.startswith("/") else f"/t/{token}/{src}"
+                url = urljoin(page_path, src)
                 status = tc.get(url).status_code
                 assert status == 200, f"{src} -> {status} on {page_path}"
 

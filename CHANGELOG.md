@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-11-11
+
+### Added
+
+- Server-side test markers are visible now. The spider metadata
+  carries `flags` and `released` fields, parsed into the
+  `weapon_meta` table (existing databases gain the columns through
+  an additive migration). Six live weapons are flagged `test`
+  (beretta_92x, foss_mg9, hudson_h9, ppk_42, type_b, uru): the game
+  hides them and their asset bundles are not deployed, so downloads
+  return 404. The catalog, the web UI and the weapon API surface a
+  `test` flag, and the web card and detail pages show a test badge
+- Catalog JSON schema v3 (`wog-dump.catalog/3`). Entries add
+  `test`. The Blender addon client pins the new schema
+
+### Changed
+
+- `download-assets` drops test-flagged weapons before the batch with
+  a clear warning instead of a raw 404 line, and the summary counts
+  skips separately. A request that downloads nothing and skips one
+  weapon now reports "0 up to date, 1 skipped (not on server)" as
+  info instead of a green "All 1 assets up to date"
+
 ## [3.2.0] - 2026-11-11
 
 ### Added

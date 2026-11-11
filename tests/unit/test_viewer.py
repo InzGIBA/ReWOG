@@ -96,6 +96,6 @@ class TestCopyViewerAssets:
     def test_vendor_files_landed(self, tmp_path: Path) -> None:
         target = copy_viewer_assets(tmp_path)
         assert (target / "three.module.min.js").stat().st_size > 100000
-        assert (target / "addons/GLTFLoader.js").stat().st_size > 50000
-        assert (target / "addons/OrbitControls.js").stat().st_size > 10000
+        assert (target / "addons/loaders/GLTFLoader.js").stat().st_size > 50000
+        assert (target / "addons/controls/OrbitControls.js").stat().st_size > 10000
         assert (target / "addons/utils/BufferGeometryUtils.js").stat().st_size > 10000

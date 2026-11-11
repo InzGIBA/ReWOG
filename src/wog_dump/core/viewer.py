@@ -24,8 +24,8 @@ _VENDOR_BASE = "three/addons"
 # Vendored runtime files, copied verbatim into linked-mode output
 _VENDOR_FILES = (
     "three.module.min.js",
-    "addons/GLTFLoader.js",
-    "addons/OrbitControls.js",
+    "addons/loaders/GLTFLoader.js",
+    "addons/controls/OrbitControls.js",
     "addons/utils/BufferGeometryUtils.js",
 )
 
@@ -54,10 +54,10 @@ def _import_map(linked: bool) -> str:
         mapping = {
             "three": _data_uri(_vendor_file("three.module.min.js").read_bytes()),
             f"{_VENDOR_BASE}/loaders/GLTFLoader.js": _data_uri(
-                _vendor_file("addons/GLTFLoader.js").read_bytes()
+                _vendor_file("addons/loaders/GLTFLoader.js").read_bytes()
             ),
             f"{_VENDOR_BASE}/controls/OrbitControls.js": _data_uri(
-                _vendor_file("addons/OrbitControls.js").read_bytes()
+                _vendor_file("addons/controls/OrbitControls.js").read_bytes()
             ),
             f"{_VENDOR_BASE}/utils/BufferGeometryUtils.js": _data_uri(
                 _vendor_file("addons/utils/BufferGeometryUtils.js").read_bytes()

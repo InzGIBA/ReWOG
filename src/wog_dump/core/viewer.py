@@ -43,12 +43,12 @@ def _data_uri(data: bytes, mime: str = "text/javascript") -> str:
     return f"data:{mime};base64,{payload}"
 
 
-def _import_map(linked: bool) -> str:
+def _import_map(linked: bool, vendor_base: str = "./vendor") -> str:
     """Import map wiring the vendored modules for either output mode."""
     if linked:
         mapping: dict[str, str] = {
-            "three": "./vendor/three.module.min.js",
-            f"{_VENDOR_BASE}/": "./vendor/addons/",
+            "three": f"{vendor_base}/three.module.min.js",
+            f"{_VENDOR_BASE}/": f"{vendor_base}/addons/",
         }
     else:
         mapping = {
@@ -66,18 +66,29 @@ def _import_map(linked: bool) -> str:
     return json.dumps({"imports": mapping}, indent=2)
 
 
-def render_viewer_html(glb: bytes, manifest: dict, *, linked: bool = False) -> str:
+def render_viewer_html(
+    glb: bytes,
+    manifest: dict,
+    *,
+    linked: bool = False,
+    glb_url: str | None = None,
+    vendor_base: str = "./vendor",
+) -> str:
     """Build the viewer HTML for one exported scene.
 
     ``linked=False`` embeds the GLB and the whole three.js runtime so a
     single file opens offline. ``linked=True`` references the GLB and
-    ``./vendor/`` as relative paths (see ``copy_viewer_assets``).
+    ``./vendor/`` as relative paths (see ``copy_viewer_assets``); the
+    web UI passes ``glb_url`` and ``vendor_base`` to point at its own
+    token-guarded routes instead.
     """
     logger = get_logger()
-    if linked:
-        glb_url = f"./{manifest.get('weapon', 'weapon')}.glb"
-    else:
-        glb_url = _data_uri(glb, "model/gltf-binary")
+    if glb_url is None:
+        glb_url = (
+            f"./{manifest.get('weapon', 'weapon')}.glb"
+            if linked
+            else _data_uri(glb, "model/gltf-binary")
+        )
 
     config = json.dumps(
         {
@@ -100,7 +111,7 @@ def render_viewer_html(glb: bytes, manifest: dict, *, linked: bool = False) -> s
 
     html = string.Template(template).substitute(
         TITLE=manifest.get("weapon", "weapon"),
-        IMPORT_MAP=_import_map(linked),
+        IMPORT_MAP=_import_map(linked, vendor_base),
         CONFIG_JSON=config,
         VIEWER_JS=viewer_js,
     )

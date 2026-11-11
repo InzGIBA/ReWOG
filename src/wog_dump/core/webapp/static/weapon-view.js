@@ -50,10 +50,8 @@ function fetchMeta() {
         bits.push(meta.manifest.parts.length + " parts");
       }
       document.getElementById("meta").textContent = bits.join(" / ");
-      if (meta.has_viewer) {
-        document.getElementById("viewerlink").innerHTML =
-          '<a href="' + BASE + '/data/scenes/' + WEAPON + '/viewer.html">open full viewer</a>';
-      }
+      document.getElementById("viewerlink").innerHTML =
+        '<a href="' + BASE + '/view/' + WEAPON + '">open full viewer</a>';
     });
 }
 

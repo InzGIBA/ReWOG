@@ -9,6 +9,7 @@ terminal), streamed to the browser over SSE. Install with
 
 from __future__ import annotations
 
+import json
 import secrets
 import subprocess
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..catalog import build_catalog
@@ -124,7 +125,9 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
         if stage not in RUNNABLE_STAGES:
             raise HTTPException(status_code=400, detail=f"Unknown stage: {stage!r}")
 
-        args = ["wog-dump", stage, "--no-progress"]
+        # --no-progress is a group option: Click expects it before the
+        # subcommand
+        args = ["wog-dump", "--no-progress", stage]
         weapon = payload.get("weapon")
         if stage == "build-scene":
             if not weapon:
@@ -170,6 +173,11 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
                     return
                 for line in iter(process.stdout.readline, ""):
                     lines.put(line)
+                try:
+                    code = process.wait()
+                except Exception:
+                    code = -1
+                lines.put("exit=" + str(code) + "\n")
                 lines.put(None)
 
             threading.Thread(target=pump, daemon=True).start()
@@ -193,6 +201,39 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
     def weapon_page(token_in_path: str, name: str) -> FileResponse:
         guard(token_in_path)
         return FileResponse(static_dir / "weapon.html")
+
+    @app.get("/t/{token_in_path}/view/{name}")
+    def view_page(token_in_path: str, name: str) -> Any:
+        """Serve the viewer over HTTP (linked mode).
+
+        The embedded viewer.html file uses data URIs in its import map,
+        which Firefox blocks; this route serves the same viewer with an
+        import map pointing at the token-guarded vendor mount instead.
+        """
+        guard(token_in_path)
+        if not is_safe_weapon_name(name):
+            raise HTTPException(status_code=404)
+        scene_dir = config.base_dir / "runtime" / "scenes" / name
+        glb = scene_dir / f"{name}.glb"
+        if not glb.exists():
+            raise HTTPException(status_code=404)
+        manifest_path = scene_dir / "scene.json"
+        manifest = (
+            json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest_path.exists()
+            else {"weapon": name}
+        )
+        from ..viewer import render_viewer_html
+
+        base = f"/t/{token_in_path}"
+        html = render_viewer_html(
+            glb.read_bytes(),
+            manifest,
+            linked=True,
+            glb_url=f"{base}/data/scenes/{name}/{name}.glb",
+            vendor_base=f"{base}/vendor",
+        )
+        return HTMLResponse(html)
 
     @app.get("/t/{token_in_path}/data/scenes/{path:path}")
     def scene_file(token_in_path: str, path: str) -> FileResponse:

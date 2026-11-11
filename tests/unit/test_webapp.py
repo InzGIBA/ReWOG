@@ -118,8 +118,8 @@ class TestRunWhitelist:
         assert response.status_code == 200
         assert captured["args"] == [
             "wog-dump",
-            "build-scene",
             "--no-progress",
+            "build-scene",
             "ak47",
             "--state",
             "exploded",
@@ -230,13 +230,11 @@ class TestEvents:
             def poll(self) -> int | None:
                 return 0
 
+            def wait(self) -> int:
+                return 0
+
         from wog_dump.core.webapp import app as app_module
 
-        app_state = tc.app_state if hasattr(tc, "app_state") else None
-        # Replace the runner's process directly through the app instance
-        runner = None
-        for route in tc.app.routes:
-            pass
         monkeypatch.setattr(
             app_module.subprocess, "Popen", lambda args, **kw: FakeProcess()
         )

@@ -10,6 +10,7 @@ terminal), streamed to the browser over SSE. Install with
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import subprocess
 from dataclasses import dataclass, field
@@ -22,13 +23,20 @@ from fastapi.staticfiles import StaticFiles
 
 from ..catalog import build_catalog
 from ..config import WOGConfig, get_config
-from ..paths import is_safe_weapon_name
+from ..paths import contained_path, is_safe_weapon_name
 from ..scene_states import SCENE_STATES
+from ..spider import CARD_SUFFIX, ICON_SUFFIX, previews_dir
 
 __all__ = ["create_app"]
 
 # Stages the UI launches, with their argument shape
 RUNNABLE_STAGES = ("download-assets", "decrypt-assets", "unpack-assets", "build-scene")
+
+# Preview filenames served to the browser ("<weapon>.png" / "<weapon>_card.png")
+_PREVIEW_FILE_RE = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9_-]{1,49}(" + re.escape(CARD_SUFFIX) + r"|"
+    + re.escape(ICON_SUFFIX) + r")"
+)
 
 
 @dataclass
@@ -68,6 +76,16 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
         if token_in_path != token:
             raise HTTPException(status_code=404)
 
+    def shell_html(token_in_path: str) -> HTMLResponse:
+        """The single-page shell, at "/" and "/weapon/<name>" alike.
+
+        The document carries no relative asset paths: every URL is
+        absolute with the token baked in, so the shell works unchanged
+        at both route depths.
+        """
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(html.replace("__TOKEN__", token_in_path))
+
     def catalog_payload() -> dict:
         from ..catalog import CATALOG_SCHEMA
 
@@ -85,6 +103,11 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
                     "scene": e.scene,
                     "previews": e.previews,
                     "size_bytes": e.size_bytes,
+                    "display_name": e.display_name,
+                    "categories": list(e.categories),
+                    "num_parts": e.num_parts,
+                    "since": e.since,
+                    "icon": e.icon,
                 }
                 for e in entries
             ],
@@ -96,6 +119,25 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
     def api_catalog(token_in_path: str) -> JSONResponse:
         guard(token_in_path)
         return JSONResponse(catalog_payload())
+
+    @app.get("/t/{token_in_path}/previews/{filename}")
+    def preview_file(token_in_path: str, filename: str) -> FileResponse:
+        # Extracted spider card images: "<weapon>.png" icons and
+        # "<weapon>_card.png" 1024px renders
+        guard(token_in_path)
+        if not _PREVIEW_FILE_RE.fullmatch(filename):
+            raise HTTPException(status_code=404)
+        try:
+            path = contained_path(previews_dir(config), filename)
+        except ValueError:
+            raise HTTPException(status_code=404) from None
+        if not path.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(
+            path,
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     @app.get("/t/{token_in_path}/api/weapons/{name}")
     def api_weapon(token_in_path: str, name: str) -> JSONResponse:
@@ -109,13 +151,33 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
         payload = {
             "name": entry.name,
             "scene": entry.scene,
+            "has_key": entry.has_key,
+            "downloaded": entry.downloaded,
+            "decrypted": entry.decrypted,
+            "unpacked": entry.unpacked,
+            "previews": entry.previews,
             "has_viewer": (scene_dir / "viewer.html").exists(),
+            "icon": entry.icon,
+            "display_name": entry.display_name,
+            "categories": list(entry.categories),
+            "num_parts": entry.num_parts,
+            "since": entry.since,
+            "size_bytes": entry.size_bytes,
             "manifest": (
                 __import__("json").loads(manifest.read_text(encoding="utf-8"))
                 if manifest.exists()
                 else None
             ),
         }
+        try:
+            from ..database import WOGDatabase
+
+            record = WOGDatabase(config).get_weapon_meta().get(name)
+            if record:
+                payload["brief_info"] = record.get("brief_info")
+                payload["features"] = record.get("features")
+        except Exception:
+            pass
         return JSONResponse(payload)
 
     @app.post("/t/{token_in_path}/api/run")
@@ -149,7 +211,13 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
             if weapon:
                 if weapon not in known:
                     raise HTTPException(status_code=400, detail="Unknown weapon")
-                args.extend(["--weapons", weapon])
+                # unpack-assets has no --weapons; its per-asset filter is a
+                # name pattern globbed as "<pattern>.unity3d", so the weapon
+                # name is an exact match for the single decrypted file
+                if stage == "unpack-assets":
+                    args.extend(["--asset-filter", weapon])
+                else:
+                    args.extend(["--weapons", weapon])
 
         pid = runner.start(args)
         return JSONResponse({"pid": pid, "args": args})
@@ -193,14 +261,17 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
     # -- Pages and data ---------------------------------------------------
 
     @app.get("/t/{token_in_path}/")
-    def index(token_in_path: str) -> FileResponse:
+    def index(token_in_path: str) -> HTMLResponse:
         guard(token_in_path)
-        return FileResponse(static_dir / "index.html")
+        return shell_html(token_in_path)
 
     @app.get("/t/{token_in_path}/weapon/{name}")
-    def weapon_page(token_in_path: str, name: str) -> FileResponse:
+    def weapon_page(token_in_path: str, name: str) -> HTMLResponse:
+        # Same shell: the SPA router turns the path into its hash route
         guard(token_in_path)
-        return FileResponse(static_dir / "weapon.html")
+        if not is_safe_weapon_name(name):
+            raise HTTPException(status_code=404)
+        return shell_html(token_in_path)
 
     @app.get("/t/{token_in_path}/view/{name}")
     def view_page(token_in_path: str, name: str) -> Any:

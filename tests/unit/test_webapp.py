@@ -52,7 +52,7 @@ class TestCatalogEndpoint:
         tc, token = client
         response = tc.get(f"/t/{token}/api/catalog")
         payload = response.json()
-        assert payload["schema"] == "wog-dump.catalog/1"
+        assert payload["schema"] == "wog-dump.catalog/2"
         assert payload["weapons"][0]["name"] == "ak47"
         assert payload["weapons"][0]["downloaded"] is True
         assert payload["weapons"][0]["scene"] is True
@@ -150,31 +150,31 @@ class TestRunWhitelist:
 
 
 class TestPagesAndData:
-    def test_weapon_page_isolated_from_index_scripts(self, client: Any) -> None:
-        """The weapon page loads only its own module.
+    def test_single_shell_everywhere(self, client: Any) -> None:
+        """"/" and "/weapon/<name>" serve the same SPA shell.
 
-        app.js is index-only: its render pass touches elements the
-        weapon page lacks. The import map must point at the vendored
-        runtime.
+        The shell carries the token in absolute asset URLs (it must
+        work at both route depths) and no per-page scripts exist
+        anymore.
         """
         tc, token = client
-        html = tc.get(f"/t/{token}/weapon/ak47").text
-        assert "app.js" not in html
-        assert 'src="../static/weapon-view.js"' in html
-        assert '"three": "../vendor/three.module.min.js"' in html
+        index_html = tc.get(f"/t/{token}/").text
+        weapon_html = tc.get(f"/t/{token}/weapon/ak47").text
+        assert index_html == weapon_html
+        assert f"/t/{token}/static/app.js" in index_html
+        assert f"/t/{token}/static/vendor/alpine.min.js" in index_html
+        assert "__TOKEN__" not in index_html
 
-    def test_index_loads_catalog_module(self, client: Any) -> None:
+    def test_unknown_weapon_page_404(self, client: Any) -> None:
         tc, token = client
-        html = tc.get(f"/t/{token}/").text
-        assert '<script type="module" src="static/app.js">' in html
+        assert tc.get(f"/t/{token}/weapon/not-a-weapon!!").status_code == 404
 
     def test_page_scripts_resolve(self, client: Any) -> None:
-        """Every src attribute on both pages must return 200.
+        """Every literal src attribute on the shell must return 200.
 
         Relative srcs resolve against the page URL exactly like a
-        browser does. Two regressions live here: app.js was referenced
-        outside the static mount, and the weapon page broke again one
-        directory deeper.
+        browser does; Alpine :src bindings are templates, not URLs, so
+        the lookahead skips them.
         """
         import re
         from urllib.parse import urljoin
@@ -182,7 +182,7 @@ class TestPagesAndData:
         tc, token = client
         for page_path in (f"/t/{token}/", f"/t/{token}/weapon/ak47"):
             html = tc.get(page_path).text
-            for src in re.findall(r'src="([^"]+)"', html):
+            for src in re.findall(r'(?<![:@])src="([^"]+)"', html):
                 if src.startswith(("http", "//", "data:")):
                     continue
                 url = urljoin(page_path, src)
@@ -193,7 +193,7 @@ class TestPagesAndData:
         tc, token = client
         response = tc.get(f"/t/{token}/")
         assert response.status_code == 200
-        assert "WOG Dump catalog" in response.text
+        assert "wog dump" in response.text
 
     def test_theme_assets_resolve(self, client: Any) -> None:
         """The smui theme stylesheet and its vendored font are served."""
@@ -205,8 +205,8 @@ class TestPagesAndData:
 
     def test_pages_link_theme(self, client: Any) -> None:
         tc, token = client
-        assert 'href="static/smui.css"' in tc.get(f"/t/{token}/").text
-        assert 'href="../static/smui.css"' in tc.get(f"/t/{token}/weapon/ak47").text
+        for page_path in (f"/t/{token}/", f"/t/{token}/weapon/ak47"):
+            assert f'href="/t/{token}/static/smui.css"' in tc.get(page_path).text
 
     def test_view_page_loads_theme_font(self, client: Any) -> None:
         tc, token = client

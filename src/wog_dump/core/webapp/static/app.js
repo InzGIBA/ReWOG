@@ -1,98 +1,197 @@
-(function () {
+/* Serve shell: one Alpine app over the REST API.
+ *
+ * Hash routing keeps the server down to two page routes (the shell at
+ * "/" and "/weapon/<name>", both serving this same document); every
+ * state change is a fetch. All rendered content goes through x-text,
+ * so game-controlled strings never hit innerHTML.
+ */
 'use strict';
-/* Catalog page: filter, stage table, stage log via SSE. */
-const TOKEN = location.pathname.split("/")[2];
-const BASE = `/t/${TOKEN}`;
-let weapons = [];
-let schema = "";
 
-/* Flag columns in table order, with their human titles for tooltips */
-const FLAGS = [
-  ["has_key", "key"],
-  ["downloaded", "downloaded"],
-  ["decrypted", "decrypted"],
-  ["unpacked", "unpacked"],
-  ["scene", "scene"],
-];
+document.addEventListener('alpine:init', () => {
+  Alpine.data('shell', () => ({
+    /* Pipeline stage dots in card order, with tooltips */
+    FLAGS: [
+      ['has_key', 'key'],
+      ['downloaded', 'downloaded'],
+      ['decrypted', 'decrypted'],
+      ['unpacked', 'unpacked'],
+      ['scene', 'scene'],
+    ],
 
-async function load() {
-  const response = await fetch(`${BASE}/api/catalog`);
-  const payload = await response.json();
-  weapons = payload.weapons;
-  schema = payload.schema;
-  render();
-}
+    /* Detail-page stepper: every extraction stage, in run order */
+    PIPELINE: [
+      ['has_key', 'key'],
+      ['downloaded', 'dl'],
+      ['decrypted', 'dec'],
+      ['unpacked', 'unp'],
+      ['scene', 'scene'],
+      ['previews', 'renders'],
+    ],
 
-function render() {
-  const needle = document.getElementById("filter").value.toLowerCase();
-  const body = document.querySelector("#table tbody");
-  body.innerHTML = "";
-  const visible = weapons.filter((w) =>
-    w.name.toLowerCase().includes(needle)
-  );
-  visible.forEach((w) => {
-    const row = document.createElement("tr");
-    row.innerHTML =
-      `<td><a href="${BASE}/weapon/${w.name}">${w.name}</a></td>` +
-      FLAGS.map(
-        ([field, title]) =>
-          `<td class="cell-flag"><span class="dot ${w[field] ? "dot-ok" : "dot-off"}" ` +
-          `title="${title}: ${w[field] ? "done" : "pending"}"></span></td>`
-      ).join("") +
-      `<td class="cell-size">${(w.size_bytes / 1e6).toFixed(1)} MB</td>`;
-    body.appendChild(row);
-  });
-  if (!visible.length) {
-    const row = document.createElement("tr");
-    row.innerHTML = `<td class="empty" colspan="${1 + FLAGS.length + 1}">no weapons match</td>`;
-    body.appendChild(row);
-  }
-  const stats = document.getElementById("stats");
-  stats.textContent =
-    `${visible.length}/${weapons.length} weapons` + (schema ? ` · ${schema}` : "");
-}
+    get pipeline() {
+      const stages = this.PIPELINE.map(([key, title]) => ({
+        key,
+        title,
+        done: Boolean(this.weapon && this.weapon[key]),
+      }));
+      /* The wire into stage i is lit once stage i-1 is done */
+      return stages.map((s, i) => ({ ...s, wire: i > 0 && stages[i - 1].done }));
+    },
 
-function runStage(stage, weapon, state) {
-  const body = { stage: stage };
-  if (weapon) body.weapon = weapon;
-  if (state) body.state = state;
-  fetch(`${BASE}/api/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-    .then(async (r) => {
-      if (!r.ok) {
-        const detail = (await r.json()).detail || r.statusText;
-        logLine(`rejected: ${detail}`);
+    token: document.documentElement.dataset.token,
+    schema: '',
+    weapons: [],
+    loaded: false,
+    filter: '',
+    category: '',
+    route: { view: 'catalog', weapon: null },
+    weapon: null,
+    state: '',
+    logOpen: false,
+    logLines: '',
+    logLive: false,
+    source: null,
+
+    get base() {
+      return `/t/${this.token}`;
+    },
+
+    get stats() {
+      const where =
+        this.route.view === 'catalog'
+          ? `${this.visible.length}/${this.weapons.length}`
+          : this.route.weapon || '';
+      return this.schema ? `${where} · ${this.schema}` : where;
+    },
+
+    get visible() {
+      const needle = this.filter.trim().toLowerCase();
+      return this.weapons.filter((w) => {
+        if (this.category && !(w.categories || []).includes(this.category)) {
+          return false;
+        }
+        if (!needle) return true;
+        const haystack = [w.name, w.display_name, ...(w.categories || [])]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(needle);
+      });
+    },
+
+    /* Distinct category leaves with counts, sorted by frequency */
+    get categories() {
+      const counts = new Map();
+      for (const w of this.weapons) {
+        for (const c of w.categories || []) {
+          counts.set(c, (counts.get(c) || 0) + 1);
+        }
+      }
+      return [...counts.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    },
+
+    async init() {
+      /* Deep links to /weapon/<name> (server serves the same shell)
+         become hash routes so a refresh keeps the view */
+      const path = location.pathname.match(/\/weapon\/([^/]+)\/?$/);
+      if (path && !location.hash) {
+        history.replaceState(null, '', `${this.base}/#/weapon/${path[1]}`);
+      }
+      window.addEventListener('hashchange', () => this.navigate());
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== '/' || event.target.id === 'filter') return;
+        event.preventDefault();
+        document.getElementById('filter').focus();
+      });
+      await this.loadCatalog();
+      this.navigate();
+    },
+
+    parseHash() {
+      const match = location.hash.match(/^#\/weapon\/([^/]+?)(\/view)?\/?$/);
+      if (match) {
+        return {
+          view: match[2] ? 'viewer' : 'weapon',
+          weapon: decodeURIComponent(match[1]),
+        };
+      }
+      return { view: 'catalog', weapon: null };
+    },
+
+    async navigate() {
+      this.route = this.parseHash();
+      if (this.route.weapon) {
+        await this.loadWeapon(this.route.weapon);
+      } else {
+        this.weapon = null;
+      }
+    },
+
+    async loadCatalog() {
+      const response = await fetch(`${this.base}/api/catalog`);
+      const payload = await response.json();
+      this.weapons = payload.weapons;
+      this.schema = payload.schema;
+      this.loaded = true;
+    },
+
+    async loadWeapon(name) {
+      const response = await fetch(`${this.base}/api/weapons/${name}`);
+      this.weapon = response.ok ? await response.json() : null;
+    },
+
+    cardMeta(w) {
+      const bits = [];
+      if (w.num_parts) bits.push(`${w.num_parts} parts`);
+      if (w.since) bits.push(String(w.since));
+      bits.push(`${(w.size_bytes / 1e6).toFixed(1)} MB`);
+      return bits.join(' · ');
+    },
+
+    async run(stage) {
+      const body = { stage };
+      if (this.route.weapon) body.weapon = this.route.weapon;
+      if (stage === 'build-scene' && this.state) body.state = this.state;
+      const response = await fetch(`${this.base}/api/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      this.logOpen = true;
+      if (!response.ok) {
+        const detail = (await response.json()).detail || response.statusText;
+        this.log(`rejected: ${detail}`);
         return;
       }
-      const started = await r.json();
-      logLine(`started: ${started.args.join(" ")}`);
-      const source = new EventSource(`${BASE}/api/events`);
-      source.addEventListener("done", () => {
-        source.close();
-        logLine("stage finished");
-        load();
+      const started = await response.json();
+      this.log(`started: ${started.args.join(' ')}`);
+      this.listen();
+    },
+
+    /* One SSE stream at a time; "done" refreshes whatever is on screen */
+    listen() {
+      if (this.source) return;
+      this.source = new EventSource(`${this.base}/api/events`);
+      this.logLive = true;
+      this.source.onmessage = (event) => this.log(event.data);
+      this.source.addEventListener('done', () => {
+        this.source.close();
+        this.source = null;
+        this.logLive = false;
+        this.log('stage finished');
+        this.loadCatalog();
+        if (this.route.weapon) this.loadWeapon(this.route.weapon);
       });
-      source.onmessage = (event) => logLine(event.data);
-    });
-}
+    },
 
-function logLine(text) {
-  const log = document.getElementById("log");
-  log.textContent += text + "\n";
-  log.scrollTop = log.scrollHeight;
-}
-
-/* "/" focuses the filter, terminal style */
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "/" || event.target === document.getElementById("filter")) {
-    return;
-  }
-  event.preventDefault();
-  document.getElementById("filter").focus();
+    log(text) {
+      this.logLines += text + '\n';
+      this.$nextTick(() => {
+        const node = this.$refs.log;
+        if (node) node.scrollTop = node.scrollHeight;
+      });
+    },
+  }));
 });
-
-load();
-})();

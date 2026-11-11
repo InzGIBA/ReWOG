@@ -92,6 +92,11 @@ wog-convert-normals = "wog_dump.utils.normal_map:cli_main"
 [tool.hatch.version]
 path = "src/wog_dump/__init__.py"
 
+[tool.hatch.build.targets.wheel]
+# The import package keeps the wog_dump name; only the PyPI
+# distribution is named rewog
+packages = ["src/wog_dump"]
+
 [tool.black]
 line-length = 88
 target-version = ['py312']

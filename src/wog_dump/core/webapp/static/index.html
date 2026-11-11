@@ -2,25 +2,66 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>WOG Dump</title>
+<link rel="stylesheet" href="static/smui.css">
 <style>
-body { font-family: system-ui, sans-serif; margin: 20px; color-scheme: light dark; }
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-stats { margin-left: auto; color: var(--muted-foreground); }
+.wrap { max-width: 960px; margin: 0 auto; padding: 20px; }
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.toolbar .input { width: 280px; }
+.table-card { margin-bottom: 16px; }
 table { border-collapse: collapse; width: 100%; }
-th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(128,128,128,.25); }
-th { cursor: pointer; }
-input { padding: 6px 10px; margin-bottom: 12px; width: 240px; }
-a { color: inherit; }
+th {
+  font-size: var(--text-label); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted-foreground); font-weight: 400;
+  text-align: left; padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+td {
+  text-align: left; padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+}
+td.cell-flag { text-align: center; width: 48px; }
+td.cell-size { text-align: right; color: var(--muted-foreground); white-space: nowrap; }
+tbody tr { transition: background-color 0.15s ease; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr:last-child td { border-bottom: none; }
+td a { color: var(--foreground); text-decoration: none; }
+td a:hover { color: var(--primary); }
+td.empty { color: var(--muted-foreground); text-align: center; padding: 24px; }
+.log-card .log { height: 180px; }
 </style>
 </head>
 <body>
-<h1>WOG Dump catalog</h1>
-<input id="filter" placeholder="filter weapons" oninput="render()">
-<table id="table">
-<thead><tr><th>name</th><th>key</th><th>dl</th><th>dec</th><th>unp</th><th>scene</th><th>size</th></tr></thead>
-<tbody></tbody>
-</table>
-<pre id="log" style="background:rgba(128,128,128,.1);padding:10px;white-space:pre-wrap;height:180px;overflow:auto"></pre>
+<header class="topbar">
+  <span class="dot dot-ok" title="serve online"></span>
+  <h1 class="heading">WOG Dump catalog</h1>
+  <span class="topbar-stats" id="stats">loading&hellip;</span>
+</header>
+<main class="wrap">
+  <div class="toolbar">
+    <input id="filter" class="input" placeholder="filter weapons" autocomplete="off" spellcheck="false" oninput="render()">
+    <span class="kbd">/</span>
+  </div>
+  <div class="card table-card">
+    <table id="table">
+      <thead><tr><th>name</th><th>key</th><th>dl</th><th>dec</th><th>unp</th><th>scene</th><th style="text-align:right">size</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <section class="card log-card">
+    <div class="card-head log-head"><span class="label">stage log</span></div>
+    <pre id="log" class="log"></pre>
+  </section>
+</main>
 <script type="module" src="static/app.js"></script>
 </body>
 </html>

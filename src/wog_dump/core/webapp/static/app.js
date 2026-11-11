@@ -4,11 +4,22 @@
 const TOKEN = location.pathname.split("/")[2];
 const BASE = `/t/${TOKEN}`;
 let weapons = [];
+let schema = "";
+
+/* Flag columns in table order, with their human titles for tooltips */
+const FLAGS = [
+  ["has_key", "key"],
+  ["downloaded", "downloaded"],
+  ["decrypted", "decrypted"],
+  ["unpacked", "unpacked"],
+  ["scene", "scene"],
+];
 
 async function load() {
   const response = await fetch(`${BASE}/api/catalog`);
   const payload = await response.json();
   weapons = payload.weapons;
+  schema = payload.schema;
   render();
 }
 
@@ -16,17 +27,29 @@ function render() {
   const needle = document.getElementById("filter").value.toLowerCase();
   const body = document.querySelector("#table tbody");
   body.innerHTML = "";
-  weapons
-    .filter((w) => w.name.toLowerCase().includes(needle))
-    .forEach((w) => {
-      const row = document.createElement("tr");
-      const flags = [w.has_key, w.downloaded, w.decrypted, w.unpacked, w.scene];
-      row.innerHTML =
-        `<td><a href="${BASE}/weapon/${w.name}">${w.name}</a></td>` +
-        flags.map((f) => `<td>${f ? "✓" : "—"}</td>`).join("") +
-        `<td>${(w.size_bytes / 1e6).toFixed(1)} MB</td>`;
-      body.appendChild(row);
-    });
+  const visible = weapons.filter((w) =>
+    w.name.toLowerCase().includes(needle)
+  );
+  visible.forEach((w) => {
+    const row = document.createElement("tr");
+    row.innerHTML =
+      `<td><a href="${BASE}/weapon/${w.name}">${w.name}</a></td>` +
+      FLAGS.map(
+        ([field, title]) =>
+          `<td class="cell-flag"><span class="dot ${w[field] ? "dot-ok" : "dot-off"}" ` +
+          `title="${title}: ${w[field] ? "done" : "pending"}"></span></td>`
+      ).join("") +
+      `<td class="cell-size">${(w.size_bytes / 1e6).toFixed(1)} MB</td>`;
+    body.appendChild(row);
+  });
+  if (!visible.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td class="empty" colspan="${1 + FLAGS.length + 1}">no weapons match</td>`;
+    body.appendChild(row);
+  }
+  const stats = document.getElementById("stats");
+  stats.textContent =
+    `${visible.length}/${weapons.length} weapons` + (schema ? ` · ${schema}` : "");
 }
 
 function runStage(stage, weapon, state) {
@@ -61,6 +84,15 @@ function logLine(text) {
   log.textContent += text + "\n";
   log.scrollTop = log.scrollHeight;
 }
+
+/* "/" focuses the filter, terminal style */
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.target === document.getElementById("filter")) {
+    return;
+  }
+  event.preventDefault();
+  document.getElementById("filter").focus();
+});
 
 load();
 })();

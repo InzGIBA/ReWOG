@@ -232,6 +232,7 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
             linked=True,
             glb_url=f"{base}/data/scenes/{name}/{name}.glb",
             vendor_base=f"{base}/vendor",
+            font_url_base=f"{base}/static",
         )
         return HTMLResponse(html)
 

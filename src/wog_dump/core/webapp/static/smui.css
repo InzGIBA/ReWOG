@@ -1,0 +1,281 @@
+/* smui — port of the InzGIBA/smui theme (dark terminal aesthetic).
+ *
+ * Nord-inspired palette, Source Code Pro everywhere, zero border
+ * radius, uppercase controls, 5px status dots. One stylesheet for the
+ * catalog page and the weapon page; the offline viewer carries its own
+ * trimmed copy of these tokens.
+ */
+
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("fonts/source-code-pro.woff2") format("woff2-variations");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --font-mono: "Source Code Pro", ui-monospace, "JetBrains Mono",
+    "Cascadia Code", Consolas, monospace;
+
+  --text-label: 11px;
+  --text-ui: 13px;
+  --text-heading: 22px;
+
+  /* Polar Night surfaces, dark mode defaults */
+  --background: #1a1e24;
+  --foreground: #d8dee9;
+  --card: #21262e;
+  --surface-2: #282e37;
+  --surface-3: #2f3640;
+  --muted: #282e37;
+  --muted-foreground: #8e99a8;
+
+  /* Frost accent */
+  --primary: #88c0d0;
+  --primary-foreground: #1a1e24;
+  --ring: #88c0d0;
+  --accent-bg: #242c30;
+
+  --destructive: #d4737c;
+  --border: #3b4252;
+  --border-hover: #4c566a;
+
+  /* Aurora statuses */
+  --green: #a3be8c;
+  --yellow: #ebcb8b;
+  --orange: #d08770;
+  --red: #d4737c;
+  --purple: #b48ead;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #eceff4;
+    --foreground: #2e3440;
+    --card: #e5e9f0;
+    --surface-2: #d8dee9;
+    --surface-3: #c9cfda;
+    --muted: #d8dee9;
+    --muted-foreground: #4c566a;
+
+    --primary: #4c6d94;
+    --primary-foreground: #eceff4;
+    --ring: #4c6d94;
+    --accent-bg: #e0e5ee;
+
+    --destructive: #be3744;
+    --border: #c9cfda;
+    --border-hover: #aeb6c5;
+
+    --green: #558040;
+    --yellow: #a57e1d;
+    --orange: #be5637;
+    --red: #be3744;
+    --purple: #8d5283;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui);
+  line-height: 1.31; /* keeps block glyphs from clipping */
+  background: var(--background);
+  color: var(--foreground);
+}
+
+::selection {
+  background: hsl(193 44% 67% / 0.2);
+  color: var(--primary);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+* {
+  scrollbar-color: var(--border) var(--background);
+  scrollbar-width: thin;
+}
+
+/* -- type ---------------------------------------------------------------- */
+
+.label {
+  font-size: var(--text-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.heading {
+  font-size: var(--text-heading);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* -- surfaces ------------------------------------------------------------ */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease;
+}
+
+.card:hover {
+  border-color: var(--border-hover);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* -- controls ------------------------------------------------------------ */
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--foreground);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.btn-primary:hover {
+  background: var(--accent-bg);
+  color: var(--primary);
+}
+
+.btn-outline {
+  border-color: var(--border);
+}
+
+.btn-outline:hover {
+  border-color: var(--border-hover);
+}
+
+.btn-ghost:hover {
+  color: var(--primary);
+}
+
+.btn:focus-visible,
+.input:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+}
+
+.input,
+.select {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 10px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  color: var(--primary);
+}
+
+.input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.input:hover,
+.select:hover {
+  border-color: var(--border-hover);
+}
+
+.select {
+  cursor: pointer;
+}
+
+/* -- statuses ------------------------------------------------------------ */
+
+.dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px; /* the one rounded shape in the theme */
+  vertical-align: middle;
+}
+
+.dot-ok {
+  background: var(--green);
+}
+
+.dot-off {
+  background: var(--border-hover);
+}
+
+.dot-warn {
+  background: var(--orange);
+}
+
+.dot-err {
+  background: var(--red);
+}
+
+.badge {
+  font-size: var(--text-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.kbd {
+  font-size: var(--text-label);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  background: var(--background);
+}
+
+/* -- log stream ----------------------------------------------------------- */
+
+.log {
+  margin: 0;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted-foreground);
+  background: var(--background);
+  overflow: auto;
+}
+
+.log-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}

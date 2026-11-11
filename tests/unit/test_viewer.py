@@ -91,6 +91,22 @@ class TestRenderViewer:
         external = re.findall(r'(?:src|href)="https?://', html)
         assert external == []
 
+    def test_font_face_only_when_served(self, tmp_path: Path) -> None:
+        """Offline files cannot reach the web static mount.
+
+        The @font-face for the theme font is injected only when the
+        caller provides font_url_base (the web UI does); embedded and
+        CLI-linked viewers fall back to the system monospace stack.
+        """
+        glb = tiny_glb(tmp_path)
+        offline = render_viewer_html(glb, manifest())
+        assert "@font-face" not in offline
+        linked = render_viewer_html(
+            glb, manifest(), linked=True, font_url_base="/t/x/static"
+        )
+        assert "@font-face" in linked
+        assert "/t/x/static/fonts/source-code-pro.woff2" in linked
+
 
 class TestCopyViewerAssets:
     def test_vendor_files_landed(self, tmp_path: Path) -> None:

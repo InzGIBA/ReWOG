@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-11-11
+
+### Changed
+
+- **The serve web UI uses the smui theme.** A port of
+  [InzGIBA/smui](https://github.com/InzGIBA/smui): Nord-inspired
+  palette in dark and light modes, Source Code Pro everywhere, zero
+  border radius, uppercase controls and 5px status dots. The catalog
+  page gains a header with weapon counts, aurora status dots for the
+  stage flags, a "no weapons match" empty state and a `/` shortcut
+  for the filter field. The weapon page panel becomes a bordered card
+  with a primary build button and outline stage buttons. The full
+  viewer shares the palette. The `/view` route loads the vendored
+  font through `render_viewer_html(..., font_url_base=...)`, while
+  offline viewer files fall back to the system monospace stack. The
+  theme ships as one shared stylesheet (`webapp/static/smui.css`)
+  with the Source Code Pro variable font vendored under
+  `webapp/static/fonts/` (90 KB woff2, OFL license).
+
 ## [3.0.1] - 2026-11-11
 
 ### Fixed

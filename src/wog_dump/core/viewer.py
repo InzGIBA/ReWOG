@@ -66,6 +66,23 @@ def _import_map(linked: bool, vendor_base: str = "./vendor") -> str:
     return json.dumps({"imports": mapping}, indent=2)
 
 
+def _font_face(font_url_base: str | None) -> str:
+    """``@font-face`` for the theme font when it is actually reachable.
+
+    The web UI serves the vendored Source Code Pro from its static
+    mount; offline viewers (embedded file or CLI-linked export) get an
+    empty string and fall back to the system monospace stack.
+    """
+    if font_url_base is None:
+        return ""
+    return (
+        '@font-face { font-family: "Source Code Pro"; '
+        f'src: url("{font_url_base}/fonts/source-code-pro.woff2") '
+        'format("woff2-variations"); font-weight: 200 900; '
+        "font-style: normal; font-display: swap; }"
+    )
+
+
 def render_viewer_html(
     glb: bytes,
     manifest: dict,
@@ -73,6 +90,7 @@ def render_viewer_html(
     linked: bool = False,
     glb_url: str | None = None,
     vendor_base: str = "./vendor",
+    font_url_base: str | None = None,
 ) -> str:
     """Build the viewer HTML for one exported scene.
 
@@ -80,7 +98,9 @@ def render_viewer_html(
     single file opens offline. ``linked=True`` references the GLB and
     ``./vendor/`` as relative paths (see ``copy_viewer_assets``); the
     web UI passes ``glb_url`` and ``vendor_base`` to point at its own
-    token-guarded routes instead.
+    token-guarded routes instead. ``font_url_base`` is web-UI-only too:
+    it wires the ``@font-face`` for the theme font, which offline files
+    cannot reach, so they fall back to the system monospace stack.
     """
     logger = get_logger()
     if glb_url is None:
@@ -114,6 +134,7 @@ def render_viewer_html(
         IMPORT_MAP=_import_map(linked, vendor_base),
         CONFIG_JSON=config,
         VIEWER_JS=viewer_js,
+        FONT_FACE=_font_face(font_url_base),
     )
     size_mb = len(html.encode("utf-8")) / 1e6
     glb_mb = max(len(glb) / 1e6, 0.001)

@@ -20,7 +20,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1d23);
+scene.background = new THREE.Color(0x1a1e24); /* smui surface-0 */
 const camera = new THREE.PerspectiveCamera(
   50,
   window.innerWidth / window.innerHeight,

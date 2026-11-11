@@ -195,6 +195,25 @@ class TestPagesAndData:
         assert response.status_code == 200
         assert "WOG Dump catalog" in response.text
 
+    def test_theme_assets_resolve(self, client: Any) -> None:
+        """The smui theme stylesheet and its vendored font are served."""
+        tc, token = client
+        assert tc.get(f"/t/{token}/static/smui.css").status_code == 200
+        assert (
+            tc.get(f"/t/{token}/static/fonts/source-code-pro.woff2").status_code == 200
+        )
+
+    def test_pages_link_theme(self, client: Any) -> None:
+        tc, token = client
+        assert 'href="static/smui.css"' in tc.get(f"/t/{token}/").text
+        assert 'href="../static/smui.css"' in tc.get(f"/t/{token}/weapon/ak47").text
+
+    def test_view_page_loads_theme_font(self, client: Any) -> None:
+        tc, token = client
+        html = tc.get(f"/t/{token}/view/ak47").text
+        assert "@font-face" in html
+        assert f"/t/{token}/static/fonts/source-code-pro.woff2" in html
+
     def test_scene_file_served(self, client: Any) -> None:
         tc, token = client
         response = tc.get(f"/t/{token}/data/scenes/ak47/ak47.glb")

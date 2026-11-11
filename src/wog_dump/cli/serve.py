@@ -2,12 +2,37 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import webbrowser
 
 import click
 
 from .errors import error_handler, print_banner_if_standalone
+
+
+def open_browser_quietly(url: str) -> bool:
+    """Open the URL without letting desktop helpers print into the serve log.
+
+    On headless Linux (WSL, servers) ``webbrowser`` falls back to
+    ``gio open``/``xdg-open``; those desktop helpers fail with a printed
+    "Operation not supported" because their subprocesses inherit our
+    stdio. Park both file descriptors at devnull for the duration of
+    the call, then report honestly whether anything launched.
+    """
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    try:
+        with open(os.devnull, "w") as devnull:
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
+            return bool(webbrowser.open(url))
+    except Exception:
+        return False
+    finally:
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(saved_out)
+        os.close(saved_err)
 
 
 @click.command("serve")
@@ -52,6 +77,9 @@ def serve(ctx: click.Context, host: str, port: int, no_browser: bool) -> None:
                 "warning",
             )
         if not no_browser:
-            webbrowser.open(entry)
+            if not open_browser_quietly(entry):
+                logger.print_status(
+                    "No browser found - open the URL above manually", "info"
+                )
 
         uvicorn.run(app, host=host, port=port, log_level="warning")

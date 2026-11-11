@@ -291,6 +291,24 @@ class TestServeCommand:
         assert call_args.kwargs["host"] == "127.0.0.1"
 
 
+class TestOpenBrowserQuietly:
+    def test_returns_bool_and_keeps_stdio_intact(self, capsys: Any) -> None:
+        from wog_dump.cli.serve import open_browser_quietly
+
+        result = open_browser_quietly("http://127.0.0.1:1/nowhere")
+        assert isinstance(result, bool)
+        # The fd juggling must not leak: a later print still lands on stdout
+        print("still-here")
+        assert "still-here" in capsys.readouterr().out
+
+    def test_no_desktop_helper_noise_on_stdout(self, capsys: Any) -> None:
+        from wog_dump.cli.serve import open_browser_quietly
+
+        open_browser_quietly("http://127.0.0.1:1/nowhere")
+        captured = capsys.readouterr()
+        assert "Operation not supported" not in captured.out + captured.err
+
+
 class TestInfoCommand:
     def test_info_tables_render(self, isolated_base: Path) -> None:
         runner = CliRunner()

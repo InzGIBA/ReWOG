@@ -18,7 +18,7 @@ from .spider import SYSTEM_ASSETS, ICON_SUFFIX, category_leaves, previews_dir
 
 __all__ = ["CATALOG_SCHEMA", "WeaponEntry", "build_catalog"]
 
-CATALOG_SCHEMA = "wog-dump.catalog/2"
+CATALOG_SCHEMA = "wog-dump.catalog/3"
 
 # Scene directories for disassembly states ("<weapon>-<state>") are
 # variants, not catalog rows
@@ -47,6 +47,9 @@ class WeaponEntry:
     num_parts: int | None = None
     since: int | None = None
     icon: bool = False
+    # Server-side test marker: the game hides the model, the asset
+    # bundle is not deployed yet, so downloads will 404
+    test: bool = False
 
     @property
     def stages_passed(self) -> int:
@@ -102,6 +105,7 @@ def build_catalog(config: WOGConfig | None = None) -> list[WeaponEntry]:
                 num_parts=record.get("num_parts"),
                 since=record.get("since"),
                 icon=name in icons,
+                test="test" in (record.get("flags") or "").split(","),
             )
         )
     return entries

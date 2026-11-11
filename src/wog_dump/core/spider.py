@@ -69,6 +69,11 @@ _META_FIELDS = (
     "wikipedia",
     "imfdb",
     "registered_order",
+    # Server-side markers: "flags = test" marks models the game itself
+    # hides (the asset bundle is not deployed yet), released is the
+    # store announcement date as a raw "YYYY M D" string
+    "flags",
+    "released",
 )
 
 # Preview files written next to the runtime data; in the bundle the

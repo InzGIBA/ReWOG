@@ -11,7 +11,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-CATALOG_SCHEMA = "wog-dump.catalog/2"
+CATALOG_SCHEMA = "wog-dump.catalog/3"
 
 
 class WogClientError(Exception):

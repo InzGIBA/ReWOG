@@ -31,7 +31,7 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts" / "build_addon.py"
 
 def catalog_payload() -> dict[str, Any]:
     return {
-        "schema": "wog-dump.catalog/2",
+        "schema": "wog-dump.catalog/3",
         "count": 2,
         "weapons": [
             {"name": "ak47", "scene": True},

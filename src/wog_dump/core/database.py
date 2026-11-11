@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS weapon_meta (
     wikipedia        TEXT,
     imfdb            TEXT,
     registered_order INTEGER,
+    flags            TEXT,
+    released         TEXT,
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS keys (
@@ -114,7 +116,26 @@ class WOGDatabase:
         self.db_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self._lock, self._connect() as db:
             db.executescript(_SCHEMA)
+            self._migrate_schema(db)
         self._restrict_permissions()
+
+    def _migrate_schema(self, db: sqlite3.Connection) -> None:
+        """ALTER TABLE for columns added after a database was created.
+
+        ``CREATE TABLE IF NOT EXISTS`` does not touch existing tables,
+        so later weapon_meta columns must land one by one. The table is
+        a rebuildable cache, yet rewriting it would drop data until the
+        next spider pass, so a plain additive migration is cheaper.
+        """
+        present = {
+            row[1] for row in db.execute("PRAGMA table_info(weapon_meta)")
+        }
+        for column, kind in (
+            ("flags", "TEXT"),
+            ("released", "TEXT"),
+        ):
+            if column not in present:
+                db.execute(f"ALTER TABLE weapon_meta ADD COLUMN {column} {kind}")
 
     def _restrict_permissions(self) -> None:
         try:
@@ -234,6 +255,8 @@ class WOGDatabase:
         "wikipedia",
         "imfdb",
         "registered_order",
+        "flags",
+        "released",
     )
 
     def save_weapon_meta(

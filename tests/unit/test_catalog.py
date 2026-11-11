@@ -128,7 +128,7 @@ class TestJsonSchema:
             [WeaponEntry(name="ak47", downloaded=True, size_bytes=123)]
         )
         assert payload["schema"] == CATALOG_SCHEMA
-        assert payload["schema"] == "wog-dump.catalog/2"
+        assert payload["schema"] == "wog-dump.catalog/3"
         assert payload["count"] == 1
         weapon = payload["weapons"][0]
         assert set(weapon) == {
@@ -145,6 +145,7 @@ class TestJsonSchema:
             "num_parts",
             "since",
             "icon",
+            "test",
         }
 
 
@@ -161,7 +162,7 @@ class TestCatalogCli:
         assert result.exit_code == 0, result.output
         # The banner precedes the JSON in standalone invocation output
         payload = json.loads(result.output[result.output.index("{") :])
-        assert payload["schema"] == "wog-dump.catalog/2"
+        assert payload["schema"] == "wog-dump.catalog/3"
         assert {w["name"] for w in payload["weapons"]} == {"ak47", "ak74n"}
         assert payload["weapons"][0]["size_bytes"] == 5000
 

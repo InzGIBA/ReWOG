@@ -31,6 +31,8 @@ since \t\t\t= 1949
 features \t\t= "96 parts, bayonet, 2 fire modes"
 num_parts\t\t= 96
 unknown_future_field = "whatever"
+released = 2026 5 20
+flags = test
 """
 
 PROSE_ASSET = """\
@@ -52,6 +54,11 @@ class TestParseWeaponMeta:
 
     def test_drops_unknown_fields(self) -> None:
         assert "unknown_future_field" not in parse_weapon_meta(AK47_RECORD)
+
+    def test_flags_and_released_stay_strings(self) -> None:
+        record = parse_weapon_meta(AK47_RECORD)
+        assert record["flags"] == "test"
+        assert record["released"] == "2026 5 20"
 
     def test_prose_asset_is_not_a_record(self) -> None:
         assert parse_weapon_meta(PROSE_ASSET) == {}
@@ -121,3 +128,32 @@ class TestExtraction:
         db = WOGDatabase(test_config)
         db.save_weapon_meta({"../evil": {"full_name": "evil"}})
         assert db.get_weapon_meta() == {}
+
+    def test_migrates_columns_into_existing_database(
+        self, test_config: WOGConfig
+    ) -> None:
+        """A 3.2-shaped database (weapon_meta without flags/released)
+        opens and gains the new columns without losing its rows."""
+        import sqlite3
+
+        legacy_columns = ", ".join(
+            f"{name} TEXT"
+            for name in WOGDatabase._META_COLUMNS
+            if name not in ("flags", "released")
+        )
+        db_path = test_config.db_path
+        with sqlite3.connect(db_path) as raw:
+            raw.execute(
+                "CREATE TABLE weapon_meta ("
+                " name TEXT PRIMARY KEY,"
+                f" {legacy_columns},"
+                " updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
+            )
+            raw.execute(
+                "INSERT INTO weapon_meta (name, full_name) VALUES ('ak47', 'AK-47')"
+            )
+        reopened = WOGDatabase(test_config)
+        reopened.save_weapon_meta({"ak47": {"full_name": "AK-47", "flags": "test"}})
+        record = reopened.get_weapon_meta()["ak47"]
+        assert record["full_name"] == "AK-47"
+        assert record["flags"] == "test"

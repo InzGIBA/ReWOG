@@ -108,6 +108,7 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
                     "num_parts": e.num_parts,
                     "since": e.since,
                     "icon": e.icon,
+                    "test": e.test,
                 }
                 for e in entries
             ],
@@ -163,6 +164,7 @@ def create_app(config: WOGConfig | None = None) -> FastAPI:
             "num_parts": entry.num_parts,
             "since": entry.since,
             "size_bytes": entry.size_bytes,
+            "test": entry.test,
             "manifest": (
                 __import__("json").loads(manifest.read_text(encoding="utf-8"))
                 if manifest.exists()

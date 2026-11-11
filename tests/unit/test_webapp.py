@@ -52,7 +52,7 @@ class TestCatalogEndpoint:
         tc, token = client
         response = tc.get(f"/t/{token}/api/catalog")
         payload = response.json()
-        assert payload["schema"] == "wog-dump.catalog/2"
+        assert payload["schema"] == "wog-dump.catalog/3"
         assert payload["weapons"][0]["name"] == "ak47"
         assert payload["weapons"][0]["downloaded"] is True
         assert payload["weapons"][0]["scene"] is True

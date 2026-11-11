@@ -7,6 +7,7 @@ import sys
 import click
 
 from ..core.config import WOGConfig
+from ..core.database import WOGDatabase
 from ..core.download import DownloadManager
 from ..core.keys import KeyManager
 from ..core.paths import is_safe_weapon_name
@@ -164,6 +165,26 @@ def download_assets(
 
         weapon_list = _load_weapon_list(config, weapons)
 
+        # Server-side test models carry "flags = test" in the spider
+        # metadata: the game hides them and their bundles are not
+        # deployed, so a download attempt would just 404. Warn and drop
+        # them before the batch instead
+        try:
+            meta = WOGDatabase(config).get_weapon_meta()
+            flagged = [
+                name
+                for name in weapon_list
+                if "test" in (meta.get(name, {}).get("flags") or "").split(",")
+            ]
+        except Exception:
+            flagged = []
+        if flagged:
+            for name in flagged:
+                logger.warning(
+                    f"{name}: flagged test on the server, asset not public yet, skipped"
+                )
+            weapon_list = [name for name in weapon_list if name not in flagged]
+
         # Update keys if requested
         if update_keys:
             if _update_keys(config, weapon_list) is None and config.strict_mode:
@@ -212,10 +233,22 @@ def download_assets(
                             detail += f", {missing} not on server"
                         logger.print_status(detail, "success")
                     elif not successful and not failed and not nested:
-                        logger.print_status(
-                            t("All {count} assets up to date", count=len(weapon_list)),
-                            "success",
-                        )
+                        # skipped = not_found + test-flagged drops from above
+                        skipped = missing + (len(flagged) if flagged else 0)
+                        if skipped:
+                            detail = (
+                                f"{len(weapon_list)} up to date, "
+                                f"{skipped} skipped (not on server)"
+                            )
+                            logger.print_status(detail, "info")
+                        else:
+                            logger.print_status(
+                                t(
+                                    "All {count} assets up to date",
+                                    count=len(weapon_list),
+                                ),
+                                "success",
+                            )
 
                     if failed:
                         logger.print_status(

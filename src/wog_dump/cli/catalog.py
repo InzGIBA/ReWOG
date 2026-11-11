@@ -69,6 +69,7 @@ def _entries_to_json(entries: list[WeaponEntry]) -> dict:
                 "num_parts": e.num_parts,
                 "since": e.since,
                 "icon": e.icon,
+                "test": e.test,
             }
             for e in entries
         ],

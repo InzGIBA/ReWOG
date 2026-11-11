@@ -122,6 +122,16 @@ a { text-decoration: none; color: inherit; }
   background: rgba(10, 12, 16, 0.72);
 }
 .weapon-card .dot { width: 5px; height: 5px; }
+/* Server-side test marker: bundle not deployed, downloads will 404 */
+.weapon-card .testmark,
+.chip.testmark {
+  position: absolute; top: 6px; left: 6px;
+  font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: #d08770; background: rgba(10, 12, 16, 0.72);
+  padding: 3px 6px;
+}
+.chip.testmark { position: static; }
+.weapon-card.is-test .title { color: var(--muted-foreground); }
 .weapon-card .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
 .weapon-card .title {
   font-size: var(--text-ui);
@@ -285,10 +295,11 @@ a { text-decoration: none; color: inherit; }
     </div>
     <div class="grid">
       <template x-for="w in visible" :key="w.name">
-        <a class="weapon-card" :href="`#/weapon/${w.name}`">
+        <a class="weapon-card" :class="w.test ? 'is-test' : ''" :href="`#/weapon/${w.name}`">
           <div class="pic">
             <img x-show="w.icon" loading="lazy" :src="`${base}/previews/${w.name}.png`" alt="">
             <span class="placeholder" x-show="!w.icon">?</span>
+            <span class="testmark" x-show="w.test" title="flagged test on the server: asset not public yet">test</span>
             <span class="dots">
               <template x-for="f in FLAGS" :key="f[0]">
                 <span class="dot" :class="w[f[0]] ? 'dot-ok' : 'dot-off'"
@@ -318,6 +329,8 @@ a { text-decoration: none; color: inherit; }
             <template x-for="c in weapon.categories" :key="c">
               <a class="chip" href="#/" @click="category = c" x-text="c"></a>
             </template>
+            <span class="chip testmark" x-show="weapon.test"
+                  title="flagged test on the server: the asset bundle is not deployed, downloads return 404">test</span>
           </div>
         </div>
 

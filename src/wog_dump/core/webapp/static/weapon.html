@@ -2,23 +2,33 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<link rel="icon" href="data:,">
 <title>WOG Dump weapon</title>
+<link rel="icon" href="data:,">
 <style>
 body { font-family: system-ui, sans-serif; margin: 0; color-scheme: light dark; }
 #viewport { position: fixed; inset: 0; }
 #panel { position: fixed; top: 12px; left: 12px; z-index: 2; padding: 12px;
          background: rgba(128,128,128,.15); backdrop-filter: blur(6px); border-radius: 8px; }
 button { margin: 2px; padding: 5px 10px; cursor: pointer; }
+select { margin: 2px; padding: 4px; }
+#viewerlink a { color: inherit; }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three.module.min.js",
+    "three/addons/": "../vendor/addons/"
+  }
+}
+</script>
 </head>
 <body>
 <canvas id="viewport"></canvas>
 <div id="panel">
-  <div id="meta">loading…</div>
+  <div id="meta">loading&hellip;</div>
   <div>
     <button onclick="runStage('build-scene', WEAPON)">build scene</button>
-    <select id="state" onchange="void 0">
+    <select id="state">
       <option value="">assembled</option>
       <option value="field-strip">field-strip</option>
       <option value="exploded">exploded</option>
@@ -31,8 +41,6 @@ button { margin: 2px; padding: 5px 10px; cursor: pointer; }
   <div id="viewerlink"></div>
   <pre id="log" style="max-height:220px;overflow:auto;white-space:pre-wrap"></pre>
 </div>
-<script src="../static/app.js"></script>
-<script type="importmap" id="import-map"></script>
-<script src="../static/weapon-view.js"></script>
+<script type="module" src="../static/weapon-view.js"></script>
 </body>
 </html>

@@ -1,3 +1,5 @@
+(function () {
+'use strict';
 /* Catalog page: filter, stage table, stage log via SSE. */
 const TOKEN = location.pathname.split("/")[2];
 const BASE = `/t/${TOKEN}`;
@@ -61,3 +63,4 @@ function logLine(text) {
 }
 
 load();
+})();

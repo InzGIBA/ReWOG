@@ -150,12 +150,31 @@ class TestRunWhitelist:
 
 
 class TestPagesAndData:
+    def test_weapon_page_isolated_from_index_scripts(self, client: Any) -> None:
+        """The weapon page loads only its own module.
+
+        app.js is index-only: its render pass touches elements the
+        weapon page lacks. The import map must point at the vendored
+        runtime.
+        """
+        tc, token = client
+        html = tc.get(f"/t/{token}/weapon/ak47").text
+        assert "app.js" not in html
+        assert 'src="../static/weapon-view.js"' in html
+        assert '"three": "../vendor/three.module.min.js"' in html
+
+    def test_index_loads_catalog_module(self, client: Any) -> None:
+        tc, token = client
+        html = tc.get(f"/t/{token}/").text
+        assert '<script type="module" src="static/app.js">' in html
+
     def test_page_scripts_resolve(self, client: Any) -> None:
-        """Every script src the pages emit must return 200.
+        """Every src attribute on both pages must return 200.
 
         Relative srcs resolve against the page URL exactly like a
-        browser does (regression: app.js was referenced outside the
-        static mount, then broke again one level deeper on /weapon/).
+        browser does. Two regressions live here: app.js was referenced
+        outside the static mount, and the weapon page broke again one
+        directory deeper.
         """
         import re
         from urllib.parse import urljoin
@@ -163,7 +182,7 @@ class TestPagesAndData:
         tc, token = client
         for page_path in (f"/t/{token}/", f"/t/{token}/weapon/ak47"):
             html = tc.get(page_path).text
-            for src in re.findall(r'(?:src|href)="([^"]+)"', html):
+            for src in re.findall(r'src="([^"]+)"', html):
                 if src.startswith(("http", "//", "data:")):
                     continue
                 url = urljoin(page_path, src)

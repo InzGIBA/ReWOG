@@ -10,6 +10,7 @@ from ..core.config import WOGConfig
 from ..core.download import DownloadManager
 from ..core.keys import KeyManager
 from ..core.paths import is_safe_weapon_name
+from ..core.spider import extract_spider_content
 from ..core.unpack import WeaponListProcessor
 from ..utils.i18n import t
 from ..utils.logging import get_logger
@@ -84,9 +85,21 @@ def download_weapons(ctx: click.Context, force: bool, validate: bool) -> list[st
                 processor = WeaponListProcessor(config)
                 weapon_list = processor.process_weapon_list_asset(asset_path)
 
+                # The same bundle carries the store cards: extract the
+                # per-weapon icons, studio renders and metadata records
+                spider_result = extract_spider_content(
+                    config, asset_path, weapon_list, force=force
+                )
+
                 if not nested:
                     logger.print_status(
                         f"Weapon list: {len(weapon_list)} weapons", "success"
+                    )
+                    logger.print_status(
+                        f"Cards: {spider_result.icons} icons, "
+                        f"{spider_result.cards} renders, "
+                        f"{spider_result.meta_count} metadata records",
+                        "success",
                     )
 
     return weapon_list

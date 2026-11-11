@@ -31,7 +31,7 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts" / "build_addon.py"
 
 def catalog_payload() -> dict[str, Any]:
     return {
-        "schema": "wog-dump.catalog/1",
+        "schema": "wog-dump.catalog/2",
         "count": 2,
         "weapons": [
             {"name": "ak47", "scene": True},
@@ -58,7 +58,7 @@ class TestParseCatalog:
 
     def test_wrong_schema_tells_user_to_update(self) -> None:
         payload = catalog_payload()
-        payload["schema"] = "wog-dump.catalog/2"
+        payload["schema"] = "wog-dump.catalog/99"
         with pytest.raises(WogClientError, match="update the wog-dump toolkit"):
             parse_catalog(json.dumps(payload))
 

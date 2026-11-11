@@ -161,6 +161,7 @@ runtime/decrypted/
 runtime/encrypted/
 runtime/unpacked/
 runtime/scenes/
+runtime/previews/
 runtime/*.json
 runtime/*.txt
 runtime/*.bak

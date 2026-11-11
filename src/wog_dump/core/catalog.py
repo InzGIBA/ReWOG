@@ -14,10 +14,11 @@ from pathlib import Path
 
 from .config import WOGConfig, get_config
 from .database import WOGDatabase
+from .spider import SYSTEM_ASSETS, ICON_SUFFIX, category_leaves, previews_dir
 
 __all__ = ["CATALOG_SCHEMA", "WeaponEntry", "build_catalog"]
 
-CATALOG_SCHEMA = "wog-dump.catalog/1"
+CATALOG_SCHEMA = "wog-dump.catalog/2"
 
 # Scene directories for disassembly states ("<weapon>-<state>") are
 # variants, not catalog rows
@@ -39,6 +40,13 @@ class WeaponEntry:
     scene: bool = False
     previews: bool = False
     size_bytes: int = 0
+    # Spider bundle metadata (all optional: present once the bundle was
+    # downloaded and parsed)
+    display_name: str | None = None
+    categories: tuple[str, ...] = ()
+    num_parts: int | None = None
+    since: int | None = None
+    icon: bool = False
 
     @property
     def stages_passed(self) -> int:
@@ -54,6 +62,7 @@ def build_catalog(config: WOGConfig | None = None) -> list[WeaponEntry]:
     unpacked = _list_dirs(config.base_dir / "runtime" / "unpacked")
     scenes = _list_dirs(config.base_dir / "runtime" / "scenes")
     previews = _list_dirs(config.base_dir / "runtime" / "scenes", suffix="previews")
+    icons = _list_files(previews_dir(config), ICON_SUFFIX)
 
     names: set[str] = set(encrypted) | set(decrypted)
     names.update(unpacked)
@@ -62,16 +71,22 @@ def build_catalog(config: WOGConfig | None = None) -> list[WeaponEntry]:
         for name in scenes
         if not any(name.endswith(suffix) for suffix in STATE_DIR_SUFFIXES)
     )
+    meta: dict[str, dict] = {}
     try:
         db = WOGDatabase(config)
         names.update(db.get_weapons())
         keys = set(db.get_keys())
+        meta = db.get_weapon_meta()
     except Exception:
         keys = set()
+    # System assets (the spider catalog bundle) are infrastructure, not
+    # catalog rows; keep them out of every listing
+    names -= SYSTEM_ASSETS
 
     entries = []
     for name in sorted(names):
         state_dir = config.base_dir / "runtime" / "scenes" / name
+        record = meta.get(name, {})
         entries.append(
             WeaponEntry(
                 name=name,
@@ -82,6 +97,11 @@ def build_catalog(config: WOGConfig | None = None) -> list[WeaponEntry]:
                 scene=(state_dir / f"{name}.glb").exists(),
                 previews=name in previews,
                 size_bytes=encrypted.get(name, 0) + decrypted.get(name, 0),
+                display_name=record.get("full_name"),
+                categories=tuple(category_leaves(record.get("category"))),
+                num_parts=record.get("num_parts"),
+                since=record.get("since"),
+                icon=name in icons,
             )
         )
     return entries

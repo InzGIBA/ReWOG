@@ -38,6 +38,26 @@ CREATE TABLE IF NOT EXISTS weapons (
     name     TEXT PRIMARY KEY,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS weapon_meta (
+    name             TEXT PRIMARY KEY,
+    full_name        TEXT,
+    full_name_ru     TEXT,
+    short_name       TEXT,
+    short_name_ru    TEXT,
+    category         TEXT,
+    num_parts        INTEGER,
+    num_acts         INTEGER,
+    since            INTEGER,
+    features         TEXT,
+    features_ru      TEXT,
+    brief_info       TEXT,
+    brief_info_ru    TEXT,
+    youtube          TEXT,
+    wikipedia        TEXT,
+    imfdb            TEXT,
+    registered_order INTEGER,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS keys (
     model      TEXT PRIMARY KEY,
     sync_key   TEXT NOT NULL,
@@ -194,6 +214,76 @@ class WOGDatabase:
                     [(name,) for name in new_names],
                 )
         return len(new_names)
+
+    # ---------------------------------------------------------- weapon meta
+
+    _META_COLUMNS = (
+        "full_name",
+        "full_name_ru",
+        "short_name",
+        "short_name_ru",
+        "category",
+        "num_parts",
+        "num_acts",
+        "since",
+        "features",
+        "features_ru",
+        "brief_info",
+        "brief_info_ru",
+        "youtube",
+        "wikipedia",
+        "imfdb",
+        "registered_order",
+    )
+
+    def save_weapon_meta(
+        self, records: dict[str, dict[str, Any]]
+    ) -> None:
+        """Upsert per-weapon metadata parsed from the spider bundle.
+
+        Unknown names are rejected like weapon names — the records end
+        up joined against catalog rows in the UI.
+        """
+        if not records:
+            return
+        safe = {name: rec for name, rec in records.items() if is_safe_weapon_name(name)}
+        if len(safe) != len(records):
+            self.logger.warning(
+                f"Rejected {len(records) - len(safe)} metadata record(s) "
+                "with unsafe names"
+            )
+        if not safe:
+            return
+        columns = self._META_COLUMNS
+        placeholders = ", ".join("?" for _ in columns)
+        updates = ", ".join(f"{column} = excluded.{column}" for column in columns)
+        with self._lock, self._connect() as db:
+            db.executemany(
+                "INSERT INTO weapon_meta (name, "
+                + ", ".join(columns)
+                + ") VALUES (?"
+                + ", ?" * len(columns)
+                + ") ON CONFLICT(name) DO UPDATE SET "
+                + updates
+                + ", updated_at = datetime('now')",
+                [
+                    (name, *(record.get(column) for column in columns))
+                    for name, record in safe.items()
+                ],
+            )
+        self.logger.info(f"Saved {len(safe)} weapon metadata records")
+
+    def get_weapon_meta(self) -> dict[str, dict[str, Any]]:
+        """All stored metadata records keyed by weapon name."""
+        columns = ", ".join(self._META_COLUMNS)
+        with self._lock, self._connect() as db:
+            rows = db.execute(
+                f"SELECT name, {columns} FROM weapon_meta"  # noqa: S608
+            ).fetchall()
+        return {
+            row[0]: dict(zip(self._META_COLUMNS, row[1:]))
+            for row in rows
+        }
 
     # ----------------------------------------------------------------- keys
 

@@ -65,7 +65,7 @@ def print_export(
             from ..core.printprep import prepare_print
         except ImportError:
             logger.error(
-                "The print pipeline needs the print extra: pip install wog-dump[print]"
+                "The print pipeline needs the print extra: pip install rewog[print]"
             )
             sys.exit(1)
 

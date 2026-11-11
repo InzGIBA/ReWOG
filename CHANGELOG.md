@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.0] - 2026-11-11
 
+The PyPI distribution is named rewog; the CLI stays wog-dump.
+
 A major release built around one idea: the toolkit now covers the whole
 life of an extracted weapon, from download to disassembly poses,
 viewers, print parts and video. Everything ships without breaking the
@@ -34,9 +36,9 @@ to 569 tests and a coverage gate now holds at 85 percent.
   writes a folder variant for big scenes.
 - **Export formats**: `--format stl,usd,usdz,fbx` converts a built
   scene. STL is self-contained with unit baking and a per-part mode.
-  USD/USDZ needs the new `wog-dump[usd]` extra. FBX goes through
+  USD/USDZ needs the new `rewog[usd]` extra. FBX goes through
   headless Blender (`WOG_BLENDER_PATH`).
-- **`wog-dump print-export`** (extra `wog-dump[print]`): repairs parts
+- **`wog-dump print-export`** (extra `rewog[print]`): repairs parts
   with trimesh, reports watertight status per part and writes
   millimeter-true STLs, single or merged.
 - **`wog-dump render`**: turntable previews through headless Blender
@@ -44,7 +46,7 @@ to 569 tests and a coverage gate now holds at 85 percent.
   animation clip. `--all` sweeps every built scene.
 - **`wog-dump catalog`**: per-weapon pipeline status with filters,
   sorting and a stable JSON schema (`wog-dump.catalog/1`).
-- **`wog-dump serve`** (extra `wog-dump[web]`): local web UI with the
+- **`wog-dump serve`** (extra `rewog[web]`): local web UI with the
   catalog, a 3D viewer per weapon and stage buttons streaming live
   logs. Token-guarded, bound to 127.0.0.1.
 - **`wog-dump info --protocol-probe`**: checks endpoint reachability,

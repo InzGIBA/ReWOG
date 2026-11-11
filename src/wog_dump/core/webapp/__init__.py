@@ -1,1 +1,1 @@
-"""Local web UI package (extra wog-dump[web])."""
+"""Local web UI package (extra rewog[web])."""

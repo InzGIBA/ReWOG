@@ -18,7 +18,7 @@ from .errors import error_handler, print_banner_if_standalone
 )
 @click.pass_context
 def serve(ctx: click.Context, host: str, port: int, no_browser: bool) -> None:
-    """Run the local web UI (pip install wog-dump[web]).
+    """Run the local web UI (pip install rewog[web]).
 
     Binds 127.0.0.1 by default and guards every route with a per-start
     token URL. Stages run as wog-dump subprocesses; their output
@@ -36,7 +36,7 @@ def serve(ctx: click.Context, host: str, port: int, no_browser: bool) -> None:
         try:
             import uvicorn
         except ImportError:
-            logger.error("The web UI needs the web extra: pip install wog-dump[web]")
+            logger.error("The web UI needs the web extra: pip install rewog[web]")
             sys.exit(1)
 
         from ..core.webapp.app import create_app

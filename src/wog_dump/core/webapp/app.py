@@ -4,7 +4,7 @@ One FastAPI app, all routes under a random per-start token path
 (``/t/<token>/...``), bound to 127.0.0.1 by default. Stages run as
 subprocesses of the real ``wog-dump`` CLI (same behavior as the
 terminal), streamed to the browser over SSE. Install with
-``pip install wog-dump[web]``.
+``pip install rewog[web]``.
 """
 
 from __future__ import annotations

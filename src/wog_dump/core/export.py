@@ -3,7 +3,7 @@
 The GLB file is always the source of truth: every exporter reads the
 scene the pipeline just wrote (``parse_glb``) and converts it. STL is
 self-contained, USD needs the ``usd-core`` extra (``pip install
-wog-dump[usd]``) and FBX goes through headless Blender (the ``fbx``
+rewog[usd]``) and FBX goes through headless Blender (the ``fbx``
 format has no pure-Python writer).
 
 Units: the GLB scene is in meters. STL is unit-blind and slicers
@@ -453,7 +453,7 @@ def _prim_name(name: str) -> str:
 class USDExporter:
     """USD export with hierarchy, meshes and preview materials.
 
-    Requires ``usd-core`` (``pip install wog-dump[usd]``). ``format``
+    Requires ``usd-core`` (``pip install rewog[usd]``). ``format``
     selects ``usd`` (layer file, textures written alongside) or
     ``usdz`` (self-contained AR package). Geometry stays in meters,
     declared through the stage's metersPerUnit.
@@ -470,7 +470,7 @@ class USDExporter:
         except ImportError as e:
             raise ExportError(
                 f"usd-core is required for {self.format} export: "
-                "pip install wog-dump[usd]"
+                "pip install rewog[usd]"
             ) from e
 
         weapon = glb_path.stem

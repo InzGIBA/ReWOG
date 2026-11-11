@@ -3,9 +3,9 @@
 ## Install
 
 ```bash
-pip install wog-dump
+pip install rewog
 # USD/USDZ export support:
-pip install "wog-dump[usd]"
+pip install "rewog[usd]"
 ```
 
 From source for development:

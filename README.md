@@ -75,17 +75,17 @@ WOG Dump automates the full path from the game's servers to usable 3D data: weap
 
 ### Install
 
-From [PyPI](https://pypi.org/project/wog-dump/):
+From [PyPI](https://pypi.org/project/rewog/):
 
 ```bash
-pip install wog-dump
+pip install rewog
 
 # USD/USDZ export support:
-pip install "wog-dump[usd]"
+pip install "rewog[usd]"
 # local web UI:
-pip install "wog-dump[web]"
+pip install "rewog[web]"
 # print preparation:
-pip install "wog-dump[print]"
+pip install "rewog[print]"
 ```
 
 From source (for development):
@@ -227,7 +227,7 @@ wog-dump cache --validate-assets # check downloads exist and are non-empty
 A local web UI over the same pipeline: catalog with statuses, a 3D viewer per weapon and stage buttons with live logs. Needs the web extra, binds 127.0.0.1 with a per-start token URL.
 
 ```bash
-pip install "wog-dump[web]"
+pip install "rewog[web]"
 wog-dump serve
 ```
 

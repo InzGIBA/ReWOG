@@ -6,7 +6,7 @@ import the GLB straight into the current blend file.
 
 ## Install
 
-1. Install the toolkit: `pip install wog-dump` (check `wog-dump --help`
+1. Install the toolkit: `pip install rewog` (check `wog-dump --help`
    runs in a terminal).
 2. Blender: Edit > Preferences > Add-ons > Install from Disk, pick the
    `wog_dump_addon.zip` from a release (or build it with

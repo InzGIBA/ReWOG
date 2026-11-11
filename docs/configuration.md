@@ -133,11 +133,11 @@ dependencies live in extras:
 
 | Extra | Adds | Commands |
 |---|---|---|
-| `wog-dump[usd]` | `usd-core` (Pixar) | `build-scene --format usd,usdz` |
-| `wog-dump[web]` | `fastapi`, `uvicorn` | `wog-dump serve` |
-| `wog-dump[print]` | `trimesh`, `numpy`, `networkx` | `wog-dump print-export` |
-| `wog-dump[mitm]` | `mitmproxy` | reading `.flows` captures |
-| `wog-dump[dev]` | test and docs tooling | development |
+| `rewog[usd]` | `usd-core` (Pixar) | `build-scene --format usd,usdz` |
+| `rewog[web]` | `fastapi`, `uvicorn` | `wog-dump serve` |
+| `rewog[print]` | `trimesh`, `numpy`, `networkx` | `wog-dump print-export` |
+| `rewog[mitm]` | `mitmproxy` | reading `.flows` captures |
+| `rewog[dev]` | test and docs tooling | development |
 
 FBX export and the preview/video renderers need a Blender installation
 (`WOG_BLENDER_PATH` or PATH), no extra package.

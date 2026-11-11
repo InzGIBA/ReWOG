@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "wog-dump"
+name = "rewog"
 dynamic = ["version"]
 description = "A modern tool to download, decrypt and unpack 3D gun models from World of Guns: Gun Disassembly"
 readme = "README.md"

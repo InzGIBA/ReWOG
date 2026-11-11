@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-11-11
+
+### Added
+
+- Weapon cards come from the game now. `download-weapons` reads the
+  spider bundle and extracts a 256x256 icon and a 1024x1024 studio
+  render per weapon into `runtime/previews/`. The same pass parses
+  the per-model metadata: display names in English and Russian,
+  categories, parts count, year, brief info and links. Records land
+  in a new `weapon_meta` database table. Verified against the live
+  bundle: 288 icons, 288 renders, 288 records
+- Catalog JSON schema v2 (`wog-dump.catalog/2`). Entries add
+  `display_name`, `categories`, `num_parts`, `since` and `icon`. The
+  Blender addon client pins the new schema and ships with this
+  release
+
+### Changed
+
+- The serve web UI is one Alpine.js shell over REST. Vendored
+  Alpine 3.14 drives three hash-routed views: the catalog card
+  grid, the weapon detail page and the 3D viewer. A persistent
+  sidebar holds the search, the spider categories with counts, the
+  per-weapon jump links and the collapsible stage log. Every
+  rendered string goes through `x-text`, so game-controlled text
+  never reaches `innerHTML`. Stage runs stay REST `POST /api/run`
+  plus the SSE log stream
+- The weapon detail page shows the extraction pipeline as a
+  circle stepper: key, download, decrypt, unpack, scene, renders.
+  Circles and labels share one grid cell, so the centers line up.
+  The wire into a stage lights up once the previous stage is done.
+  The weapon API payload carries every stage flag
+- `/weapon/<name>` serves the same shell as `/`. The weapon page
+  and its per-page module are gone. The annotated viewer mounts
+  in-view as an iframe
+- `spider_gen` is a system asset now. The catalog, the web UI and
+  the stage targets exclude it, so it never shows up as a weapon
+
+### Fixed
+
+- The serve "unpack" button failed with `No such option:
+  --weapons`. The web runner passed `--weapons` to every stage,
+  while `unpack-assets` filters by `--asset-filter`. The runner
+  picks the flag per stage now
+- `serve` printed `gio: ...: Operation not supported` on headless
+  Linux (WSL, servers). The auto-open fell back to desktop helpers
+  whose subprocesses inherit stdio and fail noisily. The open runs
+  with stdio parked at devnull (`open_browser_quietly`), and a
+  "no browser found" hint appears when nothing could launch
+
 ## [3.1.0] - 2026-11-11
 
 ### Changed

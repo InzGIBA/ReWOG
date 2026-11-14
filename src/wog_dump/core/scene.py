@@ -26,11 +26,13 @@ import os
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from hashlib import sha256
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
 import UnityPy
+from PIL import Image, ImageChops
 from UnityPy.helpers import MeshHelper
 
 from ..utils.logging import get_logger
@@ -39,13 +41,16 @@ from .anim import extract_tracks
 from .config import WOGConfig, get_config
 from .export import EXPORT_FORMATS, ExportError, ExportOptions, convert_format
 from .glb import AnimationChannel, GLBWriter, MeshPrimitive, SceneError
+from .optimize import optimize_glb
 from .paths import contained_path, is_safe_weapon_name, safe_object_name
 from .scene_states import (
-    SCENE_STATES,
     PartPlacement,
+    _walk_world,
     apply_exploded,
     apply_field_strip,
     apply_grid_layout,
+    apply_plugin_state,
+    available_states,
 )
 from .transforms import (
     compose_matrix,
@@ -54,7 +59,7 @@ from .transforms import (
     multiply_matrix,
     transform_point,
 )
-from .viewer import copy_viewer_assets, render_viewer_html
+from .viewer import copy_viewer_assets
 
 __all__ = [
     "SceneBuilder",
@@ -77,6 +82,11 @@ _multiply_matrix = multiply_matrix
 ARROW_MATERIALS = frozenset({"arrow_in", "arrow_out"})
 CUT_MATERIALS = frozenset({"lambert4"})
 VFX_MATERIALS = frozenset({"gas", "muzzle_1", "muzzle_big"})
+
+# Unity shader texture slots mapped into glTF PBR channels
+_TEXTURE_SLOTS = frozenset(
+    {"_MainTex", "_BumpMap", "_MetallicGlossMap", "_SpecGlossMap", "_OcclusionMap"}
+)
 
 # Look direction of the scene camera (glTF space, Y up)
 _CAMERA_DIRECTION = (0.25, 0.35, 1.0)
@@ -122,6 +132,8 @@ class SceneStats:
     parts: list[str] = field(default_factory=list)
     field_strip: list[str] = field(default_factory=list)
     skipped: dict[str, int] = field(default_factory=dict)
+    anchor_checks: dict[str, int] = field(default_factory=dict)
+    viewer_states: dict[str, dict[str, list[float]]] = field(default_factory=dict)
 
 
 @dataclass
@@ -261,6 +273,7 @@ class SceneBuilder:
         self.config = config or get_config()
         self.logger = get_logger()
         self._mesh_cache: dict[int, _MeshData | None] = {}
+        self._texture_size: int | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -285,6 +298,9 @@ class SceneBuilder:
         steps_from: str = "parts",
         animated: bool = False,
         annotate: bool = False,
+        texture_size: int | None = None,
+        optimize: bool = False,
+        viewer_provider: str = "default",
     ) -> Path:
         """Export one weapon to ``<output_dir>/<weapon>.glb``.
 
@@ -321,9 +337,9 @@ class SceneBuilder:
         # directory: reject anything outside the name alphabet
         if not is_safe_weapon_name(weapon):
             raise SceneExportError(f"Invalid weapon name: {weapon!r}")
-        if state not in SCENE_STATES:
+        if state not in available_states():
             raise SceneExportError(
-                f"Invalid state {state!r}, expected one of: {sorted(SCENE_STATES)}"
+                f"Invalid state {state!r}, expected one of: {sorted(available_states())}"
             )
         if explode_distance < 0:
             raise SceneExportError(
@@ -344,6 +360,7 @@ class SceneBuilder:
             raise SceneExportError(
                 f"Decrypted bundle not found: {bundle} (run decrypt-assets first)"
             )
+        self._texture_size = texture_size
 
         if assembly_steps:
             dir_name = f"{weapon}-steps"
@@ -389,6 +406,11 @@ class SceneBuilder:
                     animated,
                 )
 
+            if viewer or viewer_link or annotate:
+                stats.viewer_states = self._compute_viewer_states(
+                    root, unit_scale, explode_distance, stats.parts
+                )
+
             if state == "field-strip":
                 stats.placements = apply_field_strip(root, unit_scale, stats)
             elif state == "exploded":
@@ -399,6 +421,19 @@ class SceneBuilder:
                 stats.placements = apply_grid_layout(
                     root, unit_scale, stats.parts, self._mesh_data, stats
                 )
+            elif state != "assembled":
+                placements = apply_plugin_state(
+                    state,
+                    root,
+                    unit_scale,
+                    stats,
+                    explode_distance=explode_distance,
+                    part_order=stats.parts,
+                    mesh_bounds_fn=self._mesh_data,
+                )
+                if placements is None:
+                    raise SceneExportError(f"No layout provider for state {state!r}")
+                stats.placements = placements
             stats.state = state
             stats.annotate = annotate or viewer or viewer_link
             if annotate and not (viewer or viewer_link):
@@ -420,25 +455,40 @@ class SceneBuilder:
             )
 
             extra_formats = export_formats - {"glb"}
-            unknown = extra_formats - EXPORT_FORMATS
+            from .extensions import load_exporters
+
+            known_formats = EXPORT_FORMATS | frozenset(load_exporters())
+            unknown = extra_formats - known_formats
             if unknown:
                 raise SceneExportError(
                     f"Unknown export format(s): {sorted(unknown)}, "
-                    f"expected one of {sorted(EXPORT_FORMATS)}"
+                    f"expected one of {sorted(known_formats)}"
                 )
             if extra_formats:
                 stats.exports = self._export_extra_formats(
                     glb_path, output_dir, extra_formats, export_options
                 )
 
+            if optimize and optimize_glb(glb_path, self.logger):
+                self.logger.info(f"Compressed {glb_path.name} with gltfpack")
+
             self._write_manifest(output_dir, weapon, include_extras, unit_scale, stats)
             self._write_blender_setup(output_dir)
 
             if viewer or viewer_link:
+                from .extensions import load_viewers
+
+                providers = load_viewers()
+                provider = providers.get(viewer_provider)
+                if provider is None:
+                    raise SceneExportError(
+                        f"Unknown viewer provider {viewer_provider!r}, "
+                        f"available: {sorted(providers)}"
+                    )
                 manifest = json.loads(
                     (output_dir / "scene.json").read_text(encoding="utf-8")
                 )
-                html = render_viewer_html(
+                html = provider.render_html(
                     glb_path.read_bytes(), manifest, linked=viewer_link
                 )
                 _atomic_write(output_dir / "viewer.html", html.encode("utf-8"))
@@ -561,6 +611,7 @@ class SceneBuilder:
         from .paths import contained_path
         from .scene_states import (
             _apply_containment,
+            _collect_in_positions,
             _collect_removal_targets,
             _match_slot,
             _move_to,
@@ -578,6 +629,7 @@ class SceneBuilder:
 
         index = _walk_world(root)
         targets = _collect_removal_targets(root)
+        in_positions = _collect_in_positions(root)
         if not targets:
             raise SceneExportError(
                 f"{weapon}: no removal anchors in the bundle, step export "
@@ -588,7 +640,7 @@ class SceneBuilder:
         base_of_slot: dict[int, str] = {}
         slot_by_base: dict[str, Any] = {}
         for base in sorted(targets):
-            slot = _match_slot(base, index)
+            slot = _match_slot(base, index, in_positions)
             if slot is not None:
                 base_of_slot[id(slot.node)] = base
                 slot_by_base[base] = slot
@@ -599,7 +651,8 @@ class SceneBuilder:
         ordered: list[tuple[str, Any]] = []
         seen_ids: set[int] = set()
         for name in order_source:
-            slot = index.get(normalize_part_name(name))
+            candidates = index.get(normalize_part_name(name))
+            slot = candidates[0] if candidates else None
             if slot is None or id(slot.node) in seen_ids:
                 continue
             slot_base = base_of_slot.get(id(slot.node))
@@ -608,7 +661,7 @@ class SceneBuilder:
             seen_ids.add(id(slot.node))
             ordered.append((slot_base, slot))
         for base in sorted(targets):
-            slot = _match_slot(base, index)
+            slot = _match_slot(base, index, in_positions)
             if slot is None or id(slot.node) in seen_ids:
                 continue
             seen_ids.add(id(slot.node))
@@ -842,14 +895,17 @@ class SceneBuilder:
                 f"Refusing symlinked textures directory: {textures_dir}"
             )
 
-        gltf_texture_by_pid: dict[int, int] = {}
+        texture_cache: dict[tuple[int, str], int] = {}
         gltf_materials: dict[int, int] = {}
 
         for pid, material in materials_by_pid.items():
             props = material.m_SavedProperties
             color = (1.0, 1.0, 1.0, 1.0)
             shininess = 0.078125
-            main_texture_pid = 0
+            bump_scale = 1.0
+            metallic = 0.0
+            glossiness: float | None = None
+            slots: dict[str, int] = {}
 
             for name, value in props.m_Colors:
                 if name == "_Color":
@@ -857,33 +913,51 @@ class SceneBuilder:
             for name, value in props.m_Floats:
                 if name == "_Shininess":
                     shininess = float(value)
+                elif name == "_BumpScale":
+                    bump_scale = float(value)
+                elif name == "_Metallic":
+                    metallic = float(value)
+                elif name in ("_Glossiness", "_Smoothness"):
+                    glossiness = float(value)
             for name, tex_env in props.m_TexEnvs:
-                if name == "_MainTex" and tex_env.m_Texture.path_id:
-                    main_texture_pid = tex_env.m_Texture.path_id
+                if name in _TEXTURE_SLOTS and tex_env.m_Texture.path_id:
+                    slots[name] = tex_env.m_Texture.path_id
 
-            base_color_texture = None
-            if main_texture_pid and main_texture_pid in textures_by_pid:
-                if main_texture_pid not in gltf_texture_by_pid:
-                    texture_data = textures_by_pid[main_texture_pid]
-                    image_bytes = self._texture_png(texture_data)
-                    try:
-                        texture_name = safe_object_name(str(texture_data.m_Name))
-                    except ValueError:
-                        self.logger.warning(
-                            f"Skipping texture with unsafe name "
-                            f"{texture_data.m_Name!r}"
-                        )
-                        stats.skipped["unsafe_texture_name"] = (
-                            stats.skipped.get("unsafe_texture_name", 0) + 1
-                        )
-                        continue
-                    _atomic_write(
-                        contained_path(textures_dir, f"{texture_name}.png"), image_bytes
-                    )
-                    image = writer.add_image(image_bytes)
-                    gltf_texture_by_pid[main_texture_pid] = writer.add_texture(image)
-                    stats.textures += 1
-                base_color_texture = gltf_texture_by_pid[main_texture_pid]
+            def embed(slot: str, kind: str) -> int | None:
+                tex_pid = slots.get(slot, 0)
+                if not tex_pid or tex_pid not in textures_by_pid:
+                    return None
+                return self._embed_texture(
+                    writer,
+                    tex_pid,
+                    textures_by_pid[tex_pid],
+                    kind,
+                    textures_dir,
+                    stats,
+                    texture_cache,
+                )
+
+            base_color_texture = embed("_MainTex", "plain")
+            if slots.get("_MainTex") in textures_by_pid and base_color_texture is None:
+                continue
+
+            normal_texture = embed("_BumpMap", "plain")
+            mr_texture = embed("_MetallicGlossMap", "mr")
+            if mr_texture is None:
+                mr_texture = embed("_SpecGlossMap", "spec")
+            occlusion_texture = embed("_OcclusionMap", "occ")
+
+            if mr_texture is not None:
+                # glTF multiplies factors with the texture channels
+                metallic_factor = 1.0
+                roughness_factor = 1.0
+            else:
+                metallic_factor = metallic
+                roughness_factor = (
+                    max(0.0, min(1.0, 1.0 - glossiness))
+                    if glossiness is not None
+                    else _shininess_to_roughness(shininess)
+                )
 
             alpha_mode = "OPAQUE"
             double_sided = False
@@ -895,23 +969,107 @@ class SceneBuilder:
                 name=material.m_Name,
                 base_color_factor=color if base_color_texture is None else None,
                 base_color_texture=base_color_texture,
-                metallic=0.0,
-                roughness=_shininess_to_roughness(shininess),
+                metallic=metallic_factor,
+                roughness=roughness_factor,
                 alpha_mode=alpha_mode,
                 double_sided=double_sided,
+                normal_texture=normal_texture,
+                normal_scale=bump_scale,
+                metallic_roughness_texture=mr_texture,
+                occlusion_texture=occlusion_texture,
             )
             stats.materials += 1
 
         return gltf_materials
 
+    def _embed_texture(
+        self,
+        writer: GLBWriter,
+        tex_pid: int,
+        texture_data: Any,
+        kind: str,
+        textures_dir: Path,
+        stats: SceneStats,
+        cache: dict[tuple[int, str], int],
+    ) -> int | None:
+        """Embed one texture slot, converting Unity channel layouts to glTF."""
+        key = (tex_pid, kind)
+        if key in cache:
+            return cache[key]
+
+        if kind == "mr":
+            image_bytes = _metallic_roughness_png(
+                texture_data, metallic_from_red=True, max_size=self._texture_size
+            )
+            suffix = "_mr"
+        elif kind == "spec":
+            # Specular-workflow maps carry no metallic channel; keep the
+            # surface dielectric and only convert smoothness to roughness
+            image_bytes = _metallic_roughness_png(
+                texture_data, metallic_from_red=False, max_size=self._texture_size
+            )
+            suffix = "_mr"
+        elif kind == "occ":
+            image_bytes = _occlusion_png(texture_data, max_size=self._texture_size)
+            suffix = "_occ"
+        else:
+            image_bytes = self._texture_png(texture_data, max_size=self._texture_size)
+            suffix = ""
+
+        try:
+            texture_name = safe_object_name(str(texture_data.m_Name))
+        except ValueError:
+            self.logger.warning(
+                f"Skipping texture with unsafe name {texture_data.m_Name!r}"
+            )
+            stats.skipped["unsafe_texture_name"] = (
+                stats.skipped.get("unsafe_texture_name", 0) + 1
+            )
+            return None
+
+        self._write_shared_texture(
+            textures_dir, f"{texture_name}{suffix}.png", image_bytes
+        )
+        image = writer.add_image(image_bytes)
+        index = writer.add_texture(image)
+        cache[key] = index
+        stats.textures += 1
+        return index
+
+    def _write_shared_texture(
+        self, textures_dir: Path, filename: str, image_bytes: bytes
+    ) -> None:
+        """Store texture bytes once per content, hardlink into the scene.
+
+        Identical textures shared by many weapons occupy one file in
+        runtime/texture-store; scenes get hardlinks (copy fallback for
+        filesystems without hardlink support).
+        """
+        store_dir = self.config.base_dir / "runtime" / "texture-store"
+        if store_dir.is_symlink():
+            raise SceneExportError(f"Refusing symlinked texture store: {store_dir}")
+        store_path = store_dir / f"{sha256(image_bytes).hexdigest()}.png"
+        if not store_path.exists():
+            _atomic_write(store_path, image_bytes)
+        destination = contained_path(textures_dir, filename)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            destination.unlink(missing_ok=True)
+            os.link(store_path, destination)
+        except OSError:
+            _atomic_write(destination, image_bytes)
+
     @staticmethod
-    def _texture_png(texture: Any) -> bytes:
+    def _texture_png(texture: Any, max_size: int | None = None) -> bytes:
         """Texture2D to PNG bytes (UnityPy decodes; normal maps unswizzled)."""
         image = texture.image
         if image is None:
             raise SceneExportError(f"Cannot decode texture {texture.m_Name}")
         if is_unity_swizzled_normal(image):
             image = unswizzle_normal_map(image)
+        if max_size is not None and max(image.size) > max_size:
+            image = image.copy()
+            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return buffer.getvalue()
@@ -950,7 +1108,8 @@ class SceneBuilder:
                     local_max=local_max,
                 )
         except Exception as e:
-            self.logger.debug(f"Mesh extraction failed for {mesh.m_Name}: {e}")
+            name = getattr(mesh, "m_Name", "<unknown>")
+            self.logger.debug(f"Mesh extraction failed for {name}: {e}")
 
         self._mesh_cache[cache_key] = data
         return data
@@ -1246,6 +1405,51 @@ class SceneBuilder:
     # Manifest and helper files
     # ------------------------------------------------------------------
 
+    def _compute_viewer_states(
+        self,
+        root: _GameObjectInfo,
+        unit_scale: float,
+        explode_distance: float,
+        part_order: list[str],
+    ) -> dict[str, dict[str, list[float]]]:
+        """Per-state part translations for the interactive viewer.
+
+        Each state runs on a lightweight tree copy (mesh data shared),
+        so the assembled tree the caller exports stays untouched.
+        """
+        payload: dict[str, dict[str, list[float]]] = {
+            "assembled": _state_translations(root, unit_scale)
+        }
+        passes: list[tuple[str, Callable[[_GameObjectInfo], Any]]] = [
+            (
+                "field-strip",
+                lambda tree: apply_field_strip(
+                    tree, unit_scale, SceneStats(weapon="viewer")
+                ),
+            ),
+            (
+                "exploded",
+                lambda tree: apply_exploded(
+                    tree, unit_scale, explode_distance, SceneStats(weapon="viewer")
+                ),
+            ),
+            (
+                "parts",
+                lambda tree: apply_grid_layout(
+                    tree,
+                    unit_scale,
+                    part_order,
+                    self._mesh_data,
+                    SceneStats(weapon="viewer"),
+                ),
+            ),
+        ]
+        for name, apply_state in passes:
+            tree = _copy_tree(root)
+            apply_state(tree)
+            payload[name] = _state_translations(tree, unit_scale)
+        return payload
+
     def _read_part_lists(self, env: Any, weapon: str, stats: SceneStats) -> None:
         """Extract removable-parts and field-strip lists from TextAssets."""
         for obj in env.objects:
@@ -1301,6 +1505,10 @@ class SceneBuilder:
             "field_strip": stats.field_strip,
             "skipped": stats.skipped,
         }
+        if stats.anchor_checks:
+            manifest["anchor_checks"] = stats.anchor_checks
+        if stats.viewer_states:
+            manifest["viewer_states"] = stats.viewer_states
         if stats.animations:
             manifest["animations"] = stats.animations
         if stats.exports:
@@ -1383,6 +1591,73 @@ def _vec3_combine(
 def _shininess_to_roughness(shininess: float) -> float:
     """Map Unity blinn-phong shininess (0..1) to a PBR roughness."""
     return max(0.05, min(1.0, 1.0 - 2.0 * shininess))
+
+
+def _copy_tree(node: _GameObjectInfo) -> _GameObjectInfo:
+    """Copy the transform tree, sharing read-only mesh data."""
+    return _GameObjectInfo(
+        name=node.name,
+        mesh=node.mesh,
+        material_pids=list(node.material_pids),
+        translation=node.translation,
+        rotation=node.rotation,
+        scale=node.scale,
+        children=[_copy_tree(child) for child in node.children],
+    )
+
+
+def _state_translations(
+    root: _GameObjectInfo, unit_scale: float
+) -> dict[str, list[float]]:
+    """Part node name -> glTF-space local translation (viewer payload)."""
+    translations: dict[str, list[float]] = {}
+    for candidates in _walk_world(root).values():
+        for slot in candidates:
+            t = slot.node.translation
+            translations[slot.node.name] = [
+                t[0] * unit_scale,
+                t[1] * unit_scale,
+                -t[2] * unit_scale,
+            ]
+    return translations
+
+
+def _metallic_roughness_png(
+    texture: Any, metallic_from_red: bool, max_size: int | None = None
+) -> bytes:
+    """Unity gloss map to glTF metallic-roughness (G roughness, B metallic).
+
+    Unity packs metallic into red and smoothness into alpha; glTF wants
+    roughness (1 - smoothness) in green and metallic in blue.
+    """
+    image = texture.image
+    if image is None:
+        raise SceneExportError(f"Cannot decode texture {texture.m_Name}")
+    rgba = image.convert("RGBA")
+    roughness = ImageChops.invert(rgba.getchannel("A"))
+    metallic = rgba.getchannel("R") if metallic_from_red else Image.new("L", rgba.size)
+    white = Image.new("L", rgba.size, 255)
+    mr = Image.merge("RGB", (white, roughness, metallic))
+    if max_size is not None and max(mr.size) > max_size:
+        mr.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    mr.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _occlusion_png(texture: Any, max_size: int | None = None) -> bytes:
+    """Unity occlusion (green channel) to glTF occlusion (red channel)."""
+    image = texture.image
+    if image is None:
+        raise SceneExportError(f"Cannot decode texture {texture.m_Name}")
+    ao = image.convert("RGBA").getchannel("G")
+    white = Image.new("L", ao.size, 255)
+    occ = Image.merge("RGB", (ao, white, white))
+    if max_size is not None and max(occ.size) > max_size:
+        occ.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    occ.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def _vector3(v: Any) -> tuple[float, float, float]:

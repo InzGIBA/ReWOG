@@ -115,3 +115,78 @@ class TestCopyViewerAssets:
         assert (target / "addons/loaders/GLTFLoader.js").stat().st_size > 50000
         assert (target / "addons/controls/OrbitControls.js").stat().st_size > 10000
         assert (target / "addons/utils/BufferGeometryUtils.js").stat().st_size > 10000
+
+
+class TestInteractiveViewer:
+    def test_states_payload_reaches_config(self, tmp_path: Path) -> None:
+        glb = tiny_glb(tmp_path)
+        data = manifest()
+        data["viewer_states"] = {
+            "assembled": {"bolt": [0.0, 0.0, 0.0]},
+            "exploded": {"bolt": [0.1, 0.0, 0.0]},
+        }
+        html = render_viewer_html(glb, data)
+        config = re.search(
+            r'<script type="application/json" id="wog-config">(.*?)</script>',
+            html,
+            re.DOTALL,
+        )
+        assert config is not None
+        import json
+
+        payload = json.loads(config.group(1).replace("<\\/", "</"))
+        assert payload["states"]["exploded"]["bolt"] == [0.1, 0.0, 0.0]
+
+    def test_interactive_controls_present(self, tmp_path: Path) -> None:
+        html = render_viewer_html(tiny_glb(tmp_path), manifest())
+        for element_id in (
+            "state-select",
+            "explode",
+            "search",
+            "hide",
+            "isolate",
+            "show-all",
+            "screenshot",
+            "clip-select",
+            "play",
+            "timeline",
+            "lang",
+        ):
+            assert f'id="{element_id}"' in html
+
+    def test_document_still_valid(self, tmp_path: Path) -> None:
+        html = render_viewer_html(tiny_glb(tmp_path), manifest())
+        validator = _Validator()
+        validator.feed(html)
+        assert validator.stack == []
+
+
+class TestViewerStatePayload:
+    def test_compute_viewer_states_covers_all_states(self) -> None:
+        from types import SimpleNamespace
+
+        from wog_dump.core.scene import SceneBuilder, _GameObjectInfo
+
+        barrel = _GameObjectInfo(
+            name="barrel",
+            mesh=SimpleNamespace(m_Name="barrel_mesh"),
+            translation=(-15.0, 21.0, 0.0),
+        )
+        root = _GameObjectInfo(name="root", children=[barrel])
+        root.children.append(
+            _GameObjectInfo(name="barrel_out", translation=(-53.0, 21.5, 0.0))
+        )
+        builder = SceneBuilder()
+        builder._mesh_data = lambda mesh: SimpleNamespace(
+            local_min=[-1.0, -1.0, -1.0], local_max=[1.0, 1.0, 1.0]
+        )
+        payload = builder._compute_viewer_states(root, 0.01, 0.35, ["barrel"])
+
+        assert set(payload) == {"assembled", "field-strip", "exploded", "parts"}
+        assert payload["assembled"]["barrel"] == [-0.15, 0.21, 0.0]
+        assert payload["field-strip"]["barrel"] == [-0.53, 0.215, 0.0]
+        # Exploded pushes along the removal direction (-X) by 0.35 m
+        assert payload["exploded"]["barrel"][0] < -0.15
+        assert "barrel" in payload["parts"]
+        # The source tree stays assembled
+        assert barrel.translation == (-15.0, 21.0, 0.0)

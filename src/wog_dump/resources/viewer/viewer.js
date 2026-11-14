@@ -1,17 +1,90 @@
 /* WOG Dump scene viewer: renders one exported GLB with the part list
- * from the scene manifest. Configuration comes from the #wog-config
- * JSON block the generator embeds next to this script. */
+ * from the scene manifest, optional disassembly states, animation
+ * playback and part visibility tools. Configuration comes from the
+ * #wog-config JSON block the generator embeds next to this script. */
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 const config = JSON.parse(
   document.getElementById("wog-config").textContent
 );
 
+const I18N = {
+  en: {
+    loading: "loading…",
+    markers: "markers",
+    wireframe: "wireframe",
+    rotate: "rotate",
+    screenshot: "screenshot",
+    clear: "clear",
+    search: "search parts",
+    hide: "hide",
+    isolate: "isolate",
+    showAll: "show all",
+    parts: "parts",
+    state: "state",
+    explode: "explode",
+    play: "play",
+    pause: "pause",
+    assembled: "assembled",
+    "field-strip": "field strip",
+    exploded: "exploded",
+    partsState: "parts grid",
+    group: "group",
+    size: "size",
+    triangles: "triangles",
+    noParts: "no matching parts",
+  },
+  ru: {
+    loading: "загрузка…",
+    markers: "маркеры",
+    wireframe: "сетка",
+    rotate: "вращение",
+    screenshot: "снимок",
+    clear: "сброс",
+    search: "поиск деталей",
+    hide: "скрыть",
+    isolate: "только это",
+    showAll: "показать всё",
+    parts: "детали",
+    state: "состояние",
+    explode: "разнести",
+    play: "пуск",
+    pause: "пауза",
+    assembled: "собрано",
+    "field-strip": "разборка",
+    exploded: "разнесено",
+    partsState: "сетка деталей",
+    group: "группа",
+    size: "размер",
+    triangles: "треугольников",
+    noParts: "нет совпадений",
+  },
+};
+
+let lang = (navigator.language || "en").toLowerCase().startsWith("ru")
+  ? "ru"
+  : "en";
+try {
+  const stored = localStorage.getItem("wog-viewer-lang");
+  if (stored === "ru" || stored === "en") lang = stored;
+} catch (error) {
+  /* file:// origins may block storage; the default stays */
+}
+
+function t(key) {
+  return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+}
+
 const canvas = document.getElementById("viewport");
-const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({
+  canvas: canvas,
+  antialias: true,
+  preserveDrawingBuffer: true,
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 
@@ -54,6 +127,7 @@ const markers = [];
 const nameToMeshes = new Map();
 const originalEmissive = new Map();
 let selected = null;
+let triangleCount = 0;
 
 function collectNames(root) {
   root.traverse(function (object) {
@@ -137,6 +211,12 @@ function refreshList() {
   document.querySelectorAll("#parts li").forEach(function (item) {
     item.classList.toggle("selected", item.dataset.part === selected);
   });
+}
+
+function refreshStats() {
+  document.getElementById("stats").textContent =
+    triangleCount.toLocaleString() + " " + t("triangles") + ", " +
+    nameToMeshes.size + " " + t("parts");
 }
 
 const raycaster = new THREE.Raycaster();
@@ -237,16 +317,41 @@ function showCard(annotation) {
     document.body.appendChild(card);
   }
   card.style.display = "block";
+  card.textContent = "";
+  const title = document.createElement("strong");
+  title.textContent = annotation.name;
+  card.appendChild(title);
   const size = annotation.bbox_size || [0, 0, 0];
-  card.innerHTML =
-    "<strong>" + annotation.name + "</strong><br>" +
-    "group: " + annotation.group + "<br>" +
-    "size: " + size.map(function (v) { return (v * 1000).toFixed(0) + " mm"; }).join(" x ");
+  card.appendChild(document.createElement("br"));
+  card.appendChild(
+    document.createTextNode(t("group") + ": " + annotation.group)
+  );
+  card.appendChild(document.createElement("br"));
+  card.appendChild(
+    document.createTextNode(
+      t("size") + ": " +
+      size.map(function (v) { return (v * 1000).toFixed(0) + " mm"; }).join(" x ")
+    )
+  );
 }
 
 function hideCard() {
   const card = document.getElementById("card");
   if (card) card.style.display = "none";
+}
+
+function selectPart(name) {
+  const next = selected === name ? null : name;
+  setHighlight(next);
+  if (next) {
+    focusOn(next);
+    const annotation = annotations.find(function (a) {
+      return a.name === next;
+    });
+    if (annotation) showCard(annotation);
+  } else {
+    hideCard();
+  }
 }
 
 function buildList() {
@@ -259,28 +364,269 @@ function buildList() {
     item.textContent = name;
     item.dataset.part = name;
     item.addEventListener("click", function () {
-      const next = selected === name ? null : name;
-      setHighlight(next);
-      if (next) {
-        focusOn(next);
-        const annotation = annotations.find(function (a) {
-          return a.name === name;
-        });
-        if (annotation) showCard(annotation);
-      } else {
-        hideCard();
-      }
+      selectPart(name);
     });
     list.appendChild(item);
   });
 }
 
+document.getElementById("search").addEventListener("input", function (event) {
+  const query = event.target.value.trim().toLowerCase();
+  document.querySelectorAll("#parts li").forEach(function (item) {
+    const match = !query || item.dataset.part.toLowerCase().indexOf(query) !== -1;
+    item.style.display = match ? "" : "none";
+  });
+});
+
+/* -- part visibility -------------------------------------------------- */
+
+const hiddenParts = new Set();
+
+function markHidden(name, hidden) {
+  if (hidden) hiddenParts.add(name);
+  else hiddenParts.delete(name);
+  document.querySelectorAll("#parts li").forEach(function (item) {
+    if (item.dataset.part === name) {
+      item.classList.toggle("hidden-part", hidden);
+    }
+  });
+}
+
+document.getElementById("hide").addEventListener("click", function () {
+  if (!selected) return;
+  meshesForPart(selected).forEach(function (mesh) {
+    mesh.visible = false;
+  });
+  markHidden(selected, true);
+});
+
+document.getElementById("isolate").addEventListener("click", function () {
+  if (!selected) return;
+  const keep = new Set(meshesForPart(selected));
+  nameToMeshes.forEach(function (list, meshName) {
+    list.forEach(function (mesh) {
+      mesh.visible = keep.has(mesh);
+    });
+    markHidden(meshName, !keep.has(list[0]));
+  });
+});
+
+document.getElementById("show-all").addEventListener("click", function () {
+  nameToMeshes.forEach(function (list) {
+    list.forEach(function (mesh) {
+      mesh.visible = true;
+    });
+  });
+  hiddenParts.forEach(function (name) {
+    markHidden(name, false);
+  });
+  hiddenParts.clear();
+});
+
+/* -- disassembly states ----------------------------------------------- */
+
+const states = config.states || {};
+const stateNames = Object.keys(states);
+const nodesByName = new Map();
+let currentState = config.manifest.state || "assembled";
+
+function collectNodes(root) {
+  root.traverse(function (object) {
+    if (!object.name) return;
+    const list = nodesByName.get(object.name) || [];
+    list.push(object);
+    nodesByName.set(object.name, list);
+  });
+}
+
+function applyState(name) {
+  const table = states[name];
+  if (!table) return;
+  nodesByName.forEach(function (nodes, nodeName) {
+    const position = table[nodeName];
+    if (!position) return;
+    nodes.forEach(function (node) {
+      node.position.set(position[0], position[1], position[2]);
+    });
+  });
+  currentState = name;
+}
+
+function applyExplode(fraction) {
+  const assembled = states.assembled;
+  const exploded = states.exploded;
+  if (!assembled || !exploded) return;
+  nodesByName.forEach(function (nodes, nodeName) {
+    const from = assembled[nodeName];
+    const to = exploded[nodeName];
+    if (!from || !to) return;
+    nodes.forEach(function (node) {
+      node.position.set(
+        from[0] + (to[0] - from[0]) * fraction,
+        from[1] + (to[1] - from[1]) * fraction,
+        from[2] + (to[2] - from[2]) * fraction
+      );
+    });
+  });
+  currentState = "exploded";
+}
+
+function stateLabel(name) {
+  if (name === "parts") return t("partsState");
+  return t(name);
+}
+
+function buildStateBar() {
+  if (!stateNames.length) return;
+  const bar = document.getElementById("statebar");
+  const select = document.getElementById("state-select");
+  const explode = document.getElementById("explode");
+  bar.style.display = "flex";
+  stateNames.forEach(function (name) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = stateLabel(name);
+    select.appendChild(option);
+  });
+  select.value = currentState;
+  if (currentState === "exploded") explode.value = "100";
+  select.addEventListener("change", function () {
+    applyState(select.value);
+    explode.value = select.value === "exploded" ? "100" : "0";
+  });
+  const hasExplode = Boolean(states.assembled && states.exploded);
+  explode.parentElement.style.display = hasExplode ? "" : "none";
+  explode.addEventListener("input", function () {
+    applyExplode(parseInt(explode.value, 10) / 100);
+    select.value = "exploded";
+  });
+}
+
+/* -- animation playback ----------------------------------------------- */
+
+const clock = new THREE.Clock();
+let mixer = null;
+let clips = [];
+let currentAction = null;
+let playing = false;
+let updateTimeline = null;
+
+function buildAnimationBar(gltf) {
+  if (!gltf.animations || !gltf.animations.length) return;
+  mixer = new THREE.AnimationMixer(gltf.scene);
+  clips = gltf.animations.map(function (clip) {
+    return { clip: clip, action: mixer.clipAction(clip) };
+  });
+  const bar = document.getElementById("animbar");
+  const select = document.getElementById("clip-select");
+  const playButton = document.getElementById("play");
+  const timeline = document.getElementById("timeline");
+  const timeLabel = document.getElementById("time-label");
+  const speed = document.getElementById("speed");
+  bar.style.display = "flex";
+  if (!stateNames.length) bar.classList.add("no-states");
+  clips.forEach(function (entry, index) {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = entry.clip.name || "clip " + (index + 1);
+    select.appendChild(option);
+  });
+
+  function selectClip(index) {
+    if (currentAction) currentAction.stop();
+    currentAction = clips[index].action;
+    currentAction.reset().play();
+    currentAction.paused = !playing;
+    timeline.max = String(clips[index].clip.duration);
+    timeline.value = "0";
+  }
+
+  select.addEventListener("change", function () {
+    selectClip(parseInt(select.value, 10));
+  });
+  playButton.addEventListener("click", function () {
+    playing = !playing;
+    if (currentAction) currentAction.paused = !playing;
+    playButton.textContent = playing ? t("pause") : t("play");
+  });
+  timeline.addEventListener("input", function () {
+    if (!currentAction) return;
+    currentAction.time = parseFloat(timeline.value);
+    mixer.update(0);
+    timeLabel.textContent = currentAction.time.toFixed(2) + "s";
+  });
+  speed.addEventListener("change", function () {
+    mixer.timeScale = parseFloat(speed.value);
+  });
+  selectClip(0);
+  playButton.textContent = t("play");
+  updateTimeline = function () {
+    if (!currentAction) return;
+    if (playing) timeline.value = String(currentAction.time);
+    timeLabel.textContent = currentAction.time.toFixed(2) + "s";
+  };
+}
+
+/* -- screenshot -------------------------------------------------------- */
+
+document.getElementById("screenshot").addEventListener("click", function () {
+  renderer.render(scene, camera);
+  const link = document.createElement("a");
+  link.download =
+    (config.manifest.weapon || "scene") + "-" + currentState + ".png";
+  link.href = renderer.domElement.toDataURL("image/png");
+  link.click();
+});
+
+/* -- localization ------------------------------------------------------ */
+
+function applyI18n() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach(function (element) {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(function (element) {
+    element.placeholder = t(element.dataset.i18nPlaceholder);
+  });
+  document.getElementById("lang").textContent = lang === "ru" ? "EN" : "RU";
+  const select = document.getElementById("state-select");
+  Array.prototype.forEach.call(select.options, function (option) {
+    option.textContent = stateLabel(option.value);
+  });
+  const playButton = document.getElementById("play");
+  playButton.textContent = playing ? t("pause") : t("play");
+  refreshStats();
+  if (selected) {
+    const annotation = annotations.find(function (a) {
+      return a.name === selected;
+    });
+    if (annotation) showCard(annotation);
+  }
+}
+
+document.getElementById("lang").addEventListener("click", function () {
+  lang = lang === "ru" ? "en" : "ru";
+  try {
+    localStorage.setItem("wog-viewer-lang", lang);
+  } catch (error) {
+    /* storage unavailable: language applies to this page only */
+  }
+  applyI18n();
+});
+
+/* -- scene loading ------------------------------------------------------ */
+
 const gltfLoader = new GLTFLoader();
+gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 gltfLoader.load(config.glbUrl, function (gltf) {
   scene.add(gltf.scene);
   collectNames(gltf.scene);
+  collectNodes(gltf.scene);
   buildList();
   buildMarkers(gltf.scene);
+  buildStateBar();
+  buildAnimationBar(gltf);
+  if (states[currentState]) applyState(currentState);
 
   const cameras = [];
   gltf.scene.traverse(function (object) {
@@ -303,16 +649,15 @@ gltfLoader.load(config.glbUrl, function (gltf) {
     );
   }
 
-  let triangles = 0;
   gltf.scene.traverse(function (object) {
     if (object.isMesh && object.geometry) {
       const index = object.geometry.getIndex();
-      triangles += index ? index.count / 3 : object.geometry.getAttribute("position").count / 3;
+      triangleCount += index
+        ? index.count / 3
+        : object.geometry.getAttribute("position").count / 3;
     }
   });
-  document.getElementById("stats").textContent =
-    triangles.toLocaleString() + " triangles, " +
-    nameToMeshes.size + " parts";
+  applyI18n();
 });
 
 document.getElementById("wireframe").addEventListener("click", function () {
@@ -342,8 +687,15 @@ window.addEventListener("resize", function () {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+applyI18n();
+
 function animate() {
   requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  if (mixer) {
+    mixer.update(delta);
+    if (updateTimeline) updateTimeline();
+  }
   controls.update();
   renderer.render(scene, camera);
 }

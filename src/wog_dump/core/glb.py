@@ -65,6 +65,11 @@ class _GLTFMaterial:
     alpha_mode: str = "OPAQUE"
     alpha_cutoff: float = 0.5
     double_sided: bool = False
+    normal_texture: int | None = None
+    normal_scale: float = 1.0
+    metallic_roughness_texture: int | None = None
+    occlusion_texture: int | None = None
+    occlusion_strength: float = 1.0
 
 
 @dataclass
@@ -194,6 +199,11 @@ class GLBWriter:
         alpha_mode: str = "OPAQUE",
         alpha_cutoff: float = 0.5,
         double_sided: bool = False,
+        normal_texture: int | None = None,
+        normal_scale: float = 1.0,
+        metallic_roughness_texture: int | None = None,
+        occlusion_texture: int | None = None,
+        occlusion_strength: float = 1.0,
     ) -> int:
         """Add a PBR material; sRGB colors are converted to linear space."""
         factor = None
@@ -209,6 +219,11 @@ class GLBWriter:
                 alpha_mode=alpha_mode,
                 alpha_cutoff=alpha_cutoff,
                 double_sided=double_sided,
+                normal_texture=normal_texture,
+                normal_scale=normal_scale,
+                metallic_roughness_texture=metallic_roughness_texture,
+                occlusion_texture=occlusion_texture,
+                occlusion_strength=occlusion_strength,
             )
         )
         return len(self._materials) - 1
@@ -491,6 +506,10 @@ class GLBWriter:
             }
             if material.base_color_texture is not None:
                 pbr["baseColorTexture"] = {"index": material.base_color_texture}
+            if material.metallic_roughness_texture is not None:
+                pbr["metallicRoughnessTexture"] = {
+                    "index": material.metallic_roughness_texture
+                }
             if material.base_color_factor is not None:
                 pbr["baseColorFactor"] = material.base_color_factor
 
@@ -498,6 +517,16 @@ class GLBWriter:
                 "name": material.name,
                 "pbrMetallicRoughness": pbr,
             }
+            if material.normal_texture is not None:
+                normal: dict[str, object] = {"index": material.normal_texture}
+                if material.normal_scale != 1.0:
+                    normal["scale"] = material.normal_scale
+                entry["normalTexture"] = normal
+            if material.occlusion_texture is not None:
+                occlusion: dict[str, object] = {"index": material.occlusion_texture}
+                if material.occlusion_strength != 1.0:
+                    occlusion["strength"] = material.occlusion_strength
+                entry["occlusionTexture"] = occlusion
             if material.alpha_mode != "OPAQUE":
                 entry["alphaMode"] = material.alpha_mode
                 if material.alpha_mode == "MASK":

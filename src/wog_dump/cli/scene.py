@@ -9,11 +9,27 @@ import click
 
 from ..core.export import EXPORT_FORMATS, ExportOptions
 from ..core.scene import SceneBuilder, SceneExportError
-from ..core.scene_states import SCENE_STATES
+from ..core.scene_states import SCENE_STATES, available_states
 from .errors import error_handler, print_banner_if_standalone
 
 EXTRA_CHOICES = ("arrows", "cut", "vfx", "all")
 STL_UNIT_CHOICES = ("m", "cm", "mm")
+
+
+class _StateChoice(click.Choice):
+    """Choice that picks up plugin-provided states at parse time."""
+
+    def convert(
+        self, value: str, param: click.Parameter | None, ctx: click.Context | None
+    ) -> str:
+        self.choices = sorted(available_states())
+        return str(super().convert(value, param, ctx))
+
+
+def _known_formats() -> frozenset[str]:
+    from ..core.extensions import load_exporters
+
+    return EXPORT_FORMATS | frozenset(load_exporters())
 
 
 def _parse_extras(extras: tuple[str, ...]) -> frozenset[str]:
@@ -30,11 +46,11 @@ def _parse_extras(extras: tuple[str, ...]) -> frozenset[str]:
 def _parse_formats(formats: str) -> frozenset[str]:
     """Parse a comma-separated --format list into a validated set."""
     selected = {part.strip().lower() for part in formats.split(",") if part.strip()}
-    unknown = selected - EXPORT_FORMATS
+    known = _known_formats()
+    unknown = selected - known
     if unknown:
         raise click.BadParameter(
-            f"unknown format(s) {sorted(unknown)}, expected one of "
-            f"{sorted(EXPORT_FORMATS)}"
+            f"unknown format(s) {sorted(unknown)}, expected one of " f"{sorted(known)}"
         )
     return frozenset(selected)
 
@@ -58,13 +74,13 @@ def _parse_formats(formats: str) -> frozenset[str]:
 )
 @click.option(
     "--state",
-    type=click.Choice(sorted(SCENE_STATES)),
+    type=_StateChoice(sorted(SCENE_STATES)),
     default="assembled",
     show_default=True,
     help="Disassembly pose: assembled (default), field-strip (parts at their "
     "game removal positions), exploded (parts pushed apart) or parts "
-    "(grid layout). Non-assembled scenes export to <weapon>-<state> "
-    "directories.",
+    "(grid layout). Plugin states are accepted too. Non-assembled scenes "
+    "export to <weapon>-<state> directories.",
 )
 @click.option(
     "--explode-distance",
@@ -152,6 +168,27 @@ def _parse_formats(formats: str) -> frozenset[str]:
     "scene directory (smaller HTML, folder must stay together)",
 )
 @click.option(
+    "--texture-size",
+    type=click.IntRange(16, 8192),
+    default=None,
+    help="Downscale textures so the largest side is at most N pixels "
+    "(smaller GLB and viewer.html)",
+)
+@click.option(
+    "--optimize",
+    is_flag=True,
+    default=False,
+    help="Compress the GLB with gltfpack (meshopt) when available "
+    "(WOG_GLTFPACK_PATH or PATH); the offline viewer decodes it",
+)
+@click.option(
+    "--viewer-provider",
+    default="default",
+    show_default=True,
+    help="Viewer provider registered through wog_dump.viewers "
+    "(the built-in three.js viewer is 'default')",
+)
+@click.option(
     "--input-dir",
     type=click.Path(exists=True, path_type=Path),
     help="Directory with decrypted bundles (default: runtime/decrypted)",
@@ -182,6 +219,9 @@ def build_scene(
     animated: bool,
     input_dir: Path | None,
     output_dir: Path | None,
+    texture_size: int | None,
+    optimize: bool,
+    viewer_provider: str,
 ) -> int:
     """Build Blender-ready glTF scenes from decrypted weapon bundles.
 
@@ -235,6 +275,9 @@ def build_scene(
                     assembly_steps=assembly_steps,
                     steps_from=steps_from,
                     animated=animated,
+                    texture_size=texture_size,
+                    optimize=optimize,
+                    viewer_provider=viewer_provider,
                 )
                 exported += 1
                 logger.print_status(f"Scene exported: {glb_path}", "success")

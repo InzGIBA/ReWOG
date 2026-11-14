@@ -18,7 +18,11 @@ from pathlib import Path
 
 from ..utils.logging import get_logger
 
-__all__ = ["copy_viewer_assets", "render_viewer_html"]
+__all__ = [
+    "DefaultViewerProvider",
+    "copy_viewer_assets",
+    "render_viewer_html",
+]
 
 _VENDOR_BASE = "three/addons"
 # Vendored runtime files, copied verbatim into linked-mode output
@@ -27,6 +31,7 @@ _VENDOR_FILES = (
     "addons/loaders/GLTFLoader.js",
     "addons/controls/OrbitControls.js",
     "addons/utils/BufferGeometryUtils.js",
+    "addons/libs/meshopt_decoder.module.js",
 )
 
 
@@ -61,6 +66,9 @@ def _import_map(linked: bool, vendor_base: str = "./vendor") -> str:
             ),
             f"{_VENDOR_BASE}/utils/BufferGeometryUtils.js": _data_uri(
                 _vendor_file("addons/utils/BufferGeometryUtils.js").read_bytes()
+            ),
+            f"{_VENDOR_BASE}/libs/meshopt_decoder.module.js": _data_uri(
+                _vendor_file("addons/libs/meshopt_decoder.module.js").read_bytes()
             ),
         }
     return json.dumps({"imports": mapping}, indent=2)
@@ -121,6 +129,7 @@ def render_viewer_html(
                 "annotations": manifest.get("annotations", []),
                 "meshes": manifest.get("meshes", 0),
             },
+            "states": manifest.get("viewer_states", {}),
         }
     )
     # JSON inside a script tag must not terminate the element
@@ -155,3 +164,33 @@ def copy_viewer_assets(output_dir: Path) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(_vendor_file(relative).read_bytes())
     return target
+
+
+class DefaultViewerProvider:
+    """The built-in three.js viewer as a registry provider.
+
+    Registered through ``wog_dump.viewers`` from the rewog distribution
+    itself; alternative viewers plug in under other names and are
+    selected with ``build-scene --viewer-provider``.
+    """
+
+    name = "default"
+
+    def render_html(
+        self,
+        glb: bytes,
+        manifest: dict,
+        *,
+        linked: bool = False,
+        glb_url: str | None = None,
+        vendor_base: str = "./vendor",
+        font_url_base: str | None = None,
+    ) -> str:
+        return render_viewer_html(
+            glb,
+            manifest,
+            linked=linked,
+            glb_url=glb_url,
+            vendor_base=vendor_base,
+            font_url_base=font_url_base,
+        )

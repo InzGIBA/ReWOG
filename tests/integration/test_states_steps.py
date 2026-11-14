@@ -54,9 +54,18 @@ class TestStatesIntegration:
         manifest = json.loads((out / "scene.json").read_text())
         offsets = [p["offset"] for p in manifest["placements"]]
         assert offsets
-        # every anchored part pushed at least ~0.4 m along its direction
+        # Offsets are local: nested parts with their own anchor move
+        # independently, so their local delta can be small once the
+        # parent already moved. Every top-level part still gets the
+        # full ~0.5 m push along its direction.
         magnitudes = [max(abs(c) for c in offset) for offset in offsets]
-        assert min(magnitudes) > 0.3
+        nested = manifest["skipped"].get("nested_independent", 0)
+        full_push = sum(1 for m in magnitudes if m > 0.3)
+        assert full_push >= len(magnitudes) - nested
+        # Top-level parts get exactly the requested push; a nested part
+        # whose parent moved the opposite way can need up to 2x locally
+        assert any(abs(m - 0.5) < 0.01 for m in magnitudes)
+        assert max(magnitudes) <= 1.0 + 1e-6
 
     def test_parts_grid_grounding(self, builder: SceneBuilder, tmp_path: Path) -> None:
         out = tmp_path / "ak47-parts"

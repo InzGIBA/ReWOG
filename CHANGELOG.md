@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-11-15
+
+### Changed
+
+- Unified console presentation across commands and plugins: status
+  lines, log records and step results share one single-width glyph set
+  (✓ ✗ ⚠ ·) instead of mixed emoji, and the banner is plain text.
+  Tables carry a single rule under a left-aligned bold header with no
+  per-row borders, and long values fold instead of being ellipsized,
+  so paths in `info`, `cache` and the plugin listings stay complete
+  while the 288-row `catalog` fits a third of the previous height. The
+  timing summary uses the same frame; truncated lists (update
+  candidates, invalid assets, sample weapons, validation failures)
+  share one list style, and `unpack-assets --list-extractors` renders
+  as a table
+- The sensitive `.env` notice is quiet by default: it always lands in
+  `wog.log`, but the console line (stderr, so `--json` output stays
+  machine-parseable) only appears with `-v`/`-d`
+
+### Fixed
+
+- `wog-convert-normals` reports its result at default verbosity; the
+  success line previously went through INFO logging and never showed
+- `wog-dump --help` keeps the example block on separate lines instead
+  of collapsing it into one paragraph
+
 ## [3.4.0] - 2026-11-15
 
 ### Added

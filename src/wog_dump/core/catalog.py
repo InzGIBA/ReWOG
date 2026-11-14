@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .config import WOGConfig, get_config
 from .database import WOGDatabase
-from .spider import SYSTEM_ASSETS, ICON_SUFFIX, category_leaves, previews_dir
+from .spider import ICON_SUFFIX, SYSTEM_ASSETS, category_leaves, previews_dir
 
 __all__ = ["CATALOG_SCHEMA", "WeaponEntry", "build_catalog"]
 

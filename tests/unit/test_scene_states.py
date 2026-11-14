@@ -159,9 +159,9 @@ class TestFieldStrip:
         assert placements == []
         assert stats.skipped["unmatched_anchor"] == 1
 
-    def test_nested_part_rides_with_moved_parent(self) -> None:
-        # trigger_group carries trigger; both have anchors, but trigger
-        # must not get its own offset
+    def test_nested_part_with_own_anchor_moves_independently(self) -> None:
+        # trigger_group carries trigger; both have anchors, so each takes
+        # its own game removal position
         trigger = make_node("trigger", translation=(5.0, 24.0, -1.5), mesh=object())
         trigger_group = make_node(
             "_trigger_group",
@@ -176,9 +176,32 @@ class TestFieldStrip:
 
         placements = apply_field_strip(root, UNIT_SCALE, stats)
 
+        assert len(placements) == 2
+        assert world_position(trigger_group, [root]) == pytest.approx((4.7, 21.3, -1.7))
+        assert world_position(trigger, [root, trigger_group]) == pytest.approx(
+            (4.0, 20.0, -1.0)
+        )
+        assert stats.skipped["nested_independent"] == 1
+
+    def test_nested_part_without_anchor_rides_with_moved_parent(self) -> None:
+        trigger = make_node("trigger", translation=(5.0, 24.0, -1.5), mesh=object())
+        trigger_group = make_node(
+            "_trigger_group",
+            translation=(4.9, 24.6, -1.5),
+            mesh=object(),
+            children=[trigger],
+        )
+        root = make_node("root", children=[trigger_group])
+        add_anchor(root, "trigger_group", (4.7, 21.3, -1.7))
+        stats = SceneStats(weapon="ak47")
+
+        placements = apply_field_strip(root, UNIT_SCALE, stats)
+
         assert len(placements) == 1
         assert placements[0].name == "_trigger_group"
         assert stats.skipped["rode_along"] == 1
+        # Relative position inside the group is preserved
+        assert trigger.translation == (5.0, 24.0, -1.5)
 
 
 class TestExploded:
@@ -313,3 +336,100 @@ class TestSceneStatesContract:
         builder = SceneBuilder()
         with pytest.raises(SceneExportError, match="non-negative"):
             builder.build_scene("ak47", state="exploded", explode_distance=-1.0)
+
+
+class TestInAnchors:
+    def _add_in(self, root: Any, base: str, pos: tuple[float, float, float]) -> None:
+        root.children.append(make_node(f"{base}_in", translation=pos))
+
+    def test_reused_name_disambiguated_by_in_position(self) -> None:
+        # Two nodes named "pin": the _in anchor sits next to the second
+        far_pin = make_node("pin", translation=(100.0, 0.0, 0.0), mesh=object())
+        near_pin = make_node("pin", translation=(10.0, 0.0, 0.0), mesh=object())
+        root = make_node("root", children=[far_pin, near_pin])
+        self._add_in(root, "pin", (10.5, 0.0, 0.0))
+        add_anchor(root, "pin", (10.0, -20.0, 0.0))
+        stats = SceneStats(weapon="test")
+
+        placements = apply_field_strip(root, UNIT_SCALE, stats)
+
+        assert len(placements) == 1
+        assert near_pin.translation == pytest.approx((10.0, -20.0, 0.0))
+        assert far_pin.translation == (100.0, 0.0, 0.0)
+
+    def test_without_in_anchor_first_candidate_wins(self) -> None:
+        first = make_node("pin", translation=(100.0, 0.0, 0.0), mesh=object())
+        second = make_node("pin", translation=(10.0, 0.0, 0.0), mesh=object())
+        root = make_node("root", children=[first, second])
+        add_anchor(root, "pin", (0.0, -20.0, 0.0))
+        stats = SceneStats(weapon="test")
+
+        apply_field_strip(root, UNIT_SCALE, stats)
+
+        assert first.translation == pytest.approx((0.0, -20.0, 0.0))
+        assert second.translation == (10.0, 0.0, 0.0)
+
+    def test_anchor_verification_counts_near_and_far(self) -> None:
+        close = make_node("barrel", translation=(-15.0, 21.0, 0.0), mesh=object())
+        distant = make_node("grip", translation=(50.0, 50.0, 0.0), mesh=object())
+        root = make_node("root", children=[close, distant])
+        self._add_in(root, "barrel", (-15.5, 21.4, 0.0))
+        self._add_in(root, "grip", (10.0, 12.0, 0.0))
+        add_anchor(root, "barrel", (-53.0, 21.5, 0.0))
+        add_anchor(root, "grip", (13.0, 5.0, 0.0))
+        stats = SceneStats(weapon="test")
+
+        apply_field_strip(root, UNIT_SCALE, stats)
+
+        assert stats.anchor_checks == {"near": 1, "far": 1}
+
+    def test_zero_in_anchor_ignored(self) -> None:
+        barrel = make_node("barrel", translation=(-15.0, 21.0, 0.0), mesh=object())
+        root = make_node("root", children=[barrel])
+        self._add_in(root, "barrel", (0.0, 0.0, 0.0))
+        add_anchor(root, "barrel", (-53.0, 21.5, 0.0))
+        stats = SceneStats(weapon="test")
+
+        apply_field_strip(root, UNIT_SCALE, stats)
+
+        assert stats.anchor_checks == {}
+
+
+class TestNestedExploded:
+    def test_anchored_nested_part_explodes_independently(self) -> None:
+        trigger = make_node("trigger", translation=(1.0, 0.0, 0.0), mesh=object())
+        group = make_node(
+            "trigger_group",
+            translation=(0.0, 0.0, 0.0),
+            mesh=object(),
+            children=[trigger],
+        )
+        root = make_node("root", children=[group])
+        add_anchor(root, "trigger_group", (0.0, -10.0, 0.0))
+        add_anchor(root, "trigger", (10.0, 0.0, 0.0))
+        stats = SceneStats(weapon="test")
+
+        placements = apply_exploded(root, UNIT_SCALE, 0.2, stats)
+
+        assert len(placements) == 2
+        # Group slides 20 Unity units down its removal direction
+        assert world_position(group, [root]) == pytest.approx((0.0, -20.0, 0.0))
+        # Trigger slides 20 units along +X in world space, despite the
+        # moved parent
+        assert world_position(trigger, [root, group]) == pytest.approx((21.0, 0.0, 0.0))
+        assert stats.skipped["nested_independent"] == 1
+
+    def test_unanchored_nested_part_rides_in_exploded(self) -> None:
+        child = make_node("screw", translation=(1.0, 0.0, 0.0), mesh=object())
+        parent = make_node(
+            "barrel", translation=(10.0, 0.0, 0.0), mesh=object(), children=[child]
+        )
+        root = make_node("root", children=[parent])
+        add_anchor(root, "barrel", (30.0, 0.0, 0.0))
+        stats = SceneStats(weapon="test")
+
+        placements = apply_exploded(root, UNIT_SCALE, 0.2, stats)
+
+        assert len(placements) == 1
+        assert stats.skipped["rode_along"] == 1
+        assert child.translation == (1.0, 0.0, 0.0)

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-gltf"
+version = "0.1.0"
+description = "WOG Dump exporter plugin: GLB to separate .gltf JSON, .bin buffer and textures"
+requires-python = ">=3.12"
+dependencies = ["rewog>=3.3"]
+
+[project.entry-points."wog_dump.exporters"]
+gltf = "wog_plugin_gltf:SeparateGltfExporter"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_gltf"]

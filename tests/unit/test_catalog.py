@@ -161,7 +161,7 @@ class TestCatalogCli:
         result = runner.invoke(cli, ["catalog", "--json"])
         assert result.exit_code == 0, result.output
         # The banner precedes the JSON in standalone invocation output
-        payload = json.loads(result.output[result.output.index("{") :])
+        payload = json.loads(result.stdout[result.stdout.index("{") :])
         assert payload["schema"] == "wog-dump.catalog/3"
         assert {w["name"] for w in payload["weapons"]} == {"ak47", "ak74n"}
         assert payload["weapons"][0]["size_bytes"] == 5000

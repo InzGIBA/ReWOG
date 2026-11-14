@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-mitm"
+version = "0.1.0"
+description = "WOG Dump CLI plugin: import decryption keys and identity from mitmproxy captures"
+requires-python = ">=3.12"
+dependencies = ["rewog>=3.3", "mitmproxy>=10.0"]
+
+[project.entry-points."wog_dump.commands"]
+import-keys = "wog_plugin_mitm.cli:import_keys"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_mitm"]

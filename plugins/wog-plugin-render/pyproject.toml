@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-render"
+version = "0.1.0"
+description = "WOG Dump CLI plugin: turntable previews and videos through headless Blender"
+requires-python = ">=3.12"
+dependencies = ["rewog>=3.3"]
+
+[project.entry-points."wog_dump.commands"]
+render = "wog_plugin_render.cli:render"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_render"]

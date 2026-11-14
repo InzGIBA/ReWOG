@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-3mf"
+version = "0.1.0"
+description = "WOG Dump exporter plugin: GLB to 3MF (3D Manufacturing Format) for 3D printing"
+requires-python = ">=3.12"
+dependencies = ["rewog>=3.3", "trimesh>=4.0"]
+
+[project.entry-points."wog_dump.exporters"]
+threemf = "wog_plugin_3mf:ThreeMFExporter"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_3mf"]

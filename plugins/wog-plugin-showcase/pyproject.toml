@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-showcase"
+version = "0.1.0"
+description = "WOG Dump scene-state plugin: circular showcase carousel layout"
+requires-python = ">=3.12"
+dependencies = ["rewog>=3.3"]
+
+[project.entry-points."wog_dump.scene_states"]
+showcase = "wog_plugin_showcase:ShowcaseState"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_showcase"]

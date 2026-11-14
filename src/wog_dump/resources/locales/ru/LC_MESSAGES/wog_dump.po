@@ -50,3 +50,51 @@ msgstr[2] "Показано {n} оружий"
 
 msgid "All {count} assets up to date"
 msgstr "Все {count} ассеты уже актуальны"
+
+msgid "Asset update check"
+msgstr "Проверка обновлений ассетов"
+
+msgid "Weapon"
+msgstr "Оружие"
+
+msgid "Status"
+msgstr "Статус"
+
+msgid "Reason"
+msgstr "Причина"
+
+msgid "Local size"
+msgstr "Локальный размер"
+
+msgid "Server size"
+msgstr "Размер на сервере"
+
+msgid "Summary"
+msgstr "Итоги"
+
+msgid "Count"
+msgstr "Количество"
+
+msgid "All checked assets are up to date"
+msgstr "Все проверенные ассеты актуальны"
+
+msgid "No downloaded assets to check; run 'download-assets' first"
+msgstr "Нет скачанных ассетов для проверки; сначала выполните 'download-assets'"
+
+msgid "{count} asset(s) changed; run 'update --apply' to refresh them"
+msgstr "Изменено ассетов: {count}; выполните 'update --apply', чтобы обновить их"
+
+msgid "{count} asset(s) could not be checked"
+msgstr "Не удалось проверить ассетов: {count}"
+
+msgid "{count} asset(s) no longer on the server"
+msgstr "Ассетов больше нет на сервере: {count}"
+
+msgid "Updated {count} asset(s): {decrypted} decrypted, {unpacked} unpacked"
+msgstr "Обновлено ассетов: {count}; расшифровано: {decrypted}, распаковано: {unpacked}"
+
+msgid "Update failed for {failed} download(s), {decrypt} decryption(s)"
+msgstr "Не удалось обновить: скачиваний — {failed}, расшифровок — {decrypt}"
+
+msgid "No plugins installed"
+msgstr "Плагины не установлены"

@@ -5,10 +5,8 @@ omit =
     */tests/*
     */test_*
     */__pycache__/*
-    # Blender templates: run only inside Blender, never importable here
+    # Blender template: runs only inside Blender, never importable here
     */resources/blender_setup.py
-    */resources/render_turntable.py
-    */resources/render_video.py
 
 [report]
 fail_under = 85

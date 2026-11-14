@@ -61,20 +61,8 @@ test = [
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
 ]
-mitm = [
-    "mitmproxy>=10.0",
-]
 usd = [
     "usd-core>=24.0",
-]
-web = [
-    "fastapi>=0.110",
-    "uvicorn>=0.29",
-]
-print = [
-    "trimesh>=4.0",
-    "numpy>=1.26",
-    "networkx>=3.0",
 ]
 
 [project.urls]
@@ -89,6 +77,24 @@ Issues = "https://github.com/InzGIBA/ReWOG/issues"
 wog-dump = "wog_dump.cli.main:main"
 wog-convert-normals = "wog_dump.utils.normal_map:cli_main"
 
+# Built-in extensions register through the same entry-point groups as
+# third-party plugins (entries from the rewog distribution are reported
+# as "built-in"). Optional features live in plugins/: wog-plugin-web,
+# wog-plugin-render, wog-plugin-print, wog-plugin-mitm.
+[project.entry-points."wog_dump.exporters"]
+stl = "wog_dump.core.export:stl_exporter"
+fbx = "wog_dump.core.export:fbx_exporter"
+usd = "wog_dump.core.export:usd_exporter"
+usdz = "wog_dump.core.export:usdz_exporter"
+
+[project.entry-points."wog_dump.scene_states"]
+field-strip = "wog_dump.core.scene_states:FieldStripState"
+exploded = "wog_dump.core.scene_states:ExplodedState"
+parts = "wog_dump.core.scene_states:PartsState"
+
+[project.entry-points."wog_dump.viewers"]
+default = "wog_dump.core.viewer:DefaultViewerProvider"
+
 [tool.hatch.version]
 path = "src/wog_dump/__init__.py"
 
@@ -96,6 +102,9 @@ path = "src/wog_dump/__init__.py"
 # The import package keeps the wog_dump name; only the PyPI
 # distribution is named rewog
 packages = ["src/wog_dump"]
+
+[tool.hatch.build.hooks.custom]
+# hatch_build.py compiles the locale catalogs into the artifacts
 
 [tool.black]
 line-length = 88
@@ -113,6 +122,7 @@ extend-exclude = '''
   | build
   | dist
   | wog_dump/resources
+  | plugins/wog-plugin-render/src/wog_plugin_render/resources
 )/
 '''
 
@@ -124,7 +134,7 @@ known_first_party = ["wog_dump"]
 
 [tool.mypy]
 python_version = "3.12"
-exclude = 'src/wog_dump/resources/(blender_setup|render_turntable|render_video)\.py'
+exclude = 'src/wog_dump/resources/blender_setup\.py'
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

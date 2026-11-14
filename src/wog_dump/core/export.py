@@ -13,7 +13,10 @@ metadata instead (metersPerUnit), FBX keeps Blender-native units.
 
 Adding a format means adding an exporter class with an ``export(scene,
 glb_path, output_dir, options)`` method and registering it in
-``EXPORTERS`` (same pattern as the unpacker registry).
+``EXPORTERS`` (same pattern as the unpacker registry). Third-party
+formats arrive through the ``wog_dump.exporters`` entry-point group
+(see ``core.extensions``); a plugin may also override a built-in
+format, announced with a warning at load time.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -625,6 +628,41 @@ def _registry() -> dict[str, Callable[[], SceneExporter]]:
 EXPORTERS = _registry()
 
 
+class _BuiltinExporterAdapter:
+    """Adapt a built-in SceneExporter factory to the plugin contract.
+
+    Registered through the ``wog_dump.exporters`` entry-point group
+    from the rewog distribution itself, so built-in and third-party
+    formats flow through one mechanism.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        factory: Callable[[], SceneExporter],
+        extensions: tuple[str, ...],
+    ) -> None:
+        self.name = name
+        self.extensions = extensions
+        self._factory = factory
+
+    def convert(self, glb_path: Path, output_dir: Path, **options: Any) -> list[Path]:
+        opts = ExportOptions(
+            units=str(options.get("units", "m")),
+            per_part=bool(options.get("per_part", False)),
+        )
+        scene = parse_glb(glb_path)
+        return self._factory().export(scene, glb_path, output_dir, opts)
+
+
+stl_exporter = _BuiltinExporterAdapter("stl", STLExporter, (".stl",))
+fbx_exporter = _BuiltinExporterAdapter("fbx", FBXExporter, (".fbx",))
+usd_exporter = _BuiltinExporterAdapter("usd", USDExporter, (".usd",))
+usdz_exporter = _BuiltinExporterAdapter(
+    "usdz", lambda: USDExporter(format="usdz"), (".usdz",)
+)
+
+
 def convert_format(
     glb_path: Path,
     format: str,
@@ -632,6 +670,14 @@ def convert_format(
     options: ExportOptions | None = None,
 ) -> list[Path]:
     """Convert one built GLB scene to a target format (library entry)."""
+    # Lazy import: extensions reads EXPORT_FORMATS back from this module
+    from .extensions import load_exporters
+
+    plugin = load_exporters().get(format)
+    if plugin is not None:
+        return plugin.convert(
+            glb_path, output_dir, **asdict(options or ExportOptions())
+        )
     if format not in EXPORT_FORMATS:
         raise ExportError(
             f"Unknown export format {format!r}, expected one of {sorted(EXPORT_FORMATS)}"

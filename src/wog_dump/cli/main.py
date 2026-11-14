@@ -6,6 +6,7 @@ only defines the top-level group, global options and ``main()``.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -27,11 +28,10 @@ from .download import download_assets, download_weapons
 from .errors import OperationCancelled
 from .info import info
 from .pipeline import full_pipeline
-from .print_export import print_export
-from .render import render
+from .plugins import plugins
 from .scene import build_scene
-from .serve import serve
 from .unpack import unpack_assets
+from .update import update
 
 
 def load_env_file(env_path: Path) -> list[str]:
@@ -154,10 +154,13 @@ def cli(
     if applied_env:
         sensitive = sorted(set(applied_env) & _SENSITIVE_ENV_KEYS)
         if sensitive:
-            logger.warning(
+            # stderr keeps --json output on stdout machine-parseable
+            message = (
                 f"Applied credential-affecting keys from {Path.cwd() / '.env'}: "
                 f"{', '.join(sensitive)}. Make sure this .env is your own."
             )
+            logger.log_file_only(message, level=logging.WARNING)
+            print(f"⚠ {message}", file=sys.stderr)
         else:
             logger.info(f"Applied {len(applied_env)} keys from working-directory .env")
 
@@ -212,8 +215,6 @@ cli.add_command(decrypt_assets)
 cli.add_command(unpack_assets)
 cli.add_command(convert_normals)
 cli.add_command(build_scene)
-cli.add_command(render)
-cli.add_command(print_export)
 cli.add_command(full_pipeline)
 cli.add_command(login)
 cli.add_command(logout)
@@ -221,7 +222,25 @@ cli.add_command(register)
 cli.add_command(cache)
 cli.add_command(catalog)
 cli.add_command(info)
-cli.add_command(serve)
+cli.add_command(update)
+cli.add_command(plugins)
+
+
+def _register_plugin_commands() -> None:
+    """Add third-party CLI commands; built-in names always win."""
+    from ..core.extensions import load_plugin_commands
+
+    logger = get_logger()
+    for command in load_plugin_commands(logger):
+        if command.name in cli.commands:
+            logger.warning(
+                f"Plugin command {command.name!r} conflicts with a built-in, skipped"
+            )
+            continue
+        cli.add_command(command)
+
+
+_register_plugin_commands()
 
 
 def main() -> None:

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-print"
+version = "0.1.0"
+description = "WOG Dump CLI plugin: slicer-ready STL print preparation"
+requires-python = ">=3.12"
+dependencies = ["rewog>=3.3", "trimesh>=4.0", "numpy>=1.26", "networkx>=3.0"]
+
+[project.entry-points."wog_dump.commands"]
+print-export = "wog_plugin_print.cli:print_export"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_print"]

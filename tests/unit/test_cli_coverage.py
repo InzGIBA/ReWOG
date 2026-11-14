@@ -262,53 +262,6 @@ class TestSceneCommandFormats:
         assert passed.name == "m4a1-field-strip"
 
 
-class TestServeCommand:
-    def test_serve_without_extra(self, isolated_base: Path, monkeypatch: Any) -> None:
-        real_import = __import__
-
-        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == "uvicorn":
-                raise ImportError("no uvicorn")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr("builtins.__import__", fake_import)
-        runner = CliRunner()
-        result = runner.invoke(cli, ["serve", "--no-browser"])
-        assert result.exit_code == 1
-        assert "web extra" in result.output
-
-    def test_serve_starts_uvicorn(self, isolated_base: Path, monkeypatch: Any) -> None:
-        import sys
-
-        fake_uvicorn = Mock()
-        monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
-        runner = CliRunner()
-        result = runner.invoke(cli, ["serve", "--no-browser", "--port", "9001"])
-        assert result.exit_code == 0, result.output
-        fake_uvicorn.run.assert_called_once()
-        call_args = fake_uvicorn.run.call_args
-        assert call_args.kwargs["port"] == 9001
-        assert call_args.kwargs["host"] == "127.0.0.1"
-
-
-class TestOpenBrowserQuietly:
-    def test_returns_bool_and_keeps_stdio_intact(self, capsys: Any) -> None:
-        from wog_dump.cli.serve import open_browser_quietly
-
-        result = open_browser_quietly("http://127.0.0.1:1/nowhere")
-        assert isinstance(result, bool)
-        # The fd juggling must not leak: a later print still lands on stdout
-        print("still-here")
-        assert "still-here" in capsys.readouterr().out
-
-    def test_no_desktop_helper_noise_on_stdout(self, capsys: Any) -> None:
-        from wog_dump.cli.serve import open_browser_quietly
-
-        open_browser_quietly("http://127.0.0.1:1/nowhere")
-        captured = capsys.readouterr()
-        assert "Operation not supported" not in captured.out + captured.err
-
-
 class TestInfoCommand:
     def test_info_tables_render(self, isolated_base: Path) -> None:
         runner = CliRunner()
@@ -326,7 +279,7 @@ class TestInfoCommand:
             ]
             result = runner.invoke(cli, ["info", "--protocol-probe", "--probe-json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output[result.output.index("{") :])
+        payload = json.loads(result.stdout[result.stdout.index("{") :])
         assert payload["schema"] == "wog-dump.probe/1"
         assert payload["verdict"] == "ok"
 

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wog-plugin-export-obj"
+version = "0.1.0"
+description = "Example WOG Dump exporter plugin: GLB to OBJ via trimesh"
+requires-python = ">=3.12"
+dependencies = ["trimesh>=4.0"]
+
+[project.entry-points."wog_dump.exporters"]
+obj = "wog_plugin_export_obj:ObjExporter"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wog_plugin_export_obj"]

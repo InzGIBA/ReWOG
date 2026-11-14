@@ -1,16 +1,25 @@
 # Architecture Overview
 
-WOG Dump is a layered command-line pipeline. The tool downloads encrypted
-Unity bundles from the game's asset servers, decrypts each bundle with a
-per-asset XOR key and unpacks the 3D models inside. On top of the
-pipeline sit the scene exporter (assembled and disassembly poses), the
-format converters, the viewer and preview/video renderers, the print
-preparer, the catalog, the protocol probe and a local web UI.
+WOG Dump is a stable core plus plugins. The core is a layered
+command-line pipeline: it downloads encrypted Unity bundles from the
+game's asset servers, decrypts each bundle with a per-asset XOR key and
+unpacks the 3D models inside, then builds scenes (assembled and
+disassembly poses), converts formats and generates the offline viewer.
+Optional features — the web UI, preview/video rendering, print
+preparation, MITM key import — ship as plugins: separate pip packages
+that register through entry points. Built-in exporters, scene states
+and the default viewer register through the same mechanism from the
+core distribution itself.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
+│  plugins/    pip packages, entry points → core registry      │
+│    wog-plugin-web │ wog-plugin-render │ wog-plugin-print     │
+│    wog-plugin-mitm │ wog-plugin-3mf │ wog-plugin-gltf        │
+│    wog-plugin-showcase │ wog-plugin-report │ (third-party)   │
+├──────────────────────────────────────────────────────────────┤
 │  cli/       Click commands, one module per group             │
-│    main.py    top-level group, global options                │
+│    main.py    top-level group + plugin command registration  │
 │    errors.py  shared error handling                          │
 ├──────────────────────────────────────────────────────────────┤
 │  core/      domain logic, no Click imports                   │
@@ -19,18 +28,40 @@ preparer, the catalog, the protocol probe and a local web UI.
 │    decrypt.py  │    database.py (SQLite store)               │
 │    unpack.py   │    config.py  (Pydantic settings)           │
 │    scene.py ── scene_states.py ── scene_steps.py ── anim.py  │
-│    export.py ── viewer.py ── render.py ── printprep.py       │
+│    export.py ── viewer.py ── extensions.py (plugin registry) │
 │    catalog.py ── probe.py ── glb.py ── transforms.py         │
 ├──────────────────────────────────────────────────────────────┤
 │  utils/     logging, normal maps, i18n, progress             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Dependency direction is strictly downwards: `cli → core → utils`. The
-`core` modules never import from `cli`. Inside `core` the newer modules
-keep the same rule: `scene_states.py` and `scene_steps.py` never import
-from `scene.py`, they receive the tree as a structural annotation, so
-the dependency stays one-way (`scene → scene_states`).
+Dependency direction is strictly downwards: `plugins → cli → core →
+utils`. The `core` modules never import from `cli` or from plugins;
+plugins reach the core only through its public API. Inside `core` the
+newer modules keep the same rule: `scene_states.py` and
+`scene_steps.py` never import from `scene.py`, they receive the tree as
+a structural annotation, so the dependency stays one-way
+(`scene → scene_states`).
+
+## Plugin architecture
+
+Five entry-point groups (`core/extensions.py`, contract version
+`PLUGIN_API_VERSION`):
+
+| Group | Contract | Built-in entries |
+|---|---|---|
+| `wog_dump.extractors` | per-Unity-type `AssetExtractor` | Texture2D, Mesh, … |
+| `wog_dump.exporters` | `name`, `extensions`, `convert(glb_path, output_dir, **options)` | stl, fbx, usd, usdz |
+| `wog_dump.commands` | Click command/group | — (optional features) |
+| `wog_dump.scene_states` | `name`, `layout(root, unit_scale, stats, **options)` | field-strip, exploded, parts |
+| `wog_dump.viewers` | `name`, `render_html(glb, manifest, *, linked, …)` | default |
+
+Entries shipped by the `rewog` distribution are reported as `built-in`;
+a third-party plugin overriding a built-in wins with a warning naming
+its package. Broken plugins log a warning and never break the pipeline.
+The contract is pinned by `tests/unit/test_plugin_api_contract.py`;
+see [plugins.md](plugins.md) for authoring guidance and the scaffold
+(`scripts/new_plugin.py`).
 
 ## The pipeline
 
@@ -69,11 +100,14 @@ the dependency stays one-way (`scene → scene_states`).
    animation curves for `--animations` and the placing animation for
    `--animated`.
 8. **Formats and extras**: `core/export.py` reads the written GLB back
-   and converts it to STL, USD/USDZ (through the `usd-core` extra) or
-   FBX (through headless Blender). `core/viewer.py` renders the offline
-   HTML viewer, `core/render.py` drives headless Blender for turntable
-   previews and videos, `core/printprep.py` repairs parts and writes
-   slicer-ready STLs with a per-part watertight report.
+   and dispatches the target format through the exporter registry:
+   built-in STL, USD/USDZ (through the `usd-core` extra) and FBX
+   (through headless Blender), plus any plugin format (3MF, separate
+   glTF, …). `core/viewer.py` renders the offline HTML viewer (the
+   `default` viewer provider; alternatives plug in through
+   `wog_dump.viewers`). Preview/video rendering (`wog-plugin-render`)
+   and print preparation (`wog-plugin-print`) are plugins driving
+   headless Blender and trimesh respectively.
 
 ## Module map
 
@@ -85,10 +119,9 @@ the dependency stays one-way (`scene → scene_states`).
 | `cli/unpack.py` | `unpack-assets`, `--list-extractors` |
 | `cli/convert.py` | `convert-normals` |
 | `cli/scene.py` | `build-scene` (states, steps, animations, formats, viewer) |
-| `cli/render.py` | `render` (turntable previews, `--video`) |
-| `cli/print_export.py` | `print-export` |
 | `cli/catalog.py` | `catalog` (status table, JSON schema) |
-| `cli/serve.py` | `serve` (local web UI) |
+| `cli/plugins.py` | `plugins` (installed extensions, `--json`) |
+| `cli/update.py` | `update` (hash/ETag asset refresh) |
 | `cli/pipeline.py` | `full-pipeline` (chains the commands above) |
 | `cli/auth.py` | `login`, `logout`, `register` |
 | `cli/cache.py` | `cache` (database management) |
@@ -113,19 +146,29 @@ the dependency stays one-way (`scene → scene_states`).
 | `core/glb.py` | In-package glTF 2.0 / GLB writer (meshes, materials, animations) |
 | `core/export.py` | Format conversion: STL, USD/USDZ, FBX (`parse_glb` + registry) |
 | `core/viewer.py` | Offline HTML viewer generation (three.js embedded) |
-| `core/render.py` | Headless Blender driver: previews, GIFs, videos |
-| `core/printprep.py` | Print diagnostics and repair through trimesh |
+| `core/extensions.py` | Plugin registry: five entry-point groups, API version |
+| `core/optimize.py` | Optional gltfpack compression (`--optimize`) |
 | `core/probe.py` | Protocol compatibility cascade (`info --protocol-probe`) |
-| `core/key_import.py` | Parsing of MITM captures (mitmproxy/Fiddler/flat) |
-| `core/webapp/app.py` | Local web UI (FastAPI, token-guarded) |
+| `core/spider.py` | System catalog bundle: icons, cards, bilingual metadata |
 | `resources/blender_setup.py` | Template for the generated Blender setup script |
-| `resources/render_turntable.py` | Template for preview renders |
-| `resources/render_video.py` | Template for video renders |
 | `resources/viewer/` | Vendored three.js runtime and viewer templates |
 | `utils/logging.py` | stdlib `logging` + Rich handlers, performance monitor |
 | `utils/normal_map.py` | Unity → standard normal map conversion |
 | `utils/i18n.py` | gettext wrapper for CLI messages (`t()`, `tn()`) |
 | `utils/progress.py` | Byte-level download progress tracker |
+
+### Plugins (separate packages in `plugins/`)
+
+| Package | Registers | Responsibility |
+|---|---|---|
+| `wog-plugin-web` | `serve` command | Local web UI (FastAPI, token-guarded, job queue) |
+| `wog-plugin-render` | `render` command | Headless Blender driver: previews, GIFs, videos |
+| `wog-plugin-print` | `print-export` command | Print diagnostics, repair, orientation, estimates |
+| `wog-plugin-mitm` | `import-keys` command | Parsing of MITM captures (mitmproxy/Fiddler/flat) |
+| `wog-plugin-3mf` | `3mf` exporter | Print-ready 3MF packages |
+| `wog-plugin-gltf` | `gltf` exporter | Separate `.gltf` + `.bin` + textures |
+| `wog-plugin-showcase` | `showcase` state | Circular carousel layout |
+| `wog-plugin-report` | `scene-report` command | Markdown/JSON scene reports |
 
 ## Conventions
 

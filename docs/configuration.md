@@ -51,6 +51,7 @@ against the live servers and tells you which side moved.
 | `WOG_LOCALE` | `en` | CLI message language. `ru` ships a compiled catalog; any other value falls back to English. The `--locale` flag wins over this setting. |
 | `WOG_NO_PROGRESS` | unset | Set to any value to disable progress bars (same as `--no-progress`). Bars also switch off automatically when the output is not a terminal. |
 | `WOG_BLENDER_PATH` | found on PATH | Blender binary used by `render` (previews and videos) and `--format fbx`. Set this when Blender is installed but not on PATH, for example a Windows `.exe` used from WSL. |
+| `WOG_GLTFPACK_PATH` | found on PATH | gltfpack binary (from meshoptimizer) used by `build-scene --optimize`. Without it the flag logs a warning and the GLB stays uncompressed. |
 
 The game version strings must match the current `disasm64.exe` client.
 Wrong values are rejected server-side. Update the strings when the game
@@ -126,18 +127,24 @@ wog-dump --no-progress full-pipeline
 Run `wog-dump info` at any time to print the effective configuration,
 where your database lives and what is logged in.
 
-## Optional extras
+## Optional extras and plugins
 
 The core install keeps a small dependency list. Capabilities with heavier
-dependencies live in extras:
+dependencies live in plugins (pip packages in `plugins/`, registered
+through entry points):
 
-| Extra | Adds | Commands |
+| Package | Adds | Commands |
 |---|---|---|
-| `rewog[usd]` | `usd-core` (Pixar) | `build-scene --format usd,usdz` |
-| `rewog[web]` | `fastapi`, `uvicorn` | `wog-dump serve` |
-| `rewog[print]` | `trimesh`, `numpy`, `networkx` | `wog-dump print-export` |
-| `rewog[mitm]` | `mitmproxy` | reading `.flows` captures |
-| `rewog[dev]` | test and docs tooling | development |
+| `rewog[usd]` (extra) | `usd-core` (Pixar) | `build-scene --format usd,usdz` |
+| `wog-plugin-web` | `fastapi`, `uvicorn` | `wog-dump serve` |
+| `wog-plugin-print` | `trimesh`, `numpy`, `networkx` | `wog-dump print-export` |
+| `wog-plugin-render` | — (needs Blender) | `wog-dump render` |
+| `wog-plugin-mitm` | `mitmproxy` | `wog-dump import-keys`, reading `.flows` captures |
+| `rewog[dev]` (extra) | test and docs tooling | development |
+
+Install plugins from a source checkout with
+`uv pip install -e plugins/wog-plugin-web` (or `pip install
+./plugins/wog-plugin-web`); `wog-dump plugins` lists what is registered.
 
 FBX export and the preview/video renderers need a Blender installation
 (`WOG_BLENDER_PATH` or PATH), no extra package.

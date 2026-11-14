@@ -92,12 +92,18 @@ Anchor bases never match the anchor nodes themselves.
 
 ## Known limits
 
-- Nested parts (example: trigger inside `_trigger_group`) ride with
-  their parent in field-strip and exploded states instead of taking
-  an independent position. Recorded in the manifest as rode-along.
+- Nested parts without their own anchor ride with their parent in
+  field-strip and exploded states (recorded as rode-along). Nested
+  parts **with** their own `_out` anchor take an independent removal
+  position: the child is retargeted against the parent's already-moved
+  world matrix (recorded as nested-independent).
 - Name reuse across the hierarchy (ak47 has 540 nodes, short names
-  repeat) means a match takes the first mesh-bearing node in tree
-  order. The `_parts` list matched without collisions on the
-  inspected weapons.
-- The `_in` anchors are ignored. A future pass could use them to
-  verify assembled positions per part.
+  repeat) keeps all mesh-bearing candidates. When an `_in` anchor
+  exists for the base name, the candidate whose assembled origin is
+  closest to it wins; otherwise the first in tree order is used. The
+  `_parts` list matched without collisions on the inspected weapons.
+- The `_in` anchors verify assembled positions: the manifest's
+  `anchor_checks` counts matched parts whose origin lands within 5
+  Unity units of the `_in` position (`near`) versus farther (`far`).
+  Pivots differ between part and anchor, so this is a report, not a
+  hard constraint.

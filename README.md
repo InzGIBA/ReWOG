@@ -30,7 +30,7 @@ WOG Dump automates the full path from the game's servers to usable 3D data: weap
 - **Output:** decrypted Unity bundles, extracted models and textures (OBJ, PNG, TGA), glTF scenes in assembled or disassembled poses, an offline HTML viewer, STL/USD/USDZ/FBX export, print-ready parts and turntable videos
 - **Scope:** personal, educational and research use, extracted assets remain the property of Noble Empire Corp. (see [License](#license))
 
-> **What's new:** this release adds disassembly states and animated step-by-step builds, a self-contained HTML viewer with part annotations, STL/USD/USDZ/FBX export, print preparation, turntable and clip videos, the `catalog` command, a local web UI, CLI localization (Russian), a protocol compatibility probe, Docker images, a Blender addon and third-party extractor plugins. Full history: [CHANGELOG.md](CHANGELOG.md).
+> **What's new:** this release adds full PBR materials (normal/metallic/roughness maps when the game ships them), an interactive viewer with animation playback, live state switching and an explode slider, scene optimization (`--texture-size`, shared texture store, optional gltfpack compression), hash-based incremental updates (`update`), a web UI with a persistent job queue and Russian interface, print preparation 2.0 (auto-orientation, bed splitting, cost estimates), independent placement of nested parts via `_in` anchors, and plugin exporters, CLI commands and scene states. Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -47,19 +47,20 @@ WOG Dump automates the full path from the game's servers to usable 3D data: weap
   <img alt="Private by design, your own account login, keys stay in SQLite" src="assets/feature-03-light.svg" width="32%">
 </picture>
 
-- **Full pipeline**: one command goes from weapon catalog to keys, download, decryption and unpacking. Downloads run in parallel, respect rate limits and resume after interruptions.
-- **Blender-ready scenes**: `build-scene` rebuilds the assembled weapon exactly like in game: part hierarchy and positions, game materials with textures, camera and studio lighting, real-world scale. UI arrows, cutaway meshes and VFX are classified and skipped unless you ask for them with `--extras`.
-- **Disassembly states**: `--state field-strip` puts parts where the game itself puts them after removal, `--state exploded` pushes them apart along removal directions, `--state parts` lays everything out in a grid. `--assembly-steps` writes a step-by-step build, and `--animated` adds one glTF animation placing part after part.
-- **Offline HTML viewer**: `--viewer` embeds the scene and the three.js runtime into one `viewer.html`: open it in any browser, click parts to highlight them, read annotations with part sizes. No Blender, no internet, no install.
-- **Animations**: `--animations` embeds the bundle's operate animation (fire, reload, safety) as real glTF animation tracks.
-- **Export formats**: `--format stl,usd,usdz,fbx` converts a built scene: binary STL for slicers (units baked in), USD/USDZ for AR with preview materials, FBX through headless Blender.
-- **Print preparation**: `print-export` repairs and checks every part with trimesh, reports watertight status per part and writes millimeter-true STLs.
+- **Full pipeline**: one command goes from weapon catalog to keys, download, decryption and unpacking. Downloads run in parallel, respect rate limits and resume after interruptions. `update` re-checks downloaded assets against the server by hash/ETag and refreshes only what changed.
+- **Blender-ready scenes**: `build-scene` rebuilds the assembled weapon exactly like in game: part hierarchy and positions, game materials with textures (base color plus normal/metallic-roughness/occlusion maps when the bundle carries them), camera and studio lighting, real-world scale. UI arrows, cutaway meshes and VFX are classified and skipped unless you ask for them with `--extras`.
+- **Disassembly states**: `--state field-strip` puts parts where the game itself puts them after removal, `--state exploded` pushes them apart along removal directions, `--state parts` lays everything out in a grid. Nested parts with their own removal anchor take independent positions; `_in` anchors disambiguate reused names and verify assembled origins. `--assembly-steps` writes a step-by-step build, and `--animated` adds one glTF animation placing part after part.
+- **Interactive offline viewer**: `--viewer` embeds the scene and the three.js runtime into one `viewer.html`: open it in any browser, click parts to highlight them, read annotations with part sizes, play the embedded animations, switch disassembly states live, drag the explode slider, search/hide/isolate parts and save PNG screenshots. English and Russian interfaces. No Blender, no internet, no install.
+- **Animations**: `--animations` embeds the bundle's operate animation (fire, reload, safety) as real glTF animation tracks, playable in the viewer with clip selection, timeline and speed control.
+- **Scene optimization**: `--texture-size N` downscales textures, identical textures are stored once and hardlinked into every scene, and `--optimize` compresses the GLB with [gltfpack](https://github.com/zeux/meshoptimizer) (meshopt) when it is installed — the offline viewer decodes it natively.
+- **Export formats**: `--format stl,usd,usdz,fbx` converts a built scene: binary STL for slicers (units baked in), USD/USDZ for AR with preview materials, FBX through headless Blender. Third-party formats plug in through entry points.
+- **Print preparation**: `print-export` repairs and checks every part with trimesh, reports watertight status per part and writes millimeter-true STLs. `--orient` lays the largest supporting face on the bed, `--bed-size` splits oversized parts, `--estimate` reports volume, mass, print time and filament cost.
 - **Previews and video**: `render` turns a built scene into transparent turntable PNGs plus a GIF, `--video` encodes an orbit MP4 or one animation clip, all through headless Blender.
 - **Catalog**: `catalog` lists every weapon with its pipeline status and sizes, filters by name and stage, and emits a stable JSON schema other tools build on.
-- **Web UI**: `serve` opens a local page with the same catalog, a 3D viewer per weapon and stage buttons with live logs.
+- **Web UI**: `serve` opens a local page with the same catalog, a 3D viewer per weapon and every pipeline stage as a form. Jobs run through a persistent queue with history, cancellation and log replay after reconnects; the interface speaks English and Russian.
 - **Protocol probe**: `info --protocol-probe` answers "did I break something or did the game update" in one run: endpoint reachability, anonymous query, authenticated key query, weapon list, client version. Any failure exits with code 2.
-- **Plugins**: third-party packages register extra Unity-type extractors through entry points, no fork needed (see [docs/plugins.md](docs/plugins.md)).
-- **Localization**: `--locale ru` switches CLI messages to Russian, unknown locales fall back to English silently.
+- **Plugins**: third-party packages register extra Unity-type extractors, export formats, CLI commands and scene states through entry points, no fork needed. `wog-dump plugins` lists what is installed, `scripts/new_plugin.py` scaffolds a new plugin, and `plugins/` ships official feature plugins (3MF and separate-glTF export, showcase layout, scene reports). See [docs/plugins.md](docs/plugins.md).
+- **Localization**: `--locale ru` switches CLI messages to Russian (full catalog coverage), the web UI and the offline viewer ship English/Russian interfaces; unknown locales fall back to English silently.
 - **Private by design**: log in with your own game account (`login` / `register`) or a captured session. Credentials, sessions, keys and the weapon list live in a per-user SQLite database with owner-only permissions, no secrets ship with the repository.
 
 ## Quick start
@@ -82,11 +83,20 @@ pip install rewog
 
 # USD/USDZ export support:
 pip install "rewog[usd]"
-# local web UI:
-pip install "rewog[web]"
-# print preparation:
-pip install "rewog[print]"
 ```
+
+Optional features are plugins (pip packages registered through entry
+points). From a source checkout:
+
+```bash
+pip install ./plugins/wog-plugin-web      # local web UI (serve)
+pip install ./plugins/wog-plugin-print    # print preparation (print-export)
+pip install ./plugins/wog-plugin-render   # previews and videos (render)
+pip install ./plugins/wog-plugin-mitm     # key import from traffic (import-keys)
+```
+
+`wog-dump plugins` lists everything installed; `python scripts/new_plugin.py`
+scaffolds your own.
 
 From source (for development):
 
@@ -146,6 +156,16 @@ wog-dump build-scene ak47 --viewer --annotate
 # Print a part
 wog-dump print-export ak47 --part bolt
 
+# Print preparation 2.0: orient, split for the bed, estimate cost
+wog-dump print-export ak47 --orient --bed-size 220x220x250 --estimate
+
+# Smaller scenes: downscale textures and compress with gltfpack
+wog-dump build-scene ak47 --viewer --texture-size 1024 --optimize
+
+# Did the game update its assets since my download?
+wog-dump update
+wog-dump update --apply
+
 # Turntable previews and an orbit video
 wog-dump render ak47
 wog-dump render ak47 --video --duration 8
@@ -168,9 +188,11 @@ wog-dump download-assets --update-keys # download bundles + fresh keys
 wog-dump decrypt-assets                # XOR-decrypt the bundles
 wog-dump unpack-assets                 # extract models and textures
 wog-dump build-scene ak47              # Blender-ready glTF scene
+wog-dump update                        # check assets for server-side changes
 wog-dump render ak47                   # turntable previews; --video for MP4
 wog-dump print-export ak47             # print-ready STLs with diagnostics
 wog-dump catalog                       # per-weapon status table
+wog-dump plugins                       # installed extensions across all groups
 wog-dump convert-normals ./unpacked --recursive   # optional: fix normal maps
 ```
 
@@ -189,6 +211,9 @@ Every command documents itself: `wog-dump --help` and `wog-dump <command> --help
 | `--assembly-steps` / `--animated` | Step-by-step build, add a placing animation | `wog-dump build-scene ak47 --assembly-steps 5 --animated` |
 | `--animations` | Embed the operate animation in the GLB | `wog-dump build-scene ak47 --animations` |
 | `--viewer` / `--annotate` | Self-contained HTML viewer, add part markers | `wog-dump build-scene ak47 --viewer --annotate` |
+| `--texture-size` | Downscale textures to at most N pixels | `wog-dump build-scene ak47 --texture-size 1024` |
+| `--optimize` | Compress the GLB with gltfpack when available | `wog-dump build-scene ak47 --optimize` |
+| `--orient` / `--bed-size` / `--estimate` | Print orientation, bed splitting, cost estimate | `wog-dump print-export ak47 --orient --estimate` |
 | `--format` | Extra formats: `stl`, `usd`, `usdz`, `fbx` | `wog-dump build-scene ak47 --format stl,usdz --stl-units mm` |
 | `--video` / `--clip` | Orbit MP4 or one animation clip | `wog-dump render ak47 --video --clip "Take 001"` |
 | `--part` / `--merge` | Print single parts or one combined layout | `wog-dump print-export ak47 --merge` |
@@ -224,10 +249,10 @@ wog-dump cache --validate-assets # check downloads exist and are non-empty
 
 ### Web UI
 
-A local web UI over the same pipeline: catalog with statuses, a 3D viewer per weapon and stage buttons with live logs. Needs the web extra, binds 127.0.0.1 with a per-start token URL.
+A local web UI over the same pipeline: catalog with statuses, a 3D viewer per weapon and every stage as a form. Jobs run through a persistent queue with history, cancellation and live logs that replay after reconnects; the interface switches between English and Russian. Shipped as the `wog-plugin-web` plugin, binds 127.0.0.1 with a per-start token URL.
 
 ```bash
-pip install "rewog[web]"
+pip install ./plugins/wog-plugin-web
 wog-dump serve
 ```
 
@@ -288,6 +313,7 @@ Settings come from a gitignored `.env` in the repository root (see [`.env.exampl
 | `WOG_LOCALE` | No | `en` | CLI message language (`ru` ships a catalog) |
 | `WOG_NO_PROGRESS` | No | unset | Set to disable progress bars (same as `--no-progress`) |
 | `WOG_BLENDER_PATH` | No | found on PATH | Blender binary for previews, videos and FBX |
+| `WOG_GLTFPACK_PATH` | No | found on PATH | gltfpack binary for `build-scene --optimize` |
 | `WOG_API_REQUEST_DELAY` | No | `0.25` | Seconds between key-API requests (raise on 429) |
 | `WOG_REQUEST_DELAY` | No | `0.1` | Seconds between asset downloads (raise on 429) |
 | `WOG_MAX_THREADS` | No | `4` | Worker threads (1–16) |
@@ -333,22 +359,24 @@ mkdocs serve                    # docs site preview
 
 ```text
 ReWOG/
-├── src/wog_dump/          # Main package (source layout)
+├── src/wog_dump/          # Core package (source layout)
 │   ├── core/              # config, http, api, auth, database, keys, paths,
 │   │                      # download, decrypt, unpack, scene, scene_states,
 │   │                      # scene_steps, anim, transforms, glb, export, viewer,
-│   │                      # render, printprep, catalog, probe, key_import, webapp
-│   ├── resources/         # Blender scripts, viewer runtime and templates
+│   │                      # extensions, optimize, update, catalog, probe, spider
+│   ├── resources/         # Blender setup template, viewer runtime and templates
 │   ├── utils/             # logging, normal maps, i18n, progress
 │   └── cli/               # Click commands: download, decrypt, unpack, scene,
-│                          # render, print-export, catalog, pipeline, auth,
-│                          # cache, info, serve, convert
+│                          # catalog, pipeline, auth, cache, info, update,
+│                          # plugins, convert
+├── plugins/               # Feature plugins: web, render, print, mitm,
+│                          # 3mf, gltf, showcase, report
 ├── tests/                 # unit/ + integration/ (CLI end-to-end, real bundles)
 ├── docs/                  # guides, architecture, plugins, benchmarks, API reference
 ├── blender-addon/         # Blender 4.2+ extension over the CLI
-├── examples/              # example extractor plugin
-├── scripts/               # addon zip, locale compiler, benchmark and audit tools
-└── pyproject.toml         # PEP 621 packaging
+├── examples/              # minimal teaching plugins (extractor, exporter)
+├── scripts/               # plugin scaffold, addon zip, locale compiler, tools
+└── pyproject.toml         # PEP 621 packaging + built-in entry points
 ```
 
 </details>

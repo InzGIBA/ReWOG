@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import Mock, patch
 
 import pytest
 import requests
 
 from wog_dump.core.config import WOGConfig
+from wog_dump.core.database import AssetState
 from wog_dump.core.download import DownloadError, DownloadManager
 
 
@@ -439,3 +441,135 @@ class TestDownloadManager:
         from wog_dump.core.download import AssetNotFoundError, DownloadError
 
         assert issubclass(AssetNotFoundError, DownloadError)
+
+
+class TestAssetStateRecording:
+    """Hash/validator state recorded after downloads and on backfill."""
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_download_records_sha256_and_validators(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        body = b"UnityFS mock bundle"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {
+            "Content-Length": str(len(body)),
+            "ETag": '"v1"',
+            "Last-Modified": "Wed, 01 Jan 2025 00:00:00 GMT",
+        }
+        mock_response.iter_content.return_value = [body]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            assert manager.download_single_asset("test_asset") is True
+            state = manager.db.get_asset_state("test_asset")
+
+        assert state is not None
+        assert state.asset == "test_asset"
+        assert state.weapon == "test_asset"
+        assert state.sha256 == hashlib.sha256(body).hexdigest()
+        assert state.size == len(body)
+        assert state.etag == '"v1"'
+        assert state.last_modified == "Wed, 01 Jan 2025 00:00:00 GMT"
+        assert state.checked_at
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_download_hashes_streaming_across_chunks(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        """The digest covers the whole file even when it spans chunks."""
+        test_config.chunk_size = 1024
+        body = b"UnityFS" + b"x" * 5000
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Length": str(len(body))}
+        mock_response.iter_content.return_value = [
+            body[i : i + 1024] for i in range(0, len(body), 1024)
+        ]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            assert manager.download_single_asset("test_asset") is True
+            state = manager.db.get_asset_state("test_asset")
+
+        assert state is not None
+        assert state.sha256 == hashlib.sha256(body).hexdigest()
+
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_failed_download_records_no_state(
+        self, mock_get: Mock, test_config: WOGConfig
+    ) -> None:
+        mock_get.side_effect = requests.RequestException("Download failed")
+
+        with DownloadManager(test_config) as manager:
+            assert manager.download_single_asset("test_asset") is False
+            assert manager.db.get_asset_state("test_asset") is None
+
+    def test_record_asset_state_backfills_existing_file(
+        self, test_config: WOGConfig
+    ) -> None:
+        body = b"UnityFS cached bundle"
+        (test_config.assets_dir / "ak74n.unity3d").write_bytes(body)
+
+        with DownloadManager(test_config) as manager:
+            state = manager.record_asset_state("ak74n")
+            assert state is not None
+            assert state.sha256 == hashlib.sha256(body).hexdigest()
+            assert state.size == len(body)
+            assert state.etag is None
+            # A missing file is not an error, just nothing to record
+            assert manager.record_asset_state("missing_gun") is None
+
+    def test_record_asset_state_keeps_stored_validators(
+        self, test_config: WOGConfig
+    ) -> None:
+        (test_config.assets_dir / "ak74n.unity3d").write_bytes(b"UnityFS data")
+
+        with DownloadManager(test_config) as manager:
+            manager.db.upsert_asset_state(
+                AssetState(
+                    asset="ak74n",
+                    weapon="ak74n",
+                    sha256="0" * 64,
+                    size=1,
+                    etag='"old"',
+                    last_modified="Wed, 01 Jan 2025 00:00:00 GMT",
+                )
+            )
+            state = manager.record_asset_state("ak74n")
+
+        assert state is not None
+        assert state.etag == '"old"'
+        assert state.last_modified == "Wed, 01 Jan 2025 00:00:00 GMT"
+
+    def test_backfill_asset_states_scans_assets_dir(
+        self, test_config: WOGConfig
+    ) -> None:
+        (test_config.assets_dir / "ak74n.unity3d").write_bytes(b"UnityFS one")
+        (test_config.assets_dir / "m4a1.unity3d").write_bytes(b"UnityFS two")
+
+        with DownloadManager(test_config) as manager:
+            recorded = manager.backfill_asset_states()
+            assert sorted(recorded) == ["ak74n", "m4a1"]
+            assert manager.db.get_asset_state("ak74n") is not None
+            assert manager.db.get_asset_state("m4a1") is not None
+            # Already-recorded files are left untouched on the next pass
+            assert manager.backfill_asset_states() == []
+
+    def test_backfill_does_not_overwrite_existing_state(
+        self, test_config: WOGConfig
+    ) -> None:
+        (test_config.assets_dir / "ak74n.unity3d").write_bytes(b"UnityFS one")
+
+        with DownloadManager(test_config) as manager:
+            manager.db.upsert_asset_state(
+                AssetState(asset="ak74n", weapon="ak74n", sha256="f" * 64, size=9)
+            )
+            assert manager.backfill_asset_states(["ak74n"]) == []
+            state = manager.db.get_asset_state("ak74n")
+
+        assert state is not None
+        assert state.sha256 == "f" * 64

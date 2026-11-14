@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import stat
 from pathlib import Path
 
 import pytest
 
 from wog_dump.core.config import WOGConfig
-from wog_dump.core.database import WOGDatabase
+from wog_dump.core.database import AssetState, WOGDatabase
 
 
 class TestDatabaseBasics:
@@ -134,3 +135,95 @@ class TestLegacyImport:
             test_db.import_legacy_txt(temp_dir / "nope.txt", temp_dir / "nope2.txt")
             is False
         )
+
+
+class TestAssetState:
+    def test_upsert_get_roundtrip(self, test_db: WOGDatabase) -> None:
+        state = AssetState(
+            asset="ak74n",
+            weapon="ak74n",
+            sha256="a" * 64,
+            size=1234,
+            etag='"v1"',
+            last_modified="Wed, 01 Jan 2025 00:00:00 GMT",
+        )
+        test_db.upsert_asset_state(state)
+
+        loaded = test_db.get_asset_state("ak74n")
+        assert loaded is not None
+        assert loaded.asset == state.asset
+        assert loaded.weapon == state.weapon
+        assert loaded.sha256 == state.sha256
+        assert loaded.size == state.size
+        assert loaded.etag == state.etag
+        assert loaded.last_modified == state.last_modified
+        assert loaded.checked_at
+
+    def test_upsert_updates_existing(self, test_db: WOGDatabase) -> None:
+        test_db.upsert_asset_state(
+            AssetState(asset="ak74n", weapon="ak74n", sha256="a" * 64, size=1)
+        )
+        test_db.upsert_asset_state(
+            AssetState(
+                asset="ak74n", weapon="ak74n", sha256="b" * 64, size=2, etag='"v2"'
+            )
+        )
+
+        loaded = test_db.get_asset_state("ak74n")
+        assert loaded is not None
+        assert loaded.sha256 == "b" * 64
+        assert loaded.size == 2
+        assert loaded.etag == '"v2"'
+
+    def test_get_missing_returns_none(self, test_db: WOGDatabase) -> None:
+        assert test_db.get_asset_state("nope") is None
+
+    def test_list_sorted_and_filtered(self, test_db: WOGDatabase) -> None:
+        for name in ("m4a1", "ak74n"):
+            test_db.upsert_asset_state(
+                AssetState(asset=name, weapon=name, sha256="c" * 64, size=1)
+            )
+
+        assert [s.asset for s in test_db.list_asset_states()] == ["ak74n", "m4a1"]
+        filtered = test_db.list_asset_states(weapons=["m4a1"])
+        assert [s.asset for s in filtered] == ["m4a1"]
+        assert test_db.list_asset_states(weapons=[]) == []
+
+    def test_unsafe_names_rejected(self, test_db: WOGDatabase) -> None:
+        with pytest.raises(ValueError):
+            test_db.upsert_asset_state(
+                AssetState(asset="../evil", weapon="ak74n", sha256="d" * 64, size=1)
+            )
+
+    def test_migration_creates_table_in_legacy_store(
+        self, test_config: WOGConfig
+    ) -> None:
+        """A store created before asset_state gains it without data loss."""
+        with sqlite3.connect(test_config.db_path) as conn:
+            conn.executescript(
+                "CREATE TABLE weapons (name TEXT PRIMARY KEY, added_at TEXT);"
+                "INSERT INTO weapons (name, added_at) VALUES ('ak74n', 'now');"
+            )
+
+        db = WOGDatabase(test_config)
+        assert db.get_weapons() == ["ak74n"]
+        db.upsert_asset_state(
+            AssetState(asset="ak74n", weapon="ak74n", sha256="e" * 64, size=5)
+        )
+        assert db.get_asset_state("ak74n") is not None
+
+    def test_migration_adds_missing_columns(self, test_config: WOGConfig) -> None:
+        """An early asset_state table gains later columns additively."""
+        with sqlite3.connect(test_config.db_path) as conn:
+            conn.executescript(
+                "CREATE TABLE asset_state (asset TEXT PRIMARY KEY);"
+                "INSERT INTO asset_state (asset) VALUES ('legacy');"
+            )
+
+        db = WOGDatabase(test_config)
+        db.upsert_asset_state(
+            AssetState(asset="ak74n", weapon="ak74n", sha256="f" * 64, size=7)
+        )
+        assert db.get_asset_state("ak74n") is not None
+        # The pre-existing row survived the migration
+        assert db.get_asset_state("legacy") is not None

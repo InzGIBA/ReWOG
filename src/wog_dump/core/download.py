@@ -9,10 +9,11 @@ next to the temp file); anything else restarts from scratch.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from rich.progress import Progress, TaskID
 
 from ..utils.logging import get_logger
 from .config import WOGConfig, get_config
+from .database import AssetState, WOGDatabase
 from .http import RateLimiter, create_session
 from .paths import is_safe_weapon_name
 
@@ -37,6 +39,15 @@ MIN_VALID_ASSET_SIZE = 20
 
 # Optional per-chunk byte callback: (asset_name, downloaded_bytes, total_or_None)
 ByteProgressFn = Callable[[str, int, int | None], None]
+
+
+def compute_asset_sha256(asset_path: Path, chunk_size: int) -> str:
+    """Streaming sha256 of a local asset (hex digest)."""
+    digest = hashlib.sha256()
+    with open(asset_path, "rb") as f:
+        while chunk := f.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class DownloadError(Exception):
@@ -70,6 +81,16 @@ class DownloadManager:
             "files_failed": 0,
             "files_skipped": 0,
         }
+        self._db: WOGDatabase | None = None
+        self._db_lock = threading.Lock()
+
+    @property
+    def db(self) -> WOGDatabase:
+        """Local store, opened lazily so dry runs never create a database."""
+        with self._db_lock:
+            if self._db is None:
+                self._db = WOGDatabase(self.config)
+            return self._db
 
     def asset_url(self, asset_name: str) -> str:
         """Build the server URL for an asset."""
@@ -171,6 +192,61 @@ class DownloadManager:
             return True
 
         return False
+
+    def record_asset_state(
+        self,
+        asset_name: str,
+        headers: Mapping[str, str] | None = None,
+    ) -> AssetState | None:
+        """(Re)compute sha256/size of a downloaded asset and store its state.
+
+        ``headers`` carries the download response's ETag/Last-Modified;
+        without it (backfill of an older file) any previously stored
+        validators are kept. Returns None when the file is not present.
+        """
+        asset_path = self.asset_path(asset_name)
+        if not asset_path.is_file():
+            return None
+
+        existing = self.db.get_asset_state(asset_name)
+        etag = (headers or {}).get("ETag") or (existing.etag if existing else None)
+        last_modified = (headers or {}).get("Last-Modified") or (
+            existing.last_modified if existing else None
+        )
+        state = AssetState(
+            asset=asset_name,
+            weapon=asset_name,
+            sha256=compute_asset_sha256(asset_path, self.config.chunk_size),
+            size=asset_path.stat().st_size,
+            etag=etag,
+            last_modified=last_modified,
+        )
+        self.db.upsert_asset_state(state)
+        return state
+
+    def backfill_asset_states(self, weapon_list: list[str] | None = None) -> list[str]:
+        """Hash already-downloaded assets and record their state, no network.
+
+        Without ``weapon_list`` every ``*.unity3d`` in the assets
+        directory is covered. Files that already carry a state row are
+        left untouched; returns the names (re)recorded.
+        """
+        if weapon_list is None:
+            weapon_list = sorted(
+                path.stem for path in self.config.assets_dir.glob("*.unity3d")
+            )
+        recorded: list[str] = []
+        for name in weapon_list:
+            if self.db.get_asset_state(name) is not None:
+                continue
+            try:
+                if self.record_asset_state(name) is not None:
+                    recorded.append(name)
+            except (OSError, ValueError) as e:
+                self.logger.warning(f"Could not backfill state for {name}: {e}")
+        if recorded:
+            self.logger.info(f"Recorded asset state for {len(recorded)} files")
+        return recorded
 
     def _fetch_asset(
         self,
@@ -316,6 +392,15 @@ class DownloadManager:
             with self._stats_lock:
                 self._download_stats["total_bytes"] += downloaded
             self.logger.debug(f"Downloaded {asset_name} ({downloaded:,} bytes)")
+
+            # Hash/validator state is best-effort metadata: a store
+            # failure must never turn a good download into an error
+            try:
+                self.record_asset_state(asset_name, headers=response.headers)
+            except Exception as e:
+                self.logger.warning(
+                    f"Could not record asset state for {asset_name}: {e}"
+                )
             return asset_path
 
         except DownloadError:

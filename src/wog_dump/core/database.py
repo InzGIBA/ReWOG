@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -66,7 +67,47 @@ CREATE TABLE IF NOT EXISTS keys (
     source     TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS asset_state (
+    asset         TEXT PRIMARY KEY,
+    weapon        TEXT NOT NULL,
+    sha256        TEXT NOT NULL,
+    size          INTEGER NOT NULL,
+    etag          TEXT,
+    last_modified TEXT,
+    checked_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
+
+# Columns of asset_state, mirrored in _migrate_schema so a store created
+# by an older build gains later columns one ALTER at a time
+_ASSET_STATE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("weapon", "TEXT"),
+    ("sha256", "TEXT"),
+    ("size", "INTEGER"),
+    ("etag", "TEXT"),
+    ("last_modified", "TEXT"),
+    ("checked_at", "TEXT"),
+)
+
+
+@dataclass(frozen=True)
+class AssetState:
+    """Last known server/local state of one downloaded asset.
+
+    ``asset`` is the asset key (the ``<name>.unity3d`` stem); ``weapon``
+    is the weapon it belongs to (identical for weapon bundles). The
+    validators are nullable: a backfilled or validator-less server
+    response leaves them empty and detection falls back to hash/size.
+    """
+
+    asset: str
+    weapon: str
+    sha256: str
+    size: int
+    etag: str | None = None
+    last_modified: str | None = None
+    checked_at: str | None = None
+
 
 # Account credentials and identity are per-user secrets: restrict the file
 # to the owner where the platform supports it
@@ -126,16 +167,26 @@ class WOGDatabase:
         so later weapon_meta columns must land one by one. The table is
         a rebuildable cache, yet rewriting it would drop data until the
         next spider pass, so a plain additive migration is cheaper.
+        asset_state uses the same additive pattern for stores created
+        before the table (or a later column) existed.
         """
-        present = {
-            row[1] for row in db.execute("PRAGMA table_info(weapon_meta)")
-        }
-        for column, kind in (
-            ("flags", "TEXT"),
-            ("released", "TEXT"),
-        ):
+        self._add_missing_columns(
+            db, "weapon_meta", (("flags", "TEXT"), ("released", "TEXT"))
+        )
+        self._add_missing_columns(db, "asset_state", _ASSET_STATE_COLUMNS)
+
+    @staticmethod
+    def _add_missing_columns(
+        db: sqlite3.Connection,
+        table: str,
+        columns: tuple[tuple[str, str], ...],
+    ) -> None:
+        present = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if not present:
+            return
+        for column, kind in columns:
             if column not in present:
-                db.execute(f"ALTER TABLE weapon_meta ADD COLUMN {column} {kind}")
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     def _restrict_permissions(self) -> None:
         try:
@@ -259,9 +310,7 @@ class WOGDatabase:
         "released",
     )
 
-    def save_weapon_meta(
-        self, records: dict[str, dict[str, Any]]
-    ) -> None:
+    def save_weapon_meta(self, records: dict[str, dict[str, Any]]) -> None:
         """Upsert per-weapon metadata parsed from the spider bundle.
 
         Unknown names are rejected like weapon names — the records end
@@ -303,10 +352,7 @@ class WOGDatabase:
             rows = db.execute(
                 f"SELECT name, {columns} FROM weapon_meta"  # noqa: S608
             ).fetchall()
-        return {
-            row[0]: dict(zip(self._META_COLUMNS, row[1:]))
-            for row in rows
-        }
+        return {row[0]: dict(zip(self._META_COLUMNS, row[1:])) for row in rows}
 
     # ----------------------------------------------------------------- keys
 
@@ -377,6 +423,74 @@ class WOGDatabase:
             f"Merged keys into {self.db_path}: {added} new, {updated} updated"
         )
         return (added, updated)
+
+    # ---------------------------------------------------------- asset state
+
+    def upsert_asset_state(self, state: AssetState) -> None:
+        """Record (or refresh) the known state of one downloaded asset."""
+        if not is_safe_weapon_name(state.asset) or not is_safe_weapon_name(
+            state.weapon
+        ):
+            raise ValueError(f"Unsafe asset state name: {state.asset!r}")
+        with self._lock, self._connect() as db:
+            db.execute(
+                "INSERT INTO asset_state "
+                "(asset, weapon, sha256, size, etag, last_modified, checked_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(asset) DO UPDATE SET "
+                "weapon = excluded.weapon, sha256 = excluded.sha256, "
+                "size = excluded.size, etag = excluded.etag, "
+                "last_modified = excluded.last_modified, "
+                "checked_at = excluded.checked_at",
+                (
+                    state.asset,
+                    state.weapon,
+                    state.sha256,
+                    state.size,
+                    state.etag,
+                    state.last_modified,
+                    state.checked_at or _now(),
+                ),
+            )
+
+    def get_asset_state(self, asset: str) -> AssetState | None:
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT asset, weapon, sha256, size, etag, last_modified, "
+                "checked_at FROM asset_state WHERE asset = ?",
+                (asset,),
+            ).fetchone()
+        return self._row_to_asset_state(row) if row else None
+
+    def list_asset_states(self, weapons: list[str] | None = None) -> list[AssetState]:
+        """All stored asset states, optionally restricted to weapons."""
+        query = (
+            "SELECT asset, weapon, sha256, size, etag, last_modified, "
+            "checked_at FROM asset_state"
+        )
+        params: tuple[Any, ...] = ()
+        if weapons is not None:
+            if not weapons:
+                return []
+            placeholders = ", ".join("?" for _ in weapons)
+            query += f" WHERE weapon IN ({placeholders})"
+            params = tuple(weapons)
+        query += " ORDER BY asset"
+        with self._lock, self._connect() as db:
+            rows = db.execute(query, params).fetchall()  # noqa: S608
+        return [self._row_to_asset_state(row) for row in rows]
+
+    @staticmethod
+    def _row_to_asset_state(row: tuple[Any, ...]) -> AssetState:
+        return AssetState(
+            asset=row[0],
+            weapon=row[1],
+            sha256=row[2],
+            size=row[3],
+            etag=row[4],
+            last_modified=row[5],
+            checked_at=row[6],
+        )
 
     # ---------------------------------------------------------------- stats
 

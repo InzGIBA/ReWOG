@@ -13,7 +13,7 @@ import base64
 import json
 import string
 from importlib import resources
-from importlib.abc import Traversable
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
 from ..utils.logging import get_logger

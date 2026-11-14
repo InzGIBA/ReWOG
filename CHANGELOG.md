@@ -5,6 +5,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-11-15
+
+### Added
+
+- Materials bind the full PBR channel set: normal maps (DXT5nm
+  unswizzled), metallic-roughness converted from Unity gloss maps
+  (smoothness becomes roughness, metallic comes from the red channel)
+  and occlusion from the green channel. `_Glossiness`/`_Metallic`
+  floats feed the factors when no map is bound; weapons whose bundles
+  only carry `_MainTex` keep the previous look
+- The offline viewer is interactive now: it plays the embedded
+  animations (clip select, timeline, 0.25–2x speed), switches
+  disassembly states live, drags an explode slider between the
+  assembled and exploded poses, searches parts by name, hides or
+  isolates them and saves PNG screenshots. The interface speaks
+  English and Russian. All four state payloads ship inside
+  `scene.json` (`viewer_states`), so one viewer covers every pose
+- Scene optimization: `build-scene --texture-size N` downscales
+  textures before embedding, identical textures are stored once under
+  `runtime/texture-store/` and hardlinked into every scene, and
+  `--optimize` compresses the GLB with gltfpack (meshopt) when the
+  binary is available (`WOG_GLTFPACK_PATH` or PATH). The vendored
+  MeshoptDecoder decodes compressed scenes offline
+- `wog-dump update` re-checks downloaded assets against the server:
+  sha256, size, ETag and Last-Modified land in a new `asset_state`
+  table, throttled HEAD requests compare validators first and re-hash
+  locally when the server sends none. The report lists
+  changed/unchanged/missing-local/new-on-server per weapon; `--apply`
+  re-downloads changed bundles and re-decrypts and re-unpacks only the
+  affected weapons. The first run backfills hashes without network
+- `wog-dump plugins` lists every registered extension across the five
+  entry-point groups (`--json` for scripts), and
+  `scripts/new_plugin.py` scaffolds a ready-to-install plugin package
+  (pyproject with the entry point, module skeleton, tests) for any
+  group
+- Print preparation 2.0 (wog-plugin-print): `--orient` lays the
+  largest supporting face on the bed, `--bed-size XxYxZ` splits
+  oversized parts into bed-fitting chunks, `--estimate` reports
+  volume, mass, print time and filament cost per part and in total
+- `_in` anchors disambiguate reused part names (the candidate closest
+  to the anchor wins) and verify assembled origins: the manifest
+  carries `anchor_checks` with near/far counts. Nested parts with
+  their own removal anchor take independent positions in field-strip
+  and exploded states instead of riding with the parent
+- Plugin-first architecture: five entry-point groups (extractors,
+  exporters, commands, scene states and the new viewers), contract
+  version `PLUGIN_API_VERSION = 1` pinned by
+  `tests/unit/test_plugin_api_contract.py`. Built-in exporters, scene
+  states and the default viewer register through the same mechanism
+  from the rewog distribution itself. Eight feature plugins ship in
+  `plugins/`: web (serve UI with a persistent SQLite job queue,
+  history, cancellation, SSE log replay, every stage as a form and an
+  en/ru interface), render (previews/videos), print, mitm
+  (`import-keys`), 3mf and separate-gltf export formats, the showcase
+  carousel state and scene-report. `build-scene --viewer-provider`
+  selects alternative viewers registered by plugins
+- The Russian catalog covers every CLI message; the web UI and the
+  offline viewer ship English/Russian interfaces
+
+### Changed
+
+- The core keeps the pipeline, the scene engine and the registry;
+  optional features are plugins. Dependency direction is strictly
+  `plugins → cli → core → utils`
+- The sensitive `.env` warning goes to stderr, so `--json` output of
+  `catalog`, `plugins` and `scene-report` stays machine-parseable
+
+### Fixed
+
+- Wheels ship compiled locale catalogs again: a hatchling build hook
+  compiles the `.po` sources at build time. Previous wheels contained
+  no `.mo` files, so PyPI installs silently fell back to English
+- The viewer imports `Traversable` from `importlib.resources.abc`;
+  the old `importlib.abc` alias was removed in Python 3.14
+
+### Breaking
+
+- The `[web]`, `[print]` and `[mitm]` extras are removed. Install the
+  corresponding plugins instead: `pip install ./plugins/wog-plugin-web`
+  ( likewise `wog-plugin-print`, `wog-plugin-render`,
+  `wog-plugin-mitm`). The `serve`, `render` and `print-export`
+  commands require their plugins; `wog-dump plugins` shows what is
+  registered
+
 ## [3.3.0] - 2026-11-11
 
 ### Added

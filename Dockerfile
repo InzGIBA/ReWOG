@@ -4,7 +4,8 @@ FROM python:3.12-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /build
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md hatch_build.py ./
+COPY scripts/compile_locales.py ./scripts/compile_locales.py
 COPY src/ ./src/
 
 # Dependencies layer: cached until the metadata changes

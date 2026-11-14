@@ -324,13 +324,16 @@ def cli_main(
     try:
         if path.is_file():
             output_path = converter.convert_normal_map(path)
-            logger.info(f"Converted: {output_path}")
+            logger.print_status(f"Converted: {output_path}", "success")
 
         elif path.is_dir():
             converted_files = converter.batch_convert_directory(
                 path, recursive=recursive, pattern=pattern, backup=backup
             )
-            logger.info(f"Conversion complete: {len(converted_files)} files processed")
+            logger.print_status(
+                f"Conversion complete: {len(converted_files)} files processed",
+                "success",
+            )
 
         else:
             logger.error(f"Invalid path: {path}")

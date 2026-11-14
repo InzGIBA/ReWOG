@@ -7,7 +7,9 @@ Verbosity is controlled per destination:
   timestamps or logger names. Pipeline-level feedback uses one aligned
   ``✓ Step — result (duration)`` line per step (``WOGLogger.step``);
   progress bars are transient and disappear when finished, so a run
-  leaves behind only step lines, warnings and the final summary.
+  leaves behind only step lines, warnings and the final summary. Tables
+  carry a single rule under the header and fold long values (paths are
+  never ellipsized); status lines share the log glyphs (✓ ✗ ⚠ ·).
 - **Log file**: one rotating ``wog.log`` that always captures INFO and
   above; set ``WOG_LOG_LEVEL=DEBUG`` in ``.env`` to include debug output.
   The file lives in the per-user data directory next to the database
@@ -26,6 +28,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
+from rich import box
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -58,6 +61,16 @@ _FILE_LEVELS = {
 # so the timing table can collapse them into one aggregated row per
 # verb; top-level operation names never contain a colon.
 _ITEM_METRIC_SEPARATOR = ":"
+
+# One glyph vocabulary for the whole console: log records, status lines
+# and step results share single-width symbols (emoji are double-width
+# and render differently across terminals, which breaks alignment).
+_STATUS_ICONS = {
+    "info": ("cyan", "·"),
+    "success": ("green", "✓"),
+    "warning": ("yellow", "⚠"),
+    "error": ("red", "✗"),
+}
 
 
 def default_log_dir() -> Path:
@@ -364,26 +377,22 @@ class WOGLogger:
     def print_banner(self) -> None:
         """Print the application banner."""
         self.console.print(
-            f"🔫 [bold cyan]WOG Dump[/bold cyan] [cyan]v{__version__}[/cyan]"
-            " [dim]· World of Guns Model Extractor[/dim]"
+            f"[bold cyan]WOG Dump[/bold cyan] "
+            f"[dim]v{__version__} · World of Guns model extractor[/dim]"
         )
         self.debug(f"Banner: WOG Dump v{__version__}")
 
     def print_status(self, message: str, status: str = "info") -> None:
         """Print a single status line (icon + message)."""
-        status_styles = {
-            "info": ("ℹ️", "blue"),
-            "success": ("✅", "green"),
-            "warning": ("⚠️", "yellow"),
-            "error": ("❌", "red"),
-            "processing": ("🔄", "cyan"),
-        }
+        style, icon = _STATUS_ICONS.get(status, _STATUS_ICONS["info"])
 
-        emoji, color = status_styles.get(status, ("ℹ️", "blue"))
-
-        text = Text.assemble((f"{emoji} ", "white"), (message, color))
-
-        self.console.print(text, soft_wrap=True)
+        self.console.print(
+            f"{icon} {message}",
+            style=style,
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+        )
         # Status lines are the operational history of a run - keep them
         # in the log file even when the console is quiet
         self.logger.info(f"[{status}] {message}")
@@ -451,20 +460,26 @@ class WOGLogger:
             transient=True,
         )
 
-    def print_table(
-        self, title: str, headers: list[str], rows: list[list[str]], style: str = "cyan"
-    ) -> None:
-        """Print a formatted table with enhanced styling."""
-        table = Table(
+    def _new_table(self, title: str) -> Table:
+        """Light table frame: one rule under the header, no row borders."""
+        return Table(
             title=title,
+            title_style="bold",
+            title_justify="left",
+            box=box.SIMPLE_HEAD,
             show_header=True,
-            header_style=f"bold {style}",
-            border_style=style,
-            show_lines=True,
+            header_style="bold",
+            border_style="dim",
         )
 
+    def print_table(
+        self, title: str, headers: list[str], rows: list[list[str]]
+    ) -> None:
+        """Print a formatted table; long values fold instead of truncating."""
+        table = self._new_table(title)
+
         for header in headers:
-            table.add_column(header, style="white")
+            table.add_column(header, overflow="fold")
 
         for row in rows:
             # Handle different row lengths gracefully
@@ -472,6 +487,18 @@ class WOGLogger:
             table.add_row(*padded_row[: len(headers)])
 
         self.console.print(table)
+
+    def print_list(
+        self, title: str, items: list[str], limit: int = 10, bullet: str = "•"
+    ) -> None:
+        """Bold heading plus indented items, truncated with a dim count."""
+        self.console.print()
+        self.console.print(Text(title, style="bold"))
+        prefix = f"  {bullet} " if bullet else "  "
+        for item in items[:limit]:
+            self.console.print(f"{prefix}{item}", markup=False, highlight=False)
+        if len(items) > limit:
+            self.console.print(f"  … and {len(items) - limit} more", style="dim")
 
     def print_performance_summary(self, max_rows: int = 12) -> None:
         """Print a compact timing table.
@@ -498,13 +525,8 @@ class WOGLogger:
             reverse=True,
         )[:max_rows]
 
-        table = Table(
-            title="Timings",
-            show_header=True,
-            header_style="bold magenta",
-            border_style="magenta",
-        )
-        table.add_column("Operation", style="cyan")
+        table = self._new_table("Timings")
+        table.add_column("Operation", overflow="fold")
         table.add_column("Count", justify="right")
         table.add_column("Total", justify="right")
         table.add_column("Average", justify="right")

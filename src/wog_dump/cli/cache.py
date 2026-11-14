@@ -83,13 +83,9 @@ def cache(
                     valid, invalid = downloader.validate_cached_assets(weapons)
 
                 if invalid:
-                    logger.console.print(
-                        f"\n[bold red]Invalid assets found ({len(invalid)}):[/bold red]"
+                    logger.print_list(
+                        f"Invalid assets found ({len(invalid)}):", invalid
                     )
-                    for asset in invalid[:10]:
-                        logger.console.print(f"  • {asset}")
-                    if len(invalid) > 10:
-                        logger.console.print(f"  ... and {len(invalid) - 10} more")
 
                 logger.print_status(
                     f"Validation: {len(valid)} valid, {len(invalid)} invalid",
@@ -115,9 +111,8 @@ def cache(
 
             weapons = db.get_weapons()
             if show_cache and weapons:
-                logger.console.print("\n[bold]Sample weapons (first 10):[/bold]")
-                for weapon in weapons[:10]:
-                    has_key = "✓" if db.get_key(weapon) else "✗"
-                    logger.console.print(f"  {has_key} {weapon}")
-                if len(weapons) > 10:
-                    logger.console.print(f"  ... and {len(weapons) - 10} more")
+                logger.print_list(
+                    "Sample weapons (first 10):",
+                    [f"{'✓' if db.get_key(w) else '✗'} {w}" for w in weapons],
+                    bullet="",
+                )

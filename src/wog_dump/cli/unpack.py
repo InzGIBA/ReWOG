@@ -70,9 +70,11 @@ def unpack_assets(
         nested = bool(ctx.obj.get("pipeline_nested"))
 
         if list_extractors:
-            for obj_type, extractor in get_extractors().items():
-                source = getattr(extractor, "plugin_package", "built-in")
-                logger.console.print(f"{obj_type:<16} {source}")
+            rows = [
+                [obj_type, getattr(extractor, "plugin_package", "built-in")]
+                for obj_type, extractor in get_extractors().items()
+            ]
+            logger.print_table("Extractors", ["Object type", "Source"], rows)
             return 0
 
         # Set directories

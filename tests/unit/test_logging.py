@@ -303,3 +303,58 @@ class TestConsolePresentation:
 
         logger.print_performance_summary()
         assert capsys.readouterr().out == ""
+
+    def test_status_lines_use_text_glyphs_not_emoji(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        logger = get_logger()
+
+        logger.print_status("all good", "success")
+        logger.print_status("careful", "warning")
+        logger.print_status("broken", "error")
+        logger.print_status("noted", "info")
+        output = capsys.readouterr().out
+
+        assert "✓ all good" in output
+        assert "⚠ careful" in output
+        assert "✗ broken" in output
+        assert "· noted" in output
+        for emoji in ("✅", "❌", "⚠️", "🔄", "ℹ️", "🔫"):
+            assert emoji not in output
+
+    def test_banner_is_plain_text(self, capsys: pytest.CaptureFixture[str]) -> None:
+        logger = get_logger()
+
+        logger.print_banner()
+        output = capsys.readouterr().out
+
+        assert "WOG Dump" in output
+        assert "🔫" not in output
+
+    def test_table_has_no_row_borders_and_folds_long_values(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        logger = get_logger()
+        long_path = "/some/very/long/path/" + "x" * 120
+
+        logger.print_table("Paths", ["Setting", "Value"], [["Base", long_path]])
+        output = capsys.readouterr().out
+
+        assert "├" not in output
+        assert "┃" not in output
+        assert "…" not in output
+        assert long_path[-30:] in output
+
+    def test_print_list_truncates_with_dim_count(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        logger = get_logger()
+
+        logger.print_list("Items:", [f"item{n}" for n in range(15)], limit=10)
+        output = capsys.readouterr().out
+
+        assert "Items:" in output
+        assert "• item0" in output
+        assert "• item9" in output
+        assert "item10" not in output
+        assert "… and 5 more" in output

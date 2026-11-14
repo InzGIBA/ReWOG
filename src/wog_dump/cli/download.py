@@ -202,14 +202,9 @@ def download_assets(
                     )
 
                     if to_download:
-                        logger.console.print("\n[bold]Assets needing updates:[/bold]")
-                        display_count = min(20, len(to_download))
-                        for weapon in to_download[:display_count]:
-                            logger.console.print(f"  • {weapon}")
-                        if len(to_download) > display_count:
-                            logger.console.print(
-                                f"  ... and {len(to_download) - display_count} more"
-                            )
+                        logger.print_list(
+                            "Assets needing updates:", to_download, limit=20
+                        )
                     results = (to_download, [], 0)
                 else:
                     byte_bar = make_byte_tracker(logger)

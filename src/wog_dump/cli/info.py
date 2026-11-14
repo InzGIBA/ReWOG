@@ -190,8 +190,6 @@ def perform_file_validation(config: WOGConfig, logger: WOGLogger) -> None:
     )
 
     if validation_failures:
-        logger.console.print("  Invalid files:")
-        for file_path in validation_failures[:5]:
-            logger.console.print(f"    - {file_path.name}")
-        if len(validation_failures) > 5:
-            logger.console.print(f"    ... and {len(validation_failures) - 5} more")
+        logger.print_list(
+            "Invalid files:", [p.name for p in validation_failures], limit=5
+        )

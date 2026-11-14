@@ -8,6 +8,7 @@ Reproductions are offline with dummy data only.
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 from pathlib import Path
@@ -291,6 +292,45 @@ class TestDotenvAllowlist:
         config = WOGConfig(db_path=link)
         with pytest.raises(Exception, match="symlink"):
             WOGDatabase(config)
+
+
+class TestDotenvCredentialNotice:
+    """The .env credential notice is log-always, console only with -v/-d."""
+
+    def _plant_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text(
+            "WOG_AUTH_ID=1\nWOG_AUTH_SESSION=s\n", encoding="utf-8"
+        )
+
+    def test_quiet_by_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        from wog_dump.cli.main import cli
+
+        self._plant_env(tmp_path, monkeypatch)
+        result = CliRunner().invoke(cli, ["plugins", "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert "credential-affecting" not in result.stdout
+        assert "credential-affecting" not in result.stderr
+        json.loads(result.stdout)
+
+    def test_verbose_shows_notice_on_stderr(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        from wog_dump.cli.main import cli
+
+        self._plant_env(tmp_path, monkeypatch)
+        result = CliRunner().invoke(cli, ["-v", "plugins", "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert "credential-affecting" in result.stderr
+        assert "credential-affecting" not in result.stdout
 
 
 # --------------------------------------------------------------------------

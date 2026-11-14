@@ -14,6 +14,7 @@ from typing import Any
 
 import click
 from dotenv import dotenv_values
+from rich.console import Console
 
 from .. import __version__
 from ..core.config import get_config, set_config
@@ -57,9 +58,11 @@ def load_env_file(env_path: Path) -> list[str]:
     return applied
 
 
-# Credential-affecting keys from a working-directory file deserve an
-# explicit announcement: a .env planted in an unpacked "weapon pack"
-# could otherwise silently take over the identity or the store location.
+# Credential-affecting keys from a working-directory file are always
+# logged: a .env planted in an unpacked "weapon pack" could otherwise
+# silently take over the identity or the store location. The console
+# notice is opt-in (-v/-d) so routine runs in a trusted checkout stay
+# quiet.
 _SENSITIVE_ENV_KEYS = {
     "WOG_AUTH_ID",
     "WOG_AUTH_SESSION",
@@ -135,6 +138,7 @@ def cli(
     3D gun models from World of Guns: Gun Disassembly with modern Python 3.12+ features,
     comprehensive error handling, and performance monitoring.
 
+    \b
     Examples:
         wog-dump full-pipeline                    # Run complete extraction process
         wog-dump download-assets --update-keys    # Download with key update
@@ -154,13 +158,20 @@ def cli(
     if applied_env:
         sensitive = sorted(set(applied_env) & _SENSITIVE_ENV_KEYS)
         if sensitive:
-            # stderr keeps --json output on stdout machine-parseable
             message = (
                 f"Applied credential-affecting keys from {Path.cwd() / '.env'}: "
                 f"{', '.join(sensitive)}. Make sure this .env is your own."
             )
             logger.log_file_only(message, level=logging.WARNING)
-            print(f"⚠ {message}", file=sys.stderr)
+            if verbose or debug:
+                # stderr keeps --json output on stdout machine-parseable
+                Console(stderr=True).print(
+                    f"⚠ {message}",
+                    style="yellow",
+                    markup=False,
+                    highlight=False,
+                    soft_wrap=True,
+                )
         else:
             logger.info(f"Applied {len(applied_env)} keys from working-directory .env")
 

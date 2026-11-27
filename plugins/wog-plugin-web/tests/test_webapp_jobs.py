@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
@@ -74,11 +76,16 @@ class FakeProcess:
 
 @pytest.fixture
 def popen(monkeypatch: Any) -> Any:
-    """Patch Popen in the jobs module; records every argv and process."""
+    """Patch Popen in the jobs module; records every argv and process.
+
+    The CLI counts as on PATH, so jobs spawn ``wog-dump`` by name as
+    recorded. TestChildProcess overrides that where it matters.
+    """
     from wog_plugin_web import jobs as jobs_module
 
     captured: dict[str, Any] = {
         "argv": [],
+        "kwargs": [],
         "processes": [],
         "factory": lambda args: FakeProcess(),
     }
@@ -86,9 +93,11 @@ def popen(monkeypatch: Any) -> Any:
     def fake_popen(args: list[str], **kwargs: Any) -> FakeProcess:
         process = captured["factory"](args)
         captured["argv"].append(args)
+        captured["kwargs"].append(kwargs)
         captured["processes"].append(process)
         return process
 
+    monkeypatch.setattr(jobs_module.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(jobs_module.subprocess, "Popen", fake_popen)
     return captured
 
@@ -437,6 +446,65 @@ class TestValidation:
             json={"stage": "download-assets", "weapon": "not_in_catalog"},
         )
         assert response.status_code == 400
+
+
+class TestChildProcess:
+    """How a job reaches the CLI and reads what it prints."""
+
+    def _run_one(self, client: Any, popen: Any) -> None:
+        tc, token, app = client
+        started = run(tc, token, {"stage": "build-scene", "weapon": "ak47"})
+        wait_job(tc, token, started["job_id"])
+
+    def test_child_speaks_utf8_on_its_pipe(self, client: Any, popen: Any) -> None:
+        """Both pipe ends are ours: no ANSI code page between CLI and log."""
+        self._run_one(client, popen)
+
+        kwargs = popen["kwargs"][0]
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
+        assert kwargs["env"]["PYTHONIOENCODING"] == "utf-8"
+        assert kwargs["env"]["PATH"] == os.environ["PATH"]  # the rest is inherited
+
+    def test_cli_on_path_is_spawned_by_name(self, client: Any, popen: Any) -> None:
+        self._run_one(client, popen)
+
+        assert popen["argv"][0][0] == "wog-dump"
+
+    def test_cli_off_path_runs_through_this_interpreter(
+        self, client: Any, popen: Any, monkeypatch: Any
+    ) -> None:
+        """A venv used by full path or a user install keeps its jobs runnable."""
+        from wog_plugin_web import jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module.shutil, "which", lambda name: None)
+        self._run_one(client, popen)
+
+        assert popen["argv"][0] == [
+            sys.executable,
+            "-m",
+            "wog_dump.cli.main",
+            "--no-progress",
+            "build-scene",
+            "ak47",
+        ]
+
+    def test_log_keeps_non_ascii_from_a_real_child(self, env: Path) -> None:
+        """A real process writes the glyphs the Windows ANSI code pages lack."""
+        app = create_app()
+        tc = TestClient(app)
+        token = app.state.token
+        script = "import sys; print(sys.stdout.encoding); print('✓ готово 汉字')"
+        try:
+            job_id, _position = app.state.jobs.enqueue(
+                "probe", {}, [sys.executable, "-c", script]
+            )
+            job = wait_job(tc, token, job_id)
+        finally:
+            app.state.jobs.stop()
+
+        assert job["status"] == "done", job
+        assert job["log"] == "utf-8\n✓ готово 汉字\nexit=0\n"
 
 
 class TestArgv:

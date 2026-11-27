@@ -13,8 +13,11 @@ were never started, so the new worker simply picks them up.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sqlite3
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -26,6 +29,9 @@ from wog_dump.core.config import WOGConfig
 __all__ = ["Job", "JobQueue", "TERMINAL_STATUSES"]
 
 TERMINAL_STATUSES = frozenset({"done", "failed", "cancelled"})
+
+# The CLI as jobs record it (see app._build_args)
+CLI_COMMAND = "wog-dump"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS webapp_jobs (
@@ -61,6 +67,30 @@ _INTERRUPT_NOTE = "interrupted: the server restarted while this job was running\
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _child_env() -> dict[str, str]:
+    """Environment for a job's CLI: UTF-8 on its pipes.
+
+    Both ends of the pipe belong to this app, so the child is told to
+    speak UTF-8 whatever the console code page is (cp936, cp1251, ...)
+    and its log is decoded as such. Plain ``text=True`` would pair the
+    child's ANSI code page with the parent's guess of it.
+    """
+    return {**os.environ, "PYTHONIOENCODING": "utf-8"}
+
+
+def _launch_command(argv: list[str]) -> list[str]:
+    """The argv to spawn: the recorded one, with the CLI made reachable.
+
+    Jobs record ``wog-dump`` as typed and it is spawned by name while
+    PATH resolves it. Otherwise the interpreter running this server
+    stands in, so a venv started by its full path, or a user install
+    whose Scripts folder is not on PATH, still runs its jobs.
+    """
+    if argv and argv[0] == CLI_COMMAND and shutil.which(CLI_COMMAND) is None:
+        return [sys.executable, "-m", "wog_dump.cli.main", *argv[1:]]
+    return argv
 
 
 @dataclass
@@ -273,10 +303,12 @@ class JobQueue:
     def _run(self, job: Job) -> None:
         try:
             process = subprocess.Popen(
-                job.argv,
+                _launch_command(job.argv),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=_child_env(),
                 cwd=str(self.config.base_dir),
             )
         except OSError as error:

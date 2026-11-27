@@ -162,6 +162,10 @@ class TestRunWhitelist:
 
         from wog_plugin_web import jobs as jobs_module
 
+        # The CLI is on PATH, so the job spawns it by name as recorded
+        monkeypatch.setattr(
+            jobs_module.shutil, "which", lambda name: f"/usr/bin/{name}"
+        )
         monkeypatch.setattr(jobs_module.subprocess, "Popen", fake_popen)
         response = tc.post(
             f"/t/{token}/api/run",

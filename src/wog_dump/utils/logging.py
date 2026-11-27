@@ -18,10 +18,12 @@ Verbosity is controlled per destination:
 
 from __future__ import annotations
 
+import codecs
 import logging
 import os
 import sys
 import time
+import unicodedata
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from logging.handlers import RotatingFileHandler
@@ -71,6 +73,86 @@ _STATUS_ICONS = {
     "warning": ("yellow", "⚠"),
     "error": ("red", "✗"),
 }
+
+# ASCII stand-ins for the console glyphs (see make_console_encoding_safe)
+_GLYPH_STAND_INS = {
+    "✓": "+",
+    "✗": "x",
+    "⚠": "!",
+    "→": "->",
+    "•": "*",
+    "·": "-",
+    "…": "...",
+    "—": "--",
+}
+
+_CONSOLE_ERRORS_HANDLER = "wog_console_replace"
+
+
+def _stand_in(char: str) -> str:
+    """ASCII replacement for one character an output encoding lacks."""
+    glyph = _GLYPH_STAND_INS.get(char)
+    if glyph is not None:
+        return glyph
+    if "\u2500" <= char <= "\u257f":
+        # Box Drawing: table rules. "─" and "│" are plain runs, every
+        # corner and junction ("DOWN AND RIGHT", ...) is a crossing
+        name = unicodedata.name(char)
+        if " AND " in name:
+            return "+"
+        if "HORIZONTAL" in name:
+            return "-"
+        return "|"
+    return char.encode("unicode_escape").decode("ascii")
+
+
+def _console_replace(error: UnicodeError) -> tuple[str, int]:
+    """Encode-error handler behind ``wog_console_replace``."""
+    if not isinstance(error, UnicodeEncodeError):
+        raise error
+    # One character per call: some encoders hand over the whole
+    # uncodable tail as the span, and the rest of the line must survive
+    return _stand_in(error.object[error.start]), error.start + 1
+
+
+codecs.register_error(_CONSOLE_ERRORS_HANDLER, _console_replace)
+
+# Error handlers that never raise on a character the encoding lacks
+_LOSS_TOLERANT_HANDLERS = (
+    "replace",
+    "backslashreplace",
+    "ignore",
+    "xmlcharrefreplace",
+    "namereplace",
+    _CONSOLE_ERRORS_HANDLER,
+)
+
+
+def make_console_encoding_safe() -> None:
+    """Keep a finished command from dying on its own output.
+
+    A stream raises UnicodeEncodeError on the first character its
+    encoding lacks. Windows consoles are UTF-16 and safe, but a
+    redirected stream there (a pipe, a file, the web UI, the Blender
+    addon) speaks the ANSI code page with ``strict`` or
+    ``surrogateescape`` errors: cp936, cp1251 and cp1252 have no slot
+    for the status glyphs, so ``✓ Weapon list: ...`` failed the run
+    that had already succeeded. Such streams switch to the
+    ``wog_console_replace`` handler: a glyph becomes its ASCII stand-in,
+    anything else its ``\\uXXXX`` escape. Streams with a loss-tolerant
+    handler (``replace``, ``backslashreplace``, ...) are left alone.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        # No reconfigure: the stream was replaced by a test runner or IDE
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None or getattr(stream, "errors", None) in (
+            _LOSS_TOLERANT_HANDLERS
+        ):
+            continue
+        try:
+            reconfigure(errors=_CONSOLE_ERRORS_HANDLER)
+        except (ValueError, OSError, UnicodeError):
+            pass
 
 
 def default_log_dir() -> Path:

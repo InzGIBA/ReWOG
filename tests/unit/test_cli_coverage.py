@@ -293,3 +293,45 @@ class TestInfoCommand:
             ]
             result = runner.invoke(cli, ["info", "--protocol-probe"])
         assert result.exit_code == 2
+
+
+class TestEntryPointConsole:
+    """``main()`` must not fail a run over output its stream cannot encode."""
+
+    def test_hardens_console_streams_before_running(self) -> None:
+        from wog_dump.cli import main as entry
+
+        with (
+            patch.object(entry, "make_console_encoding_safe") as harden,
+            patch.object(entry, "cli") as group,
+        ):
+            entry.main()
+
+        harden.assert_called_once_with()
+        group.assert_called_once_with()
+
+    def test_status_line_survives_a_strict_ansi_pipe(
+        self, isolated_base: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cp936 has no slot for ⚠: the empty-catalog warning failed the run."""
+        import io
+        import sys
+
+        from wog_dump.cli import main as entry
+
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp936")
+        monkeypatch.setattr(sys, "stdout", stream)
+        monkeypatch.setattr(sys, "stderr", io.StringIO())
+        monkeypatch.setattr(sys, "argv", ["wog-dump", "catalog"])
+
+        # click's standalone mode ends a successful run with sys.exit(0)
+        with pytest.raises(SystemExit) as excinfo:
+            entry.main()  # empty catalog: a warning line, then a normal return
+
+        assert excinfo.value.code == 0
+        stream.flush()
+        output = raw.getvalue().decode("cp936")
+        assert "WOG Dump" in output  # the banner
+        assert "! Catalog is empty" in output
+        stream.detach()

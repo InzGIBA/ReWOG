@@ -19,7 +19,11 @@ from rich.console import Console
 from .. import __version__
 from ..core.config import get_config, set_config
 from ..utils.i18n import set_locale
-from ..utils.logging import get_logger, set_log_level
+from ..utils.logging import (
+    get_logger,
+    make_console_encoding_safe,
+    set_log_level,
+)
 from .auth import login, logout, register
 from .cache import cache
 from .catalog import catalog
@@ -256,6 +260,7 @@ _register_plugin_commands()
 
 def main() -> None:
     """Main entry point with error handling."""
+    make_console_encoding_safe()
     try:
         cli()
     except OperationCancelled:

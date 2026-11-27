@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import io
 import logging
+import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from wog_dump.utils.logging import (
+    _CONSOLE_ERRORS_HANDLER,
     LoggerManager,
     PerformanceMonitor,
     WOGLogger,
     default_log_dir,
     get_logger,
     log_file_level,
+    make_console_encoding_safe,
     set_log_level,
 )
 
@@ -358,3 +363,85 @@ class TestConsolePresentation:
         assert "• item9" in output
         assert "item10" not in output
         assert "… and 5 more" in output
+
+
+class TestConsoleEncodingSafety:
+    """Console output never raises on characters the stream cannot encode."""
+
+    # Every Windows ANSI code page lacks these three
+    @pytest.mark.parametrize("encoding", ["cp936", "cp1251", "cp1252", "big5", "ascii"])
+    def test_status_glyphs_become_ascii_stand_ins(self, encoding: str) -> None:
+        line = "✓ ok ✗ bad ⚠ warn"
+
+        with pytest.raises(UnicodeEncodeError):
+            line.encode(encoding)  # the premise: these streams are strict
+
+        plain = line.encode(encoding, _CONSOLE_ERRORS_HANDLER).decode(encoding)
+        assert plain == "+ ok x bad ! warn"
+
+    @pytest.mark.parametrize(
+        ("encoding", "line", "expected"),
+        [
+            # each page keeps what it can spell
+            ("cp936", "→ • · … —", "→ * · … —"),
+            ("cp1251", "→ • · … —", "-> • · … —"),
+            ("ascii", "→ • · … —", "-> * - ... --"),
+        ],
+    )
+    def test_only_missing_characters_are_replaced(
+        self, encoding: str, line: str, expected: str
+    ) -> None:
+        plain = line.encode(encoding, _CONSOLE_ERRORS_HANDLER).decode(encoding)
+
+        assert plain == expected
+
+    def test_rest_of_the_line_survives(self) -> None:
+        """Each call replaces one character; nothing after it is dropped."""
+        line = "path/→/✓/end"
+
+        plain = line.encode("cp1251", _CONSOLE_ERRORS_HANDLER).decode("cp1251")
+
+        assert plain == "path/->/+/end"
+
+    def test_table_rules_become_ascii(self) -> None:
+        rule = "┌──┬──┐\n│ ✓ │\n├──┼──┤\n└──┴──┘"
+
+        plain = rule.encode("cp1251", _CONSOLE_ERRORS_HANDLER).decode("cp1251")
+
+        assert plain == "+--+--+\n| + |\n+--+--+\n+--+--+"
+
+    def test_other_characters_escape(self) -> None:
+        plain = "Ж".encode("cp1252", _CONSOLE_ERRORS_HANDLER).decode("cp1252")
+
+        assert plain == r"\u0416"
+
+    # "surrogateescape" is what a redirected Windows stream ships with;
+    # it tolerates broken bytes, not the glyphs
+    @pytest.mark.parametrize("handler", ["strict", "surrogateescape"])
+    def test_raising_stream_is_switched(
+        self, monkeypatch: pytest.MonkeyPatch, handler: Any
+    ) -> None:
+        raw = io.BytesIO()
+        # newline pinned: print() would write \r\n on Windows otherwise
+        stream = io.TextIOWrapper(raw, encoding="cp936", errors=handler, newline="\n")
+        monkeypatch.setattr(sys, "stdout", stream)
+        monkeypatch.setattr(sys, "stderr", io.StringIO())  # no reconfigure at all
+
+        make_console_encoding_safe()
+
+        assert stream.errors == _CONSOLE_ERRORS_HANDLER
+        print("✓ done")
+        stream.flush()
+        assert raw.getvalue().decode("cp936") == "+ done\n"
+
+    @pytest.mark.parametrize("handler", ["replace", "backslashreplace"])
+    def test_tolerant_streams_are_left_alone(
+        self, monkeypatch: pytest.MonkeyPatch, handler: Any
+    ) -> None:
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="cp936", errors=handler)
+        monkeypatch.setattr(sys, "stdout", stream)
+        monkeypatch.setattr(sys, "stderr", io.StringIO())
+
+        make_console_encoding_safe()
+
+        assert stream.errors == handler

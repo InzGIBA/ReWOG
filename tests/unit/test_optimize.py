@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from PIL import Image
 
+from tests.conftest import requires_symlinks
 from wog_dump.core import optimize
 from wog_dump.core.scene import SceneBuilder, SceneStats
 
@@ -157,6 +158,7 @@ class TestTextureDedup:
         assert link_a.stat().st_ino == stored[0].stat().st_ino
         assert link_b.stat().st_ino == stored[0].stat().st_ino
 
+    @requires_symlinks
     def test_symlinked_store_refused(
         self, builder: SceneBuilder, tmp_path: Path
     ) -> None:

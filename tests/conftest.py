@@ -3,14 +3,53 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
+from functools import cache
 from pathlib import Path
 
 import pytest
 
 from wog_dump.core.config import WOGConfig, reset_config
 from wog_dump.core.database import WOGDatabase
+
+
+@cache
+def can_create_symlinks() -> bool:
+    """Whether this user may create symlinks.
+
+    Off for a standard Windows account: creating one needs Developer
+    Mode or an elevated shell (WinError 1314).
+    """
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            os.symlink("target", os.path.join(tmp_dir, "link"))
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+requires_symlinks = pytest.mark.skipif(
+    not can_create_symlinks(), reason="this user cannot create symlinks"
+)
+
+
+@contextmanager
+def raw_store(path: Path) -> Iterator[sqlite3.Connection]:
+    """A connection to a store the tool must migrate: committed and closed.
+
+    ``with connection`` alone only commits. The handle then lives on
+    until the garbage collector runs, and on Windows the test cannot
+    remove its temporary directory in the meantime.
+    """
+    connection = sqlite3.connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 @pytest.fixture(autouse=True)

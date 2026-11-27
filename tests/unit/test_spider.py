@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.conftest import raw_store
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.database import WOGDatabase
 from wog_dump.core.spider import (
@@ -134,15 +135,12 @@ class TestExtraction:
     ) -> None:
         """A 3.2-shaped database (weapon_meta without flags/released)
         opens and gains the new columns without losing its rows."""
-        import sqlite3
-
         legacy_columns = ", ".join(
             f"{name} TEXT"
             for name in WOGDatabase._META_COLUMNS
             if name not in ("flags", "released")
         )
-        db_path = test_config.db_path
-        with sqlite3.connect(db_path) as raw:
+        with raw_store(test_config.db_path) as raw:
             raw.execute(
                 "CREATE TABLE weapon_meta ("
                 " name TEXT PRIMARY KEY,"

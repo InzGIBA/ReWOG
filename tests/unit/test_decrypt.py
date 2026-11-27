@@ -80,9 +80,16 @@ class TestKeyManager:
         assert keys == {weapon: f"key_{weapon}" for weapon in sample_weapon_list}
         assert mock_fetch_key.call_count == len(sample_weapon_list)
 
-    def test_unusable_database_path_raises(self, test_config: WOGConfig) -> None:
+    def test_unusable_database_path_raises(
+        self, test_config: WOGConfig, tmp_path: Path
+    ) -> None:
         """An unusable database path fails loudly at startup."""
-        test_config.db_path = Path("/nonexistent/dir/wog_dump.db")
+        # Below an existing file: unusable on every platform. A
+        # "/nonexistent/..." path is a writable drive path on Windows and
+        # leaves a store behind in the drive root.
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("", encoding="utf-8")
+        test_config.db_path = blocker / "wog_dump.db"
         with pytest.raises(OSError):
             KeyManager(test_config)
 

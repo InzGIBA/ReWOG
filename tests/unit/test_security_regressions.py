@@ -17,6 +17,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
+from tests.conftest import requires_symlinks
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.database import WOGDatabase
 from wog_dump.core.decrypt import AssetDecryptor
@@ -151,6 +152,7 @@ class TestAssetNameTraversal:
 
 
 class TestTmpSymlink:
+    @requires_symlinks
     @patch("wog_dump.core.download.requests.Session.get")
     def test_planted_tmp_symlink_is_discarded(
         self, mock_get: Mock, test_config: WOGConfig, tmp_path: Path
@@ -283,6 +285,7 @@ class TestDotenvAllowlist:
         assert load_env_file(tmp_path / ".env") == []
         assert os.environ["WOG_STRICT_MODE"] == "false"
 
+    @requires_symlinks
     def test_db_symlink_refused(self, tmp_path: Path) -> None:
         real = tmp_path / "real.db"
         real.write_bytes(b"sqlite")
@@ -395,6 +398,9 @@ class TestLegacyImportRearm:
 
 
 class TestLogPermissions:
+    @pytest.mark.skipif(
+        os.name == "nt", reason="chmod sets no permission bits on Windows"
+    )
     def test_log_dir_and_file_owner_only(self, tmp_path: Path) -> None:
         from wog_dump.utils.logging import WOGLogger
 

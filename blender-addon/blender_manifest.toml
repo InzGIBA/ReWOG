@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "wog_dump"
-version = "0.1.0"
+version = "0.2.0"
 name = "WOG Dump"
-tagline = "Browse the wog-dump catalog and import weapon scenes"
+tagline = "Browse the wog-dump catalog and import weapon scenes with their animation"
 maintainer = "InzGIBA"
 type = "add-on"
 

@@ -440,7 +440,7 @@ Install Blender, or point `WOG_BLENDER_PATH` in `.env` at the binary. A Steam in
 
 ## Blender addon
 
-A native Blender extension (4.2+) over the same CLI: browse the catalog in a sidebar panel, build missing scenes and import the GLB without a terminal. Install the zip from a release, enable it in preferences, set the runtime directory. See [blender-addon/README.md](blender-addon/README.md).
+A native Blender extension (4.2+) over the same CLI: browse the catalog in a sidebar panel, build missing scenes and import the GLB with the weapon's animation, without a terminal. Install the zip from a release, enable it in preferences, then set the `wog-dump` path (on Windows: the full path to `wog-dump.exe`) and the runtime directory. See [blender-addon/README.md](blender-addon/README.md).
 
 ## Contributing
 

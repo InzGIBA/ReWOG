@@ -7,8 +7,11 @@ run outside Blender.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -23,6 +26,7 @@ from wog_client import (  # noqa: E402
     WogClientError,
     load_catalog,
     parse_catalog,
+    run_wog,
     scene_glb_path,
 )
 
@@ -78,6 +82,61 @@ class TestLoadCatalog:
         args = run_wog.call_args[0]
         assert args[1] == ["catalog", "--json"]
         assert args[2] == "/some/dir"
+
+    def test_missing_cli_becomes_a_client_error(self) -> None:
+        """Refresh must report, not drop a traceback into the console."""
+        with pytest.raises(WogClientError, match="not found"):
+            load_catalog("definitely-not-a-wog-dump-anywhere")
+
+
+class TestRunWog:
+    """The CLI is spoken to over a UTF-8 pipe, whatever the console code page."""
+
+    def test_missing_cli_error_points_at_the_preferences(self) -> None:
+        with pytest.raises(WogClientError, match="sysconfig") as caught:
+            run_wog("definitely-not-a-wog-dump-anywhere", ["catalog", "--json"])
+
+        assert "definitely-not-a-wog-dump-anywhere" in str(caught.value)
+
+    def test_timeout_becomes_a_client_error(self) -> None:
+        expired = subprocess.TimeoutExpired(cmd="wog-dump", timeout=5)
+        with (
+            patch.object(wog_client.subprocess, "run", side_effect=expired),
+            pytest.raises(
+                WogClientError, match="build-scene ak47 did not finish in 5s"
+            ),
+        ):
+            run_wog("wog-dump", ["build-scene", "ak47"], timeout=5)
+
+    def test_exit_code_is_for_the_caller_to_judge(self) -> None:
+        with (patch.object(wog_client.subprocess, "run") as run,):
+            run.return_value = SimpleNamespace(returncode=3, stdout="out ✓", stderr="")
+            result = run_wog("wog-dump", ["x"])
+
+        assert result == (3, "out ✓", "")
+
+    def test_pipe_contract(self) -> None:
+        with patch.object(wog_client.subprocess, "run") as run:
+            run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
+            run_wog("wog-dump", ["catalog", "--json"], "/some/dir")
+
+        kwargs = run.call_args.kwargs
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
+        assert kwargs["env"]["PYTHONIOENCODING"] == "utf-8"
+        assert kwargs["env"]["PATH"] == os.environ["PATH"]  # the rest is inherited
+        # No console window over the viewport on Windows
+        expected = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        assert kwargs["creationflags"] == expected
+
+    def test_non_ascii_output_crosses_the_pipe_intact(self) -> None:
+        """A real child prints the glyphs the Windows ANSI code pages lack."""
+        script = "import sys; print(sys.stdout.encoding); print('✓ готово 汉字')"
+
+        code, stdout, stderr = run_wog(sys.executable, ["-c", script])
+
+        assert code == 0, stderr
+        assert stdout == "utf-8\n✓ готово 汉字\n"
 
 
 class TestScenePath:

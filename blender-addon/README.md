@@ -15,13 +15,34 @@ import the GLB straight into the current blend file.
    the addon preferences if your `runtime/` is not the Blender working
    directory.
 
+On Windows the CLI is usually not on Blender's PATH: pip puts
+`wog-dump.exe` into a Scripts folder that only a terminal sees. Set
+"wog-dump path" in the add-on preferences to the full path of that file.
+Find the folder with
+`python -c "import sysconfig; print(sysconfig.get_path('scripts'))"`.
+Refresh catalog reports a clear error when the path is wrong.
+
 ## Usage
 
-N-panel > WOG Dump: Refresh lists the catalog (`wog-dump catalog
---json`). Double-select a weapon, Import scene builds it if needed
-(subprocess to the CLI, minutes for a first build) and imports the GLB.
-Build missing (selected) builds every non-ready selected weapon
-sequentially.
+N-panel > WOG Dump:
+
+- Refresh (the button next to the list) runs `wog-dump catalog --json`
+  and lists every weapon with its status. The Filter box narrows the
+  list by name.
+- Animations (on by default) builds scenes with the weapon's operate
+  animation (`build-scene --animations`): fire, reload and safety
+  switch, as one action on the moving parts.
+- Import scene builds the selected weapon when it has no scene yet,
+  then imports the GLB. Blender waits while the CLI runs.
+- Rebuild and import runs `build-scene` again for the selected weapon
+  (this applies a changed Animations option), then imports the GLB.
+- Build missing (selected) builds every listed weapon without a scene,
+  one after another.
+
+With Animations on, the import sets the scene frame range to the clip
+(about 75 seconds for an AK-47). Play it from the Timeline or with
+Space, and scrub with the timeline. Without Animations the scene is
+static.
 
 ## Architecture
 
@@ -29,5 +50,5 @@ sequentially.
 so it unit-tests outside Blender; `__init__.py` holds the UI. The
 addon talks only to the CLI: no database, no Python deps inside
 Blender, no network. The catalog JSON schema is checked
-(`wog-dump.catalog/1`); a mismatch tells you to update the toolkit
+(`wog-dump.catalog/3`); a mismatch tells you to update the toolkit
 instead of misbehaving.

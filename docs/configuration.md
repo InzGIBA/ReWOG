@@ -50,7 +50,7 @@ against the live servers and tells you which side moved.
 |---|---|---|
 | `WOG_LOCALE` | `en` | CLI message language. `ru` ships a compiled catalog; any other value falls back to English. The `--locale` flag wins over this setting. |
 | `WOG_NO_PROGRESS` | unset | Set to any value to disable progress bars (same as `--no-progress`). Bars also switch off automatically when the output is not a terminal. |
-| `WOG_BLENDER_PATH` | found on PATH | Blender binary used by `render` (previews and videos) and `--format fbx`. Set this when Blender is installed but not on PATH, for example a Windows `.exe` used from WSL. |
+| `WOG_BLENDER_PATH` | found on PATH, then in a Steam library | Blender binary used by `render` (previews and videos) and `--format fbx`. Set this when Blender is installed somewhere else, for example a Windows `.exe` used from WSL. |
 | `WOG_GLTFPACK_PATH` | found on PATH | gltfpack binary (from meshoptimizer) used by `build-scene --optimize`. Without it the flag logs a warning and the GLB stays uncompressed. |
 
 The game version strings must match the current `disasm64.exe` client.
@@ -147,4 +147,4 @@ Install plugins from a source checkout with
 ./plugins/wog-plugin-web`); `wog-dump plugins` lists what is registered.
 
 FBX export and the preview/video renderers need a Blender installation
-(`WOG_BLENDER_PATH` or PATH), no extra package.
+(`WOG_BLENDER_PATH`, PATH or a Steam library), no extra package.

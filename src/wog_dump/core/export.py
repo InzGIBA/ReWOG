@@ -28,6 +28,7 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -373,14 +374,69 @@ class STLExporter:
 
 
 def find_blender() -> Path | None:
-    """Locate Blender: WOG_BLENDER_PATH first, then PATH."""
+    """Locate Blender: WOG_BLENDER_PATH first, then PATH, then Steam."""
     configured = os.environ.get("WOG_BLENDER_PATH")
     if configured:
         candidate = Path(configured)
         if candidate.is_file():
             return candidate
     found = shutil.which("blender")
-    return Path(found) if found else None
+    if found:
+        return Path(found)
+    return _steam_blender()
+
+
+# The Blender folder name is the same on every platform Steam serves
+_STEAM_BLENDER_DIR = "Blender"
+_STEAM_BINARY = "blender.exe" if sys.platform == "win32" else "blender"
+
+
+def _steam_libraries(vdf_text: str) -> list[Path]:
+    """Library folders listed in a Steam ``libraryfolders.vdf``."""
+    return [
+        Path(path.replace("\\\\", "\\"))
+        for path in re.findall(r'"path"\s+"([^"]+)"', vdf_text)
+    ]
+
+
+def _steam_roots() -> list[Path]:
+    """Where the main Steam install lives on this machine."""
+    if sys.platform == "win32":
+        import winreg
+
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam"
+            ) as key:
+                return [Path(winreg.QueryValueEx(key, "SteamPath")[0])]
+        except OSError:
+            default = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            return [Path(default) / "Steam"]
+    home = Path.home()
+    return [home / ".local" / "share" / "Steam", home / ".steam" / "steam"]
+
+
+def _steam_blender() -> Path | None:
+    """Blender as installed through Steam.
+
+    Steam adds nothing to PATH: the binary sits under
+    ``steamapps/common/Blender`` of one of its libraries, and the
+    libraries are listed in the main install's ``libraryfolders.vdf``.
+    """
+    for root in _steam_roots():
+        try:
+            vdf = (root / "steamapps" / "libraryfolders.vdf").read_text(
+                encoding="utf-8"
+            )
+        except OSError:
+            continue
+        for library in _steam_libraries(vdf):
+            candidate = (
+                library / "steamapps" / "common" / _STEAM_BLENDER_DIR / _STEAM_BINARY
+            )
+            if candidate.is_file():
+                return candidate
+    return None
 
 
 def _blender_fbx_script(glb_path: Path, fbx_path: Path) -> str:

@@ -60,13 +60,14 @@ class TestRenderOptions:
 
 class TestScriptGeneration:
     def test_placeholders_substituted(self, tmp_path: Path) -> None:
+        glb = tmp_path / "ak47.glb"  # built here: "/tmp/..." is not a path on Windows
         script = _turntable_script(
-            Path("/tmp/ak47.glb"),
+            glb,
             tmp_path,
             RenderOptions(angles=12, size=1600, elevation=20.0, image_format="webp"),
         )
         assert "@@" not in script
-        assert "/tmp/ak47.glb" in script
+        assert str(glb) in script
         assert str(tmp_path) in script
         assert 'ANGLE_COUNT = int("12")' in script
         assert 'RENDER_SIZE = int("1600")' in script
@@ -104,6 +105,8 @@ class TestRenderManager:
         (scenes / "ak47.glb").write_bytes(b"glb")
         monkeypatch.delenv("WOG_BLENDER_PATH", raising=False)
         monkeypatch.setattr("wog_dump.core.export.shutil.which", lambda name: None)
+        # No Steam copy on this machine either
+        monkeypatch.setattr("wog_dump.core.export._steam_blender", lambda: None)
         manager = RenderManager(config)
         with pytest.raises(RenderError, match="Blender not found"):
             manager.render("ak47")
@@ -334,6 +337,8 @@ class TestRenderVideo:
         (scenes / "ak47.glb").write_bytes(b"glb")
         monkeypatch.delenv("WOG_BLENDER_PATH", raising=False)
         monkeypatch.setattr("wog_dump.core.export.shutil.which", lambda name: None)
+        # No Steam copy on this machine either
+        monkeypatch.setattr("wog_dump.core.export._steam_blender", lambda: None)
         manager = RenderManager(config)
         with pytest.raises(RenderError, match="Blender not found"):
             manager.render_video("ak47")

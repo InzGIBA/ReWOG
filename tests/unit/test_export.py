@@ -5,10 +5,14 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
+from wog_dump.core import export
 from wog_dump.core.export import (
+    _STEAM_BINARY,
+    _STEAM_BLENDER_DIR,
     ExportError,
     ExportOptions,
     GlbMesh,
@@ -18,6 +22,8 @@ from wog_dump.core.export import (
     STLExporter,
     _blender_fbx_script,
     _prim_name,
+    _steam_blender,
+    _steam_libraries,
     _stl_bytes,
     convert_format,
     find_blender,
@@ -166,6 +172,64 @@ class TestFbxScript:
         fake.write_text("")
         monkeypatch.setenv("WOG_BLENDER_PATH", str(fake))
         assert find_blender() == fake
+
+
+class TestSteamBlender:
+    """Steam keeps Blender off PATH; its library list leads to the binary."""
+
+    @staticmethod
+    def _plant_steam(tmp_path: Path, libraries: list[Path]) -> Path:
+        """A main install whose libraryfolders.vdf lists ``libraries``."""
+        main = tmp_path / "Steam"
+        (main / "steamapps").mkdir(parents=True)
+        # VDF escapes every backslash inside the quoted path
+        listed = "".join(
+            f'\t"path"\t\t"{str(library).replace(chr(92), chr(92) * 2)}"\n'
+            for library in libraries
+        )
+        (main / "steamapps" / "libraryfolders.vdf").write_text(
+            f'"libraryfolders"\n{{\n{listed}}}\n', encoding="utf-8"
+        )
+        return main
+
+    @staticmethod
+    def _plant_binary(library: Path) -> Path:
+        binary = library / "steamapps" / "common" / _STEAM_BLENDER_DIR / _STEAM_BINARY
+        binary.parent.mkdir(parents=True)
+        binary.write_text("", encoding="utf-8")
+        return binary
+
+    def test_vdf_paths_are_unescaped(self) -> None:
+        vdf = (
+            '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t'
+            '"C:\\\\Program Files (x86)\\\\Steam"\n\t}\n}\n'
+        )
+
+        assert _steam_libraries(vdf) == [Path(r"C:\Program Files (x86)\Steam")]
+        assert _steam_libraries('"libraryfolders"\n{\n}\n') == []
+
+    def test_found_in_a_second_library(self, tmp_path: Path, monkeypatch: Any) -> None:
+        second = tmp_path / "X-Library"
+        root = self._plant_steam(tmp_path, [tmp_path / "Steam", second])
+        binary = self._plant_binary(second)
+        monkeypatch.setattr(export, "_steam_roots", lambda: [root])
+        monkeypatch.setattr(export.shutil, "which", lambda name: None)
+        monkeypatch.delenv("WOG_BLENDER_PATH", raising=False)
+
+        assert find_blender() == binary
+
+    def test_path_wins_over_steam(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("WOG_BLENDER_PATH", raising=False)
+        monkeypatch.setattr(export.shutil, "which", lambda name: "/usr/bin/blender")
+        steam = Mock(side_effect=AssertionError("Steam must not be consulted"))
+        monkeypatch.setattr(export, "_steam_blender", steam)
+
+        assert find_blender() == Path("/usr/bin/blender")
+
+    def test_without_steam_is_none(self, tmp_path: Path, monkeypatch: Any) -> None:
+        monkeypatch.setattr(export, "_steam_roots", lambda: [tmp_path / "absent"])
+
+        assert _steam_blender() is None
 
 
 class TestUsdExport:

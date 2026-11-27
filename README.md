@@ -312,7 +312,7 @@ Settings come from a gitignored `.env` in the repository root (see [`.env.exampl
 | `WOG_LANG` | No | `en` | Language code sent with login queries |
 | `WOG_LOCALE` | No | `en` | CLI message language (`ru` ships a catalog) |
 | `WOG_NO_PROGRESS` | No | unset | Set to disable progress bars (same as `--no-progress`) |
-| `WOG_BLENDER_PATH` | No | found on PATH | Blender binary for previews, videos and FBX |
+| `WOG_BLENDER_PATH` | No | found on PATH, then in a Steam library | Blender binary for previews, videos and FBX |
 | `WOG_GLTFPACK_PATH` | No | found on PATH | gltfpack binary for `build-scene --optimize` |
 | `WOG_API_REQUEST_DELAY` | No | `0.25` | Seconds between key-API requests (raise on 429) |
 | `WOG_REQUEST_DELAY` | No | `0.1` | Seconds between asset downloads (raise on 429) |
@@ -436,7 +436,7 @@ No. Partial downloads are kept as `runtime/assets/*.tmp` and resumed via HTTP `R
 Check your internet connection, reduce the thread count (`wog-dump --max-threads 2 download-assets`), enable `--verbose` (or `--debug`), and remember that downloads are throttled by design (see `WOG_REQUEST_DELAY`).
 
 **Previews or videos say "Blender not found"**
-Install Blender, or point `WOG_BLENDER_PATH` in `.env` at the binary. Renders use CPU Cycles, so no GPU is required.
+Install Blender, or point `WOG_BLENDER_PATH` in `.env` at the binary. A Steam install is found without configuration. Renders use CPU Cycles, so no GPU is required.
 
 ## Blender addon
 

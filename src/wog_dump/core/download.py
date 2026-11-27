@@ -37,6 +37,21 @@ UNITY_SIGNATURES = (b"UnityFS", b"UnityWeb", b"UnityRaw", b"CAB-")
 MIN_VALID_ASSET_SIZE = 20
 
 
+def _write_flags() -> int:
+    """Open flags for the temp-file write descriptor.
+
+    O_NOFOLLOW exists on POSIX only, O_BINARY on Windows only, so each is
+    folded in when the platform has it. Looked up per call rather than at
+    import: a missing flag must cost the guard, not the download.
+    """
+    return (
+        os.O_WRONLY
+        | os.O_CREAT
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+
+
 # Optional per-chunk byte callback: (asset_name, downloaded_bytes, total_or_None)
 ByteProgressFn = Callable[[str, int, int | None], None]
 
@@ -332,14 +347,12 @@ class DownloadManager:
                     )
 
             downloaded = resumed_bytes
-            # O_NOFOLLOW: never write through a pre-planted symlink at
-            # the temp location
+            # Never write through a pre-planted symlink at the temp
+            # location: _prepare_resume unlinked it above and, where the
+            # platform has it, O_NOFOLLOW refuses a re-planted one here
             fd = os.open(
                 temp_path,
-                os.O_WRONLY
-                | os.O_CREAT
-                | (os.O_APPEND if mode == "ab" else os.O_TRUNC)
-                | os.O_NOFOLLOW,
+                _write_flags() | (os.O_APPEND if mode == "ab" else os.O_TRUNC),
                 0o600,
             )
             with os.fdopen(fd, mode) as f:

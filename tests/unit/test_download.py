@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,7 +11,7 @@ import requests
 
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.database import AssetState
-from wog_dump.core.download import DownloadError, DownloadManager
+from wog_dump.core.download import DownloadError, DownloadManager, _write_flags
 
 
 class TestDownloadManager:
@@ -441,6 +442,50 @@ class TestDownloadManager:
         from wog_dump.core.download import AssetNotFoundError, DownloadError
 
         assert issubclass(AssetNotFoundError, DownloadError)
+
+
+class TestTempFileFlags:
+    """The temp-file write descriptor opens on every platform."""
+
+    @pytest.mark.skipif(
+        not hasattr(os, "O_NOFOLLOW"), reason="this platform has no O_NOFOLLOW"
+    )
+    @patch("wog_dump.core.download.requests.Session.get")
+    def test_download_without_o_nofollow(
+        self,
+        mock_get: Mock,
+        test_config: WOGConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """3.5.0 crashed every download on Windows: there is no O_NOFOLLOW."""
+        monkeypatch.delattr(os, "O_NOFOLLOW")
+
+        # LF, CRLF and Ctrl-Z must land as bytes, never as text translation
+        body = b"UnityFS\x00\nline\r\n\x1aend"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Length": str(len(body))}
+        mock_response.iter_content.return_value = [body]
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with DownloadManager(test_config) as manager:
+            success = manager.download_single_asset("test_asset")
+
+        assert success is True
+        asset_path = test_config.assets_dir / "test_asset.unity3d"
+        assert asset_path.read_bytes() == body
+
+    def test_platform_flags_fold_in_when_present(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(os, "O_NOFOLLOW", 0o400000, raising=False)
+        monkeypatch.setattr(os, "O_BINARY", 0o200000, raising=False)
+        assert _write_flags() == os.O_WRONLY | os.O_CREAT | 0o400000 | 0o200000
+
+        monkeypatch.delattr(os, "O_NOFOLLOW", raising=False)
+        monkeypatch.delattr(os, "O_BINARY", raising=False)
+        assert _write_flags() == os.O_WRONLY | os.O_CREAT
 
 
 class TestAssetStateRecording:

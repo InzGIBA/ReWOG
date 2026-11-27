@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -147,6 +149,21 @@ class WOGDatabase:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    @contextmanager
+    def _transaction(self) -> Iterator[sqlite3.Connection]:
+        """One short-lived connection per statement group.
+
+        ``with connection`` alone only commits: the handle stays open
+        until the garbage collector gets to it, and on Windows an open
+        handle keeps the store file locked against deletion or rename.
+        """
+        db = self._connect()
+        try:
+            with db:  # commit on success, roll back on error
+                yield db
+        finally:
+            db.close()
+
     def _init_schema(self) -> None:
         # A symlinked store path would redirect every credential write to
         # the symlink target, so refuse it outright.
@@ -155,7 +172,7 @@ class WOGDatabase:
                 f"Refusing to open symlinked database path: {self.db_path}"
             )
         self.db_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.executescript(_SCHEMA)
             self._migrate_schema(db)
         self._restrict_permissions()
@@ -200,14 +217,14 @@ class WOGDatabase:
     # ------------------------------------------------------------- settings
 
     def get_setting(self, name: str) -> str | None:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             row = db.execute(
                 "SELECT value FROM settings WHERE name = ?", (name,)
             ).fetchone()
         return row[0] if row else None
 
     def set_setting(self, name: str, value: str) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute(
                 "INSERT INTO settings (name, value) VALUES (?, ?) "
                 "ON CONFLICT(name) DO UPDATE SET value = excluded.value",
@@ -215,21 +232,21 @@ class WOGDatabase:
             )
 
     def delete_setting(self, name: str) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute("DELETE FROM settings WHERE name = ?", (name,))
 
     # ------------------------------------------------------------- identity
 
     def get_identity(self) -> tuple[str, str] | None:
         """Stored (auth_id, session) from the last successful login."""
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             row = db.execute(
                 "SELECT auth_id, session FROM identity WHERE id = 1"
             ).fetchone()
         return (row[0], row[1]) if row else None
 
     def save_identity(self, auth_id: str, session: str) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute(
                 "INSERT INTO identity (id, auth_id, session, updated_at) "
                 "VALUES (1, ?, ?, ?) "
@@ -240,13 +257,13 @@ class WOGDatabase:
             )
 
     def clear_identity(self) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute("DELETE FROM identity")
 
     # -------------------------------------------------------------- weapons
 
     def get_weapons(self) -> list[str]:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             rows = db.execute("SELECT name FROM weapons ORDER BY name").fetchall()
         return [row[0] for row in rows]
 
@@ -262,7 +279,7 @@ class WOGDatabase:
             )
         if not safe_names:
             return
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute("DELETE FROM weapons")
             db.executemany(
                 "INSERT INTO weapons (name) VALUES (?)",
@@ -275,7 +292,7 @@ class WOGDatabase:
         safe_names = [name for name in weapons if is_safe_weapon_name(name)]
         if not safe_names:
             return 0
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             existing = {
                 row[0] for row in db.execute("SELECT name FROM weapons").fetchall()
             }
@@ -329,7 +346,7 @@ class WOGDatabase:
         columns = self._META_COLUMNS
         placeholders = ", ".join("?" for _ in columns)
         updates = ", ".join(f"{column} = excluded.{column}" for column in columns)
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.executemany(
                 "INSERT INTO weapon_meta (name, "
                 + ", ".join(columns)
@@ -348,7 +365,7 @@ class WOGDatabase:
     def get_weapon_meta(self) -> dict[str, dict[str, Any]]:
         """All stored metadata records keyed by weapon name."""
         columns = ", ".join(self._META_COLUMNS)
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             rows = db.execute(
                 f"SELECT name, {columns} FROM weapon_meta"  # noqa: S608
             ).fetchall()
@@ -357,12 +374,12 @@ class WOGDatabase:
     # ----------------------------------------------------------------- keys
 
     def get_keys(self) -> dict[str, str]:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             rows = db.execute("SELECT model, sync_key FROM keys").fetchall()
         return dict(rows)
 
     def get_key(self, model: str) -> str | None:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             row = db.execute(
                 "SELECT sync_key FROM keys WHERE model = ?", (model,)
             ).fetchone()
@@ -372,7 +389,7 @@ class WOGDatabase:
         """Replace the whole key set."""
         if not keys:
             return
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute("DELETE FROM keys")
             db.executemany(
                 "INSERT INTO keys (model, sync_key, source) VALUES (?, ?, ?)",
@@ -404,7 +421,7 @@ class WOGDatabase:
         if not overwrite:
             rows = [(model, key, source, source) for model, key in new_keys.items()]
 
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             existing = dict(db.execute("SELECT model, sync_key FROM keys").fetchall())
             added = sum(1 for model in new_keys if model not in existing)
             updated = sum(
@@ -432,7 +449,7 @@ class WOGDatabase:
             state.weapon
         ):
             raise ValueError(f"Unsafe asset state name: {state.asset!r}")
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute(
                 "INSERT INTO asset_state "
                 "(asset, weapon, sha256, size, etag, last_modified, checked_at) "
@@ -454,7 +471,7 @@ class WOGDatabase:
             )
 
     def get_asset_state(self, asset: str) -> AssetState | None:
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             row = db.execute(
                 "SELECT asset, weapon, sha256, size, etag, last_modified, "
                 "checked_at FROM asset_state WHERE asset = ?",
@@ -476,7 +493,7 @@ class WOGDatabase:
             query += f" WHERE weapon IN ({placeholders})"
             params = tuple(weapons)
         query += " ORDER BY asset"
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             rows = db.execute(query, params).fetchall()  # noqa: S608
         return [self._row_to_asset_state(row) for row in rows]
 
@@ -495,7 +512,7 @@ class WOGDatabase:
     # ---------------------------------------------------------------- stats
 
     def get_stats(self) -> dict[str, Any]:
-        with self._connect() as db:
+        with self._transaction() as db:
             weapons_count = db.execute("SELECT COUNT(*) FROM weapons").fetchone()[0]
             keys_count = db.execute("SELECT COUNT(*) FROM keys").fetchone()[0]
             identity_row = db.execute(
@@ -528,7 +545,7 @@ class WOGDatabase:
         stays cleared instead of being silently repopulated from the
         working directory's runtime txt files on the next load.
         """
-        with self._lock, self._connect() as db:
+        with self._lock, self._transaction() as db:
             db.execute("DELETE FROM weapons")
             db.execute("DELETE FROM keys")
         self.logger.info(f"Cleared cached weapons and keys in {self.db_path}")

@@ -6,9 +6,11 @@ import os
 import sqlite3
 import stat
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from tests.conftest import raw_store
 from wog_dump.core.config import WOGConfig
 from wog_dump.core.database import AssetState, WOGDatabase
 
@@ -26,6 +28,37 @@ class TestDatabaseBasics:
         WOGDatabase(test_config)
         mode = stat.S_IMODE(test_config.db_path.stat().st_mode)
         assert mode == 0o600
+
+    def test_statement_groups_close_their_connection(
+        self, test_db: WOGDatabase
+    ) -> None:
+        """Every statement group closes its connection once it ends.
+
+        ``with connection`` alone only commits. The handle then lives on
+        until the garbage collector gets to it, and on Windows an open
+        handle keeps the store file locked against deletion or rename.
+        """
+        opened: list[sqlite3.Connection] = []
+        connect = WOGDatabase._connect
+
+        def recording_connect(db: WOGDatabase) -> sqlite3.Connection:
+            connection = connect(db)
+            opened.append(connection)
+            return connection
+
+        with patch.object(WOGDatabase, "_connect", recording_connect):
+            test_db.set_setting("device_id", "d" * 40)
+            assert test_db.get_setting("device_id") == "d" * 40
+            # A statement that fails leaves on the same path (rolled back)
+            with pytest.raises(sqlite3.ProgrammingError):
+                test_db.set_setting("broken", object())  # type: ignore[arg-type]
+
+        assert len(opened) == 3
+        for connection in opened:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                connection.execute("SELECT 1")
+        # Nothing holds the store open, so no collector run is needed
+        test_db.db_path.unlink()
 
 
 class TestWeapons:
@@ -199,7 +232,7 @@ class TestAssetState:
         self, test_config: WOGConfig
     ) -> None:
         """A store created before asset_state gains it without data loss."""
-        with sqlite3.connect(test_config.db_path) as conn:
+        with raw_store(test_config.db_path) as conn:
             conn.executescript(
                 "CREATE TABLE weapons (name TEXT PRIMARY KEY, added_at TEXT);"
                 "INSERT INTO weapons (name, added_at) VALUES ('ak74n', 'now');"
@@ -214,7 +247,7 @@ class TestAssetState:
 
     def test_migration_adds_missing_columns(self, test_config: WOGConfig) -> None:
         """An early asset_state table gains later columns additively."""
-        with sqlite3.connect(test_config.db_path) as conn:
+        with raw_store(test_config.db_path) as conn:
             conn.executescript(
                 "CREATE TABLE asset_state (asset TEXT PRIMARY KEY);"
                 "INSERT INTO asset_state (asset) VALUES ('legacy');"

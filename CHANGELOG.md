@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.1] - 2026-11-28
+
+### Fixed
+
+- Windows runs the whole pipeline again. Every download crashed with
+  `AttributeError: module 'os' has no attribute 'O_NOFOLLOW'`: the flag
+  exists on POSIX only, so the weapon list and every asset failed in the
+  CLI, the web UI and the Blender addon. The temp-file write descriptor
+  now folds in `O_NOFOLLOW` where the platform has it and `O_BINARY`
+  where it has that; `_prepare_resume` still discards a planted symlink
+  before the open on every platform
+- Console output no longer fails a finished run. A redirected stream on
+  Windows speaks the ANSI code page (cp936, cp1251, cp1252, ...) with
+  `surrogateescape` errors, and the status glyphs `✓ ✗ ⚠` have no slot
+  in any of them: the first `✓ Weapon list: ...` raised
+  `UnicodeEncodeError` and exited 1 after the download had succeeded
+  (seen as `Message: ... Arguments: ()` lines in a job log). The CLI
+  switches such streams to a handler that writes the ASCII stand-in
+  (`+ x ! ->`) and, for anything else, the `\uXXXX` escape. UTF-8
+  consoles and streams with a loss-tolerant handler stay as they were
+- The local store is no longer held open between statements.
+  `with connection` commits but never closes, and on Windows the open
+  handle kept `wog_dump.db` locked until the garbage collector ran. Each
+  statement group now closes its connection
+- The web UI and the Blender addon read the CLI over a UTF-8 pipe
+  (`PYTHONIOENCODING=utf-8` on the child, decoded as UTF-8), so job
+  logs keep their glyphs on any console code page. The web UI also
+  reaches the CLI when `wog-dump` is not on PATH (a venv used by its
+  full path, a user install): the job then runs through the server's
+  own interpreter
+- The Blender addon enables. `register()` built the catalog list with
+  `bpy.types.CollectionProperty`, an RNA type rather than the
+  `bpy.props` factory, so enabling failed and no panel appeared. The
+  preferences were then looked up under a fixed id instead of the
+  module name Blender keys add-ons by. The Filter box narrows the list
+  now instead of doing nothing, a missing or misconfigured `wog-dump`
+  is reported together with the way to locate it, a run that outlives
+  its timeout is reported instead of raising, and the child CLI opens
+  no console window over the viewport on Windows
+- `RateLimiter` measures with `perf_counter`: `time.monotonic()` ticks
+  about every 15 ms on Windows (Python 3.12 and older), coarser than
+  the intervals it enforces
+- The test suite runs on Windows. Symlink cases skip without the
+  privilege to create one, POSIX permission bits are not asserted
+  there, and no test writes a store into the drive root
+  (`/nonexistent/...` is a writable path on Windows)
+
+### Added
+
+- `find_blender()` also looks inside Steam. Steam adds nothing to PATH,
+  so previews, videos and FBX export answered `Blender not found` for a
+  Steam install; the library list of the main Steam install now leads
+  to `steamapps/common/Blender` on any of its libraries
+- Blender addon 0.2.0: an Animations option (on by default) builds
+  scenes with `--animations`, so the import carries the operate
+  animation as one action on the moving parts, and the import sets the
+  scene frame range to the clip. Rebuild and import runs `build-scene`
+  again to apply a changed option. `wog_dump_addon.zip` is attached to
+  the GitHub release
+
 ## [3.5.0] - 2026-11-15
 
 ### Changed

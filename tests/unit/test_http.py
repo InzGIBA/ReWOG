@@ -34,20 +34,20 @@ class TestRateLimiter:
     def test_zero_interval_is_free(self) -> None:
         limiter = RateLimiter(0.0)
 
-        start = time.monotonic()
+        start = time.perf_counter()
         for _ in range(100):
             limiter.wait()
 
-        assert time.monotonic() - start < 0.1
+        assert time.perf_counter() - start < 0.1
 
     def test_enforces_min_interval(self) -> None:
         limiter = RateLimiter(0.05)
 
-        start = time.monotonic()
+        start = time.perf_counter()
         limiter.wait()
         limiter.wait()
         limiter.wait()
-        elapsed = time.monotonic() - start
+        elapsed = time.perf_counter() - start
 
         assert elapsed >= 0.09  # at least two full gaps between three calls
 
@@ -61,7 +61,7 @@ class TestRateLimiter:
             for _ in range(5):
                 limiter.wait()
                 with lock:
-                    timestamps.append(time.monotonic())
+                    timestamps.append(time.perf_counter())
 
         threads = [threading.Thread(target=worker) for _ in range(4)]
         for t in threads:

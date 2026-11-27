@@ -63,10 +63,13 @@ class RateLimiter:
             return
 
         with self._lock:
-            now = time.monotonic()
+            # perf_counter, not monotonic: on Windows (Python 3.12 and
+            # older) monotonic ticks about every 15 ms, coarser than the
+            # intervals measured here
+            now = time.perf_counter()
             next_slot = self._last_request + self.min_interval
             delay = next_slot - now
             if delay > 0:
                 time.sleep(delay)
-                now = time.monotonic()
+                now = time.perf_counter()
             self._last_request = now
